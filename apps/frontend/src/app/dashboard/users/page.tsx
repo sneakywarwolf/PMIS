@@ -1,0 +1,612 @@
+'use client';
+
+import { useEffect, useState, useRef } from 'react';
+import { motion } from 'framer-motion';
+import { Users, Plus, Search, UserPlus, Key, Pencil, Trash2, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, Upload, Download, AlertTriangle, XCircle } from 'lucide-react';
+import { api, useAuth } from '@/contexts/auth-context';
+
+interface TeamLead {
+  id: string;
+  username: string;
+  fullName?: string;
+}
+
+export default function UsersPage() {
+  const { user } = useAuth();
+  const [users, setUsers] = useState<any[]>([]);
+  const [teamLeads, setTeamLeads] = useState<TeamLead[]>([]);
+  const [managers, setManagers] = useState<TeamLead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<any>(null);
+  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', fullName: '', phone: '', designation: '' });
+  const [sortField, setSortField] = useState<string>('username');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [message, setMessage] = useState('');
+
+  // Bulk upload state
+  const [showBulkError, setShowBulkError] = useState(false);
+  const [bulkErrorMsg, setBulkErrorMsg] = useState('');
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (user?.role === 'ADMIN') {
+      fetchUsers();
+      fetchTeamLeads();
+      fetchManagers();
+    }
+  }, [user]);
+
+  const fetchUsers = async () => {
+    try {
+      const response = await api.get('/users');
+      setUsers(response.data);
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchTeamLeads = async () => {
+    try {
+      const response = await api.get('/users/team-leads');
+      setTeamLeads(response.data);
+    } catch (error) {
+      console.error('Failed to fetch team leads:', error);
+    }
+  };
+
+  const fetchManagers = async () => {
+    try {
+      const response = await api.get('/users/managers');
+      setManagers(response.data);
+    } catch (error) {
+      console.error('Failed to fetch managers:', error);
+    }
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await api.post('/users', newUser);
+      setShowAddModal(false);
+      setNewUser({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', fullName: '', phone: '', designation: '' });
+      fetchUsers();
+    } catch (error) {
+      console.error('Failed to create user:', error);
+    }
+  };
+
+  const handleUpdateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    try {
+      await api.put(`/users/${editingUser.id}`, {
+        username: editingUser.username,
+        email: editingUser.email,
+        role: editingUser.role,
+        assignedTlId: editingUser.assignedTlId,
+        fullName: editingUser.fullName,
+        phone: editingUser.phone,
+        designation: editingUser.designation,
+        managerId: editingUser.managerId,
+      });
+      setShowEditModal(false);
+      setEditingUser(null);
+      fetchUsers();
+    } catch (error) {
+      console.error('Failed to update user:', error);
+    }
+  };
+
+  const handleDeactivate = async (userId: string) => {
+    if (!confirm('Deactivate this user? They will no longer be able to log in.')) return;
+    try {
+      await api.delete(`/users/${userId}`);
+      fetchUsers();
+    } catch (error) {
+      console.error('Failed to deactivate user:', error);
+    }
+  };
+
+  const handleActivate = async (userId: string) => {
+    try {
+      await api.put(`/users/${userId}/activate`, {});
+      fetchUsers();
+    } catch (error) {
+      console.error('Failed to activate user:', error);
+    }
+  };
+
+  const handleResetPassword = async (userId: string) => {
+    try {
+      const response = await api.post(`/users/${userId}/reset-password`);
+      alert(`Temporary password: ${response.data.tempPassword}`);
+    } catch (error) {
+      console.error('Failed to reset password:', error);
+    }
+  };
+
+  // ─── Bulk Upload ───
+  const handleBulkUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setBulkErrorMsg('Only .csv files are allowed. Please upload a valid CSV file.');
+      setShowBulkError(true);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const csv = event.target?.result as string;
+      setBulkUploading(true);
+      try {
+        const response = await api.post('/users/bulk-upload', { csv });
+        const { added, skipped, errors } = response.data;
+        let msg = `Bulk upload complete: ${added} added`;
+        if (skipped > 0) msg += `, ${skipped} skipped (already exist)`;
+        if (errors.length > 0) msg += `, ${errors.length} errors`;
+        setMessage(msg);
+        fetchUsers();
+      } catch (error: any) {
+        const msg = error.response?.data?.message || 'Upload failed';
+        setBulkErrorMsg(msg);
+        setShowBulkError(true);
+      } finally {
+        setBulkUploading(false);
+      }
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const downloadSampleCsv = () => {
+    window.open('/api/users/sample-csv', '_blank');
+  };
+
+  const openEditModal = (u: any) => {
+    setEditingUser({ ...u });
+    setShowEditModal(true);
+  };
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  const sortedUsers = [...users].sort((a, b) => {
+    let aVal: any, bVal: any;
+    if (sortField === 'user') {
+      aVal = (a.fullName || a.username || '').toLowerCase();
+      bVal = (b.fullName || b.username || '').toLowerCase();
+    } else if (sortField === 'role') {
+      aVal = (a.role || '').toLowerCase();
+      bVal = (b.role || '').toLowerCase();
+    } else if (sortField === 'teamLead') {
+      const aTl = teamLeads.find(tl => tl.id === a.assignedTlId);
+      const bTl = teamLeads.find(tl => tl.id === b.assignedTlId);
+      aVal = (aTl?.fullName || aTl?.username || '').toLowerCase();
+      bVal = (bTl?.fullName || bTl?.username || '').toLowerCase();
+    } else {
+      aVal = (a[sortField] || '').toString().toLowerCase();
+      bVal = (b[sortField] || '').toString().toLowerCase();
+    }
+    if (aVal < bVal) return sortOrder === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortOrder === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const filteredUsers = sortedUsers.filter(u =>
+    !search ||
+    u.username.toLowerCase().includes(search.toLowerCase()) ||
+    u.email.toLowerCase().includes(search.toLowerCase()) ||
+    u.fullName?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  if (user?.role !== 'ADMIN') {
+    return (
+      <div className="text-center py-12">
+        <p className="text-red-400">Access denied. Admin privileges required.</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">User Management</h1>
+          <p className="text-gray-400 text-sm mt-1">Manage team members and access</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            accept=".csv"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <button
+            onClick={handleBulkUploadClick}
+            disabled={bulkUploading}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+          >
+            <Upload className="w-4 h-4" />
+            {bulkUploading ? 'Uploading...' : 'Bulk Upload'}
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all"
+          >
+            <UserPlus className="w-4 h-4" />
+            Add User
+          </button>
+        </div>
+      </div>
+
+      {message && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          className={`p-3 rounded-lg ${message.includes('complete') || message.includes('added') ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+          {message}
+        </motion.div>
+      )}
+
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+        <input
+          type="text"
+          placeholder="Search users..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full pl-10 pr-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 transition-all"
+        />
+      </div>
+
+      {/* Users Table */}
+      <div className="glass-card rounded-xl overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-gray-700">
+              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-pointer hover:text-white" onClick={() => handleSort('user')}>
+                <div className="flex items-center gap-1">User {sortField === 'user' ? (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-400" /> : <ArrowDown className="w-3 h-3 text-emerald-400" />) : <ArrowUpDown className="w-3 h-3 text-gray-600" />}</div>
+              </th>
+              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-pointer hover:text-white" onClick={() => handleSort('role')}>
+                <div className="flex items-center gap-1">Role {sortField === 'role' ? (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-400" /> : <ArrowDown className="w-3 h-3 text-emerald-400" />) : <ArrowUpDown className="w-3 h-3 text-gray-600" />}</div>
+              </th>
+              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400 cursor-pointer hover:text-white" onClick={() => handleSort('teamLead')}>
+                <div className="flex items-center gap-1">Team Lead {sortField === 'teamLead' ? (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-400" /> : <ArrowDown className="w-3 h-3 text-emerald-400" />) : <ArrowUpDown className="w-3 h-3 text-gray-600" />}</div>
+              </th>
+              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Phone</th>
+              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Status</th>
+              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredUsers.map((u, i) => (
+              <motion.tr
+                key={u.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: i * 0.03 }}
+                className="border-b border-gray-700/50 hover:bg-white/5 transition-colors"
+              >
+                <td className="px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-white">{u.fullName || u.username}</p>
+                    <p className="text-xs text-gray-400">{u.email}</p>
+                    {u.designation && <p className="text-xs text-gray-500">{u.designation}</p>}
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    u.role === 'ADMIN' ? 'bg-red-500/10 text-red-400' :
+                    u.role === 'AVP' ? 'bg-purple-500/10 text-purple-400' :
+                    u.role === 'TEAM_LEAD' ? 'bg-blue-500/10 text-blue-400' :
+                    'bg-emerald-500/10 text-emerald-400'
+                  }`}>
+                    {u.role}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-400">
+                  {u.assignedTlId ? teamLeads.find(tl => tl.id === u.assignedTlId)?.fullName || teamLeads.find(tl => tl.id === u.assignedTlId)?.username || 'Unknown' : 'N/A'}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-400">{u.phone || 'N/A'}</td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${
+                    u.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-700 text-gray-400'
+                  }`}>
+                    {u.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => openEditModal(u)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
+                      title="Edit"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleResetPassword(u.id)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-amber-400 hover:bg-amber-500/10 transition-all"
+                      title="Reset Password"
+                    >
+                      <Key className="w-3.5 h-3.5" />
+                    </button>
+                    {u.isActive ? (
+                      <button
+                        onClick={() => handleDeactivate(u.id)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                        title="Deactivate"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleActivate(u.id)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
+                        title="Activate"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </motion.tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add User Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="glass-card rounded-xl p-6 w-full max-w-md"
+          >
+            <h2 className="text-lg font-semibold text-white mb-4">Add New User</h2>
+            <form onSubmit={handleCreateUser} className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Username</label>
+                <input type="text" required value={newUser.username}
+                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Email</label>
+                <input type="email" required value={newUser.email}
+                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Password</label>
+                <input type="password" required minLength={14} value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Full Name</label>
+                <input type="text" value={newUser.fullName}
+                  onChange={(e) => setNewUser({ ...newUser, fullName: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Phone</label>
+                  <input type="text" value={newUser.phone}
+                    onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Designation</label>
+                  <input type="text" value={newUser.designation}
+                    onChange={(e) => setNewUser({ ...newUser, designation: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Role</label>
+                <select value={newUser.role}
+                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+                  <option value="TESTER">Tester</option>
+                  <option value="TEAM_LEAD">Team Lead</option>
+                  <option value="AVP">AVP</option>
+                  <option value="ADMIN">Admin</option>
+                </select>
+              </div>
+              {newUser.role === 'TESTER' && (
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Assigned Team Lead</label>
+                  <select value={newUser.assignedTlId}
+                    onChange={(e) => setNewUser({ ...newUser, assignedTlId: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+                    <option value="">Select Team Lead</option>
+                    {teamLeads.map(tl => (
+                      <option key={tl.id} value={tl.id}>{tl.fullName || tl.username}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowAddModal(false)}
+                  className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-all">Cancel</button>
+                <button type="submit"
+                  className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-all">Create</button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Edit User Modal */}
+      {showEditModal && editingUser && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="glass-card rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">Edit User: {editingUser.username}</h2>
+              <button onClick={() => setShowEditModal(false)} className="p-1 rounded-lg text-gray-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleUpdateUser} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Full Name</label>
+                  <input type="text" value={editingUser.fullName || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, fullName: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Username</label>
+                  <input type="text" required value={editingUser.username}
+                    onChange={(e) => setEditingUser({ ...editingUser, username: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Email</label>
+                  <input type="email" required value={editingUser.email}
+                    onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Phone</label>
+                  <input type="text" value={editingUser.phone || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, phone: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Role</label>
+                  <select value={editingUser.role}
+                    onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+                    <option value="TESTER">Tester</option>
+                    <option value="TEAM_LEAD">Team Lead</option>
+                    <option value="AVP">AVP</option>
+                    <option value="ADMIN">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Designation</label>
+                  <input type="text" value={editingUser.designation || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, designation: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Team Lead</label>
+                  <select value={editingUser.assignedTlId || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, assignedTlId: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+                    <option value="">None</option>
+                    {teamLeads.map(tl => (
+                      <option key={tl.id} value={tl.id}>{tl.fullName || tl.username}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Manager</label>
+                  <select value={editingUser.managerId || ''}
+                    onChange={(e) => setEditingUser({ ...editingUser, managerId: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+                    <option value="">None</option>
+                    {managers.map(m => (
+                      <option key={m.id} value={m.id}>{m.fullName || m.username}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowEditModal(false)}
+                  className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-all">Cancel</button>
+                <button type="submit"
+                  className="flex-1 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-all">Save</button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Bulk Upload Error Modal */}
+      {showBulkError && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-md"
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
+                    <XCircle className="w-5 h-5 text-red-400" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-white">Invalid CSV Format</h2>
+                </div>
+                <button onClick={() => setShowBulkError(false)} className="p-1 rounded-lg hover:bg-gray-800 text-gray-400">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-gray-400 text-sm mb-4">
+                {bulkErrorMsg}
+              </p>
+              <p className="text-gray-500 text-xs mb-6">
+                Please make sure your CSV file follows the exact format required. You can download a sample file below to see the correct structure.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowBulkError(false)}
+                  className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={downloadSampleCsv}
+                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Download Sample CSV
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,406 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  AVP
+  TEAM_LEAD
+  TESTER
+}
+
+enum ProjectStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  AWAITING_REVIEW
+  COMPLETED
+}
+
+enum FindingStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum VulnerabilityStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  PASSWORD_CHANGE
+  PASSWORD_RESET
+  USER_CREATED
+  USER_UPDATED
+  USER_DELETED
+  TEAM_ASSIGNED
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_REASSIGNED
+  PROJECT_SUBMITTED
+  PROJECT_APPROVED
+  PROJECT_REJECTED
+  REPORT_GENERATED
+  TEMPLATE_UPLOADED
+  TEMPLATE_ACTIVATED
+  TEMPLATE_DEACTIVATED
+  VULNERABILITY_REQUESTED
+  VULNERABILITY_APPROVED
+  VULNERABILITY_REJECTED
+  ADMIN_OVERRIDE
+}
+
+enum ComplianceType {
+  VAPT
+  CERT_IN
+  PCI
+  ASV
+}
+
+enum TemplateCategory {
+  PCI
+  VAPT
+  CERT_IN
+  ASV
+}
+
+enum TemplateSubType {
+  WEB
+  API
+  MOBILE
+  THICK_CLIENT
+}
+
+enum TemplateFieldCategory {
+  PROJECT_INFO
+  VULNERABILITY
+  CONTACT
+  DATE
+  OTHER
+}
+
+enum NotificationType {
+  USER_CREATED
+  USER_UPDATED
+  VULNERABILITY_REQUESTED
+  VULNERABILITY_APPROVED
+  VULNERABILITY_REJECTED
+  VULNERABILITY_EDITED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  username      String    @unique
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  role          UserRole
+
+  assignedTlId  String?   @map("assigned_tl_id")
+  assignedTl    User?     @relation("TeamLeadTester", fields: [assignedTlId], references: [id])
+  testers       User[]    @relation("TeamLeadTester")
+
+  managerId     String?   @map("manager_id")
+  manager       User?     @relation("UserManager", fields: [managerId], references: [id])
+  subordinates  User[]    @relation("UserManager")
+
+  fullName      String?   @map("full_name")
+  phone         String?   @map("phone")
+  designation   String?   @map("designation")
+
+  isActive      Boolean   @default(true) @map("is_active")
+  isForcePasswordChange Boolean @default(false) @map("is_force_password_change")
+
+  totpSecret    String?   @map("totp_secret")
+  isTotpEnabled Boolean   @default(false) @map("is_totp_enabled")
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+
+  projectsOwned    Project[] @relation("ProjectTester")
+  projectsManaged  Project[] @relation("ProjectTL")
+  findings         Finding[]
+  auditLogsAsActor AuditLog[] @relation("AuditActor")
+  auditLogsAsTarget AuditLog[] @relation("AuditTarget")
+  templatesUploaded ReportTemplate[]
+  reportGenerations ReportGeneration[]
+  vulnRequests     Vulnerability[] @relation("VulnRequester")
+  vulnReviews      Vulnerability[] @relation("VulnReviewer")
+  notifications    Notification[]
+
+  @@index([assignedTlId])
+  @@index([role])
+  @@index([isActive])
+  @@map("users")
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  clientName  String        @map("client_name")
+  scope       String
+  startDate   DateTime      @map("start_date")
+  endDate     DateTime?     @map("end_date")
+  status      ProjectStatus @default(NOT_STARTED)
+  complianceStatus String?   @default("In-Progress") @map("compliance_status")
+  complianceType ComplianceType? @map("compliance_type")
+
+  testerId    String        @map("tester_id")
+  tester      User          @relation("ProjectTester", fields: [testerId], references: [id])
+  tlId        String        @map("tl_id")
+  tl          User          @relation("ProjectTL", fields: [tlId], references: [id])
+
+  templateId  String?       @map("template_id")
+  template    ReportTemplate? @relation(fields: [templateId], references: [id])
+  category    TemplateCategory @default(VAPT) @map("category")
+  subType     TemplateSubType  @default(WEB) @map("sub_type")
+
+  // Report detail fields
+  appVersion         String?  @map("app_version")
+  location           String?  @map("location")
+  documentVersion    String?  @map("document_version")
+  toolsUsed          String?  @map("tools_used")
+  testingEnvironment String?  @map("testing_environment")
+  qaReviewerName     String?  @map("qa_reviewer_name")
+  applicationDetails String?  @map("application_details")
+  testingType        String?  @map("testing_type")
+  loginSystemTypes   String?  @map("login_system_types")
+  applicationNature  String?  @map("application_nature")
+  testingLimitation  String?  @map("testing_limitation")
+
+  reportDocxPath  String?   @map("report_docx_path")
+  reportPdfPath   String?   @map("report_pdf_path")
+  isDraft         Boolean   @default(true) @map("is_draft")
+  generatedAt     DateTime? @map("generated_at")
+  approvedAt      DateTime? @map("approved_at")
+  approvedById    String?   @map("approved_by_id")
+
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  findings    Finding[]
+  reportGenerations ReportGeneration[]
+
+  @@index([testerId])
+  @@index([tlId])
+  @@index([status])
+  @@index([templateId])
+  @@map("projects")
+}
+
+model ReportTemplate {
+  id            String    @id @default(cuid())
+  name          String
+  filePath      String    @map("file_path")
+  fileHash      String    @map("file_hash")
+
+  category      TemplateCategory @default(VAPT) @map("category")
+  subType       TemplateSubType  @default(WEB) @map("sub_type")
+  projectType   String    @map("project_type")
+
+  effectiveFrom DateTime  @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  isActive      Boolean   @default(true) @map("is_active")
+
+  uploadedById  String    @map("uploaded_by")
+  uploadedBy    User      @relation(fields: [uploadedById], references: [id])
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  projects      Project[]
+  fields        TemplateField[]
+  reportGenerations ReportGeneration[]
+
+  @@index([category])
+  @@index([subType])
+  @@index([projectType])
+  @@index([isActive])
+  @@index([effectiveFrom])
+  @@map("report_templates")
+}
+
+model TemplateField {
+  id            String    @id @default(cuid())
+  templateId    String    @map("template_id")
+  template      ReportTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  name          String
+  normalizedName String   @map("normalized_name")
+  category      TemplateFieldCategory @default(OTHER) @map("field_category")
+  description   String?
+  isRepeatable  Boolean   @default(false) @map("is_repeatable")
+  sortOrder     Int       @default(0) @map("sort_order")
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([templateId])
+  @@index([category])
+  @@map("template_fields")
+}
+
+model ReportGeneration {
+  id            String    @id @default(cuid())
+
+  projectId     String    @map("project_id")
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  templateId    String    @map("template_id")
+  template      ReportTemplate @relation(fields: [templateId], references: [id])
+
+  generatedById String    @map("generated_by")
+  generatedBy   User      @relation(fields: [generatedById], references: [id])
+
+  fieldData     Json      @map("field_data")
+
+  docxPath      String?   @map("docx_path")
+  pdfPath       String?   @map("pdf_path")
+
+  isDraft       Boolean   @default(true) @map("is_draft")
+
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([projectId])
+  @@index([templateId])
+  @@index([generatedById])
+  @@map("report_generations")
+}
+
+model Vulnerability {
+  id          String   @id @default(cuid())
+  name        String
+  severity    String
+  cvssScore   Float?   @map("cvss_score")
+  cvssVector  String?  @map("cvss_vector")
+  description String
+  impact      String
+  remediation String
+  references  String
+  cveId       String?  @map("cve_id")
+  cweId       String?  @map("cwe_id")
+  source      String   @default("internal")
+
+  status      VulnerabilityStatus @default(APPROVED) @map("status")
+  isActive    Boolean  @default(true) @map("is_active")
+  requestedById String? @map("requested_by")
+  requestedBy User?    @relation("VulnRequester", fields: [requestedById], references: [id])
+  reviewedById String? @map("reviewed_by")
+  reviewedBy  User?    @relation("VulnReviewer", fields: [reviewedById], references: [id])
+  reviewedAt  DateTime? @map("reviewed_at")
+
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  findings    Finding[]
+
+  @@index([severity])
+  @@index([name])
+  @@index([status])
+  @@index([isActive])
+  @@map("vulnerabilities")
+}
+
+model Finding {
+  id           String        @id @default(cuid())
+  projectId    String        @map("project_id")
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  vulnId       String        @map("vuln_id")
+  vulnerability Vulnerability @relation(fields: [vulnId], references: [id])
+
+  evidencePaths String[]     @map("evidence_paths")
+  testerNotes   String       @map("tester_notes")
+  status        FindingStatus @default(DRAFT)
+
+  affectedInstances       String[] @map("affected_instances")
+  authenticationType      String?  @map("authentication_type")
+  proofOfConcept          String?  @map("proof_of_concept")
+  vulnerabilityDependency String?  @map("vulnerability_dependency")
+  reportStatus            String   @default("Open") @map("report_status")
+
+  cvssScoreOverride       Float?   @map("cvss_score_override")
+  cvssVectorOverride      String?  @map("cvss_vector_override")
+
+  pocSteps    PocStep[]
+
+  createdById  String        @map("created_by")
+  createdBy    User          @relation(fields: [createdById], references: [id])
+
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([projectId])
+  @@index([vulnId])
+  @@index([status])
+  @@index([reportStatus])
+  @@map("findings")
+}
+
+model PocStep {
+  id          String   @id @default(cuid())
+  findingId   String   @map("finding_id")
+  finding     Finding  @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  stepNo      Int      @map("step_no")
+  description String   @map("description")
+  imagePath   String?  @map("image_path")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([findingId])
+  @@map("poc_steps")
+}
+
+model AuditLog {
+  id          String     @id @default(cuid())
+  actorId     String     @map("actor_id")
+  actor       User       @relation("AuditActor", fields: [actorId], references: [id])
+
+  action      AuditAction
+  targetType  String?    @map("target_type")
+  targetId    String?    @map("target_id")
+  targetUserId String?   @map("target_user_id")
+  targetUser  User?      @relation("AuditTarget", fields: [targetUserId], references: [id])
+
+  details     Json?
+  ipAddress   String     @map("ip_address")
+  userAgent   String     @map("user_agent")
+
+  timestamp   DateTime   @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([targetType])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type        NotificationType
+  title       String
+  message     String
+  read        Boolean  @default(false)
+  linkUrl     String?  @map("link_url")
+  relatedId   String?  @map("related_id")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+  @@map("notifications")
+}

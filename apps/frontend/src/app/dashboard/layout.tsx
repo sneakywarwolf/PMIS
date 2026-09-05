@@ -1,0 +1,367 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  LayoutDashboard,
+  FolderKanban,
+  FileText,
+  ShieldAlert,
+  Users,
+  Settings,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  Shield,
+  Bell,
+  UserCircle,
+  ChevronDown,
+} from 'lucide-react';
+import { useAuth, api } from '@/contexts/auth-context';
+
+interface NavItem {
+  label: string;
+  href: string;
+  icon: React.ElementType;
+  roles: string[];
+}
+
+interface Notification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+  linkUrl?: string;
+  relatedId?: string;
+}
+
+const navItems: NavItem[] = [
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
+  { label: 'Projects', href: '/dashboard/projects', icon: FolderKanban, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
+  { label: 'Reports', href: '/dashboard/reports', icon: FileText, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
+  { label: 'Vulnerabilities', href: '/dashboard/vulnerabilities', icon: ShieldAlert, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
+  { label: 'Users', href: '/dashboard/users', icon: Users, roles: ['ADMIN'] },
+  { label: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['ADMIN'] },
+];
+
+const roleLabel = (role: string) => {
+  switch (role) {
+    case 'ADMIN': return 'Administrator';
+    case 'AVP': return 'AVP';
+    case 'TEAM_LEAD': return 'Team Lead';
+    case 'TESTER': return 'Tester';
+    default: return role;
+  }
+};
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const { user, logout, loading } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, router]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-cyber-bg flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) return null;
+
+  const filteredNav = navItems.filter(item => item.roles.includes(user.role));
+
+  return (
+    <div className="min-h-screen bg-cyber-bg flex">
+      {/* Sidebar */}
+      <motion.aside
+        initial={false}
+        animate={{ width: collapsed ? 72 : 256 }}
+        transition={{ duration: 0.3, ease: 'easeInOut' }}
+        className="fixed left-0 top-0 h-screen bg-cyber-surface border-r border-cyber-border z-50"
+      >
+        <div className="h-full flex flex-col">
+          {/* Logo */}
+          <div className="h-16 flex items-center px-4 border-b border-cyber-border">
+            <Shield className="w-8 h-8 text-emerald-400 shrink-0" />
+            {!collapsed && (
+              <motion.span
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="ml-3 font-bold text-white whitespace-nowrap"
+              >
+                STT
+              </motion.span>
+            )}
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 py-4 px-2 space-y-1">
+            {filteredNav.map((item) => {
+              const isActive = item.href === '/dashboard'
+                ? pathname === '/dashboard'
+                : pathname === item.href || pathname.startsWith(`${item.href}/`);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center px-3 py-2.5 rounded-lg transition-all duration-200 group ${
+                    isActive
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <item.icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-emerald-400' : ''}`} />
+                  {!collapsed && (
+                    <span className="ml-3 text-sm font-medium whitespace-nowrap">{item.label}</span>
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
+
+          {/* Bottom */}
+          <div className="p-2 border-t border-cyber-border">
+            {!collapsed && (
+              <div className="px-3 py-2 mb-2">
+                <p className="text-sm font-medium text-white truncate">{user.fullName || user.username}</p>
+                <p className="text-xs text-emerald-400">{roleLabel(user.role)}</p>
+              </div>
+            )}
+            
+            <button
+              onClick={async () => { await logout(); router.push('/login'); }}
+              className="flex items-center w-full px-3 py-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+            >
+              <LogOut className="w-5 h-5 shrink-0" />
+              {!collapsed && <span className="ml-3 text-sm font-medium">Logout</span>}
+            </button>
+
+            <button
+              onClick={() => setCollapsed(!collapsed)}
+              className="mt-1 flex items-center justify-center w-full py-2 rounded-lg text-gray-500 hover:text-white hover:bg-white/5 transition-all"
+            >
+              {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      </motion.aside>
+
+      {/* Main content */}
+      <main
+        className="flex-1 transition-all duration-300"
+        style={{ marginLeft: collapsed ? 72 : 256 }}
+      >
+        {/* Top bar */}
+        <div className="flex items-center justify-end px-6 pt-4 gap-3">
+          <NotificationBell />
+          <UserDropdown user={user} logout={logout} router={router} />
+        </div>
+
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={pathname}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="p-6"
+          >
+            {children}
+          </motion.div>
+        </AnimatePresence>
+      </main>
+    </div>
+  );
+}
+
+function NotificationBell() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [open, setOpen] = useState(false);
+
+  const fetchNotifications = async () => {
+    if (!user) return;
+    try {
+      const [notifRes, countRes] = await Promise.all([
+        api.get('/notifications'),
+        api.get('/notifications/count'),
+      ]);
+      setNotifications(notifRes.data);
+      setUnreadCount(countRes.data.count);
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        setNotifications([]);
+        setUnreadCount(0);
+      }
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  const markAsRead = async (id: string) => {
+    try {
+      await api.put(`/notifications/${id}/read`);
+      setNotifications(prev =>
+        prev.map(n => (n.id === id ? { ...n, read: true } : n))
+      );
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch {
+      // silently fail
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      await api.put('/notifications/read-all');
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setUnreadCount(0);
+    } catch {
+      // silently fail
+    }
+  };
+
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => { setOpen(!open); if (!open) fetchNotifications(); }}
+        className="relative p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+      >
+        <Bell className="w-5 h-5" />
+        {unreadCount > 0 && (
+          <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center">
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0" onClick={() => setOpen(false)} />
+          <motion.div
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="absolute right-0 mt-2 w-80 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden"
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
+              <p className="text-sm font-medium text-white">Notifications</p>
+              {unreadCount > 0 && (
+                <button
+                  onClick={markAllAsRead}
+                  className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors"
+                >
+                  Mark all read
+                </button>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {notifications.length === 0 ? (
+                <div className="px-4 py-6 text-center text-sm text-gray-500">
+                  No notifications yet
+                </div>
+              ) : (
+                notifications.map(n => (
+                  <div
+                    key={n.id}
+                    className={`px-4 py-3 border-b border-gray-800 hover:bg-white/5 cursor-pointer transition-colors ${
+                      !n.read ? 'bg-emerald-500/5' : ''
+                    }`}
+                    onClick={() => {
+                      if (!n.read) markAsRead(n.id);
+                      setOpen(false);
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm truncate ${!n.read ? 'font-medium text-white' : 'text-gray-300'}`}>
+                          {n.title}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{n.message}</p>
+                        <p className="text-[10px] text-gray-600 mt-1">{formatTime(n.createdAt)}</p>
+                      </div>
+                      {!n.read && (
+                        <div className="mt-1 w-2 h-2 bg-emerald-400 rounded-full shrink-0" />
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function UserDropdown({ user, logout, router }: { user: any; logout: () => Promise<void>; router: any }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+      >
+        <UserCircle className="w-6 h-6" />
+        <ChevronDown className="w-3 h-3" />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0" onClick={() => setOpen(false)} />
+          <motion.div
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden"
+          >
+            <div className="px-4 py-3 border-b border-gray-700">
+              <p className="text-sm font-medium text-white truncate">{user.fullName || user.username}</p>
+              <p className="text-xs text-emerald-400">{roleLabel(user.role)}</p>
+            </div>
+            <Link
+              href="/dashboard/profile"
+              className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-all"
+              onClick={() => setOpen(false)}
+            >
+              <UserCircle className="w-4 h-4" /> My Profile
+            </Link>
+            <button
+              onClick={async () => { await logout(); router.push('/login'); }}
+              className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-300 hover:bg-red-500/10 hover:text-red-400 transition-all"
+            >
+              <LogOut className="w-4 h-4" /> Logout
+            </button>
+          </motion.div>
+        </>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --cyber-bg: #0a0f1a;
+  --cyber-surface: #111827;
+  --cyber-card: #1a2236;
+  --cyber-border: #1f2937;
+  --cyber-primary: #10b981;
+  --cyber-secondary: #06b6d4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  background-color: var(--cyber-bg);
+  color: #e5e7eb;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--cyber-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+/* Glassmorphism */
+.glass {
+  background: rgba(17, 24, 39, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(31, 41, 55, 0.5);
+}
+
+.glass-card {
+  background: rgba(26, 34, 54, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(31, 41, 55, 0.6);
+}
+
+/* Cyber grid pattern */
+.cyber-grid {
+  background-image: 
+    linear-gradient(rgba(16, 185, 129, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(16, 185, 129, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Animations */
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+.scanline::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.3), transparent);
+  animation: scanline 6s linear infinite;
+  pointer-events: none;
+}
+
+/* Form inputs */
+input, textarea, select {
+  background-color: var(--cyber-surface);
+  border: 1px solid var(--cyber-border);
+  color: #e5e7eb;
+  transition: all 0.2s;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--cyber-primary);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+}
+
+/* Status badges */
+.status-badge {
+  @apply px-2 py-0.5 rounded-full text-xs font-medium;
+}
+
+.status-not_started { @apply bg-gray-700 text-gray-300; }
+.status-in_progress { @apply bg-blue-900/50 text-blue-400; }
+.status-awaiting_review { @apply bg-yellow-900/50 text-yellow-400; }
+.status-completed { @apply bg-emerald-900/50 text-emerald-400; }

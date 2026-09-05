@@ -1,0 +1,246 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { ArrowLeft, Loader2, Save, FolderKanban } from 'lucide-react';
+import { api } from '@/contexts/auth-context';
+
+const inputCls =
+  'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white transition-all';
+const labelCls = 'block text-sm text-gray-300 mb-1';
+
+export default function NewProjectPage() {
+  const router = useRouter();
+  const [submitting, setSubmitting] = useState(false);
+  const [form, setForm] = useState({
+    // Core
+    name: '',
+    clientName: '',
+    category: 'VAPT',
+    subType: 'WEB',
+    scope: '',
+    startDate: '',
+    endDate: '',
+    complianceType: 'VAPT',
+    // Report detail fields — captured once, reused at report generation
+    appVersion: '',
+    location: '',
+    documentVersion: '1.0',
+    toolsUsed: '',
+    testingEnvironment: '',
+    qaReviewerName: '',
+    applicationDetails: '',
+    testingType: '',
+    loginSystemTypes: '',
+    applicationNature: '',
+    testingLimitation: '',
+  });
+
+  const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const payload: any = {
+        name: form.name,
+        clientName: form.clientName,
+        category: form.category,
+        subType: form.subType,
+        complianceType: form.complianceType,
+        scope: form.scope,
+        startDate: form.startDate,
+      };
+      // Optional fields — only send when filled
+      const optional = [
+        'endDate', 'appVersion', 'location', 'documentVersion', 'toolsUsed',
+        'testingEnvironment', 'qaReviewerName', 'applicationDetails', 'testingType',
+        'loginSystemTypes', 'applicationNature', 'testingLimitation',
+      ];
+      for (const key of optional) {
+        if ((form as any)[key]) payload[key] = (form as any)[key];
+      }
+
+      const res = await api.post('/projects', payload);
+      router.push(`/dashboard/projects/${res.data.id}`);
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to create project');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => router.push('/dashboard/projects')}
+          className="p-2 rounded-lg bg-gray-800/50 hover:bg-gray-800 text-gray-400 transition-all"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <div>
+          <h1 className="text-2xl font-bold text-white">New Project</h1>
+          <p className="text-gray-400 text-sm mt-1">
+            These details are captured once and automatically reused in the generated report
+          </p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Core details */}
+        <motion.section
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-xl p-6 space-y-4"
+        >
+          <div className="flex items-center gap-3 pb-3 border-b border-gray-700">
+            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+              <FolderKanban className="w-4 h-4 text-emerald-400" />
+            </div>
+            <h2 className="text-base font-semibold text-white">Project Basics</h2>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Application Name *</label>
+              <input type="text" required value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} placeholder="e.g. Payments Portal" />
+            </div>
+            <div>
+              <label className={labelCls}>App Version</label>
+              <input type="text" value={form.appVersion} onChange={(e) => set('appVersion', e.target.value)} className={inputCls} placeholder="e.g. 4.2.1" />
+            </div>
+            <div>
+              <label className={labelCls}>Client Name *</label>
+              <input type="text" required value={form.clientName} onChange={(e) => set('clientName', e.target.value)} className={inputCls} placeholder="e.g. Acme Bank" />
+            </div>
+            <div>
+              <label className={labelCls}>Location</label>
+              <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} placeholder="e.g. Mumbai, India" />
+            </div>
+            <div>
+              <label className={labelCls}>Compliance Category *</label>
+              <select value={form.category} onChange={(e) => set('category', e.target.value)} className={inputCls}>
+                <option value="VAPT">VAPT</option>
+                <option value="PCI">PCI</option>
+                <option value="CERT_IN">Cert-IN</option>
+                <option value="ASV">ASV</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Compliance Type *</label>
+              <select value={form.complianceType} onChange={(e) => set('complianceType', e.target.value)} className={inputCls}>
+                <option value="VAPT">VAPT</option>
+                <option value="CERT_IN">Cert-IN</option>
+                <option value="PCI">PCI</option>
+                <option value="ASV">ASV</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Testing Type (Platform) *</label>
+              <select value={form.subType} onChange={(e) => set('subType', e.target.value)} className={inputCls}>
+                <option value="WEB">Web Application</option>
+                <option value="API">API</option>
+                <option value="MOBILE">Mobile Application</option>
+                <option value="THICK_CLIENT">Thick Client</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Start Date *</label>
+              <input type="date" required value={form.startDate} onChange={(e) => set('startDate', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>End Date</label>
+              <input type="date" value={form.endDate} onChange={(e) => set('endDate', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Current Document Version</label>
+              <input type="text" value={form.documentVersion} onChange={(e) => set('documentVersion', e.target.value)} className={inputCls} placeholder="e.g. 1.0" />
+            </div>
+            <div>
+              <label className={labelCls}>QA Reviewer Name</label>
+              <input type="text" value={form.qaReviewerName} onChange={(e) => set('qaReviewerName', e.target.value)} className={inputCls} />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelCls}>Scope *</label>
+            <textarea rows={3} required value={form.scope} onChange={(e) => set('scope', e.target.value)} className={inputCls} placeholder="In-scope URLs, endpoints, IP ranges..." />
+          </div>
+        </motion.section>
+
+        {/* Testing details */}
+        <motion.section
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="glass-card rounded-xl p-6 space-y-4"
+        >
+          <h2 className="text-base font-semibold text-white pb-3 border-b border-gray-700">Testing Details</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Tools Used</label>
+              <input type="text" value={form.toolsUsed} onChange={(e) => set('toolsUsed', e.target.value)} className={inputCls} placeholder="e.g. Burp Suite Pro, Nmap, OWASP ZAP" />
+            </div>
+            <div>
+              <label className={labelCls}>Testing Environment</label>
+              <select value={form.testingEnvironment} onChange={(e) => set('testingEnvironment', e.target.value)} className={inputCls}>
+                <option value="">Select environment</option>
+                <option value="Staging">Staging</option>
+                <option value="UAT">UAT</option>
+                <option value="Pre-Prod">Pre-Prod</option>
+                <option value="Production">Production</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Testing Approach</label>
+              <select value={form.testingType} onChange={(e) => set('testingType', e.target.value)} className={inputCls}>
+                <option value="">Select approach</option>
+                <option value="Black Box">Black Box</option>
+                <option value="Grey Box">Grey Box</option>
+                <option value="White Box">White Box</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Types of Login System</label>
+              <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} placeholder="e.g. Admin, Manager, Customer roles" />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelCls}>Application / Build Details</label>
+            <textarea rows={2} value={form.applicationDetails} onChange={(e) => set('applicationDetails', e.target.value)} className={inputCls} placeholder="Tech stack, platform, build info..." />
+          </div>
+          <div>
+            <label className={labelCls}>Nature / Purpose of the Application</label>
+            <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} placeholder="What the application is used for..." />
+          </div>
+          <div>
+            <label className={labelCls}>Testing Limitation</label>
+            <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
+          </div>
+        </motion.section>
+
+        <div className="flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/projects')}
+            className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50 flex items-center gap-2"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {submitting ? 'Creating...' : 'Create Project'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
