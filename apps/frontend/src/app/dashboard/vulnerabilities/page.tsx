@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload } from 'lucide-react';
+import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 
 const severityColors: Record<string, string> = {
@@ -80,6 +80,11 @@ export default function VulnerabilitiesPage() {
     } catch (error) {
       console.error('Failed to fetch pending:', error);
     }
+  };
+
+  const handleRefresh = () => {
+    fetchVulnerabilities();
+    if (isAdminOrTL) fetchPending();
   };
 
   const handleSort = (field: string) => {
@@ -220,6 +225,13 @@ export default function VulnerabilitiesPage() {
           <p className="text-gray-400 text-sm mt-1">Manage and reference known vulnerabilities</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-gray-300 border border-gray-600/50 rounded-lg transition-all text-sm"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
           {isAdmin && (
             <>
               <input
@@ -587,6 +599,64 @@ export default function VulnerabilitiesPage() {
   );
 }
 
+const CVSS_OPTIONS = {
+  AV: [['N', 'Network'], ['A', 'Adjacent'], ['L', 'Local'], ['P', 'Physical']],
+  AC: [['L', 'Low'], ['H', 'High']],
+  PR: [['N', 'None'], ['L', 'Low'], ['H', 'High']],
+  UI: [['N', 'None'], ['R', 'Required']],
+  S: [['U', 'Unchanged'], ['C', 'Changed']],
+  C: [['N', 'None'], ['L', 'Low'], ['H', 'High']],
+  I: [['N', 'None'], ['L', 'Low'], ['H', 'High']],
+  A: [['N', 'None'], ['L', 'Low'], ['H', 'High']],
+} as const;
+
+const CVSS_LABELS: Record<keyof typeof CVSS_OPTIONS, string> = {
+  AV: 'Attack Vector', AC: 'Attack Complexity', PR: 'Privileges Req.', UI: 'User Interaction',
+  S: 'Scope', C: 'Confidentiality', I: 'Integrity', A: 'Availability',
+};
+
+const CVSS_WEIGHTS = {
+  AV: { N: 0.85, A: 0.62, L: 0.55, P: 0.2 },
+  AC: { L: 0.77, H: 0.44 },
+  PR: { U: { N: 0.85, L: 0.62, H: 0.27 }, C: { N: 0.85, L: 0.68, H: 0.5 } },
+  UI: { N: 0.85, R: 0.62 },
+  CIA: { N: 0, L: 0.22, H: 0.56 },
+} as const;
+
+type CvssMetrics = { AV: string; AC: string; PR: string; UI: string; S: string; C: string; I: string; A: string };
+
+function roundUpToTenth(n: number) {
+  const int = Math.round(n * 100000);
+  return int % 10000 === 0 ? int / 100000 : (Math.floor(int / 10000) + 1) / 10;
+}
+
+function calculateCvss(m: CvssMetrics) {
+  const av = CVSS_WEIGHTS.AV[m.AV as keyof typeof CVSS_WEIGHTS.AV];
+  const ac = CVSS_WEIGHTS.AC[m.AC as keyof typeof CVSS_WEIGHTS.AC];
+  const pr = CVSS_WEIGHTS.PR[m.S as 'U' | 'C'][m.PR as keyof typeof CVSS_WEIGHTS.PR.U];
+  const ui = CVSS_WEIGHTS.UI[m.UI as keyof typeof CVSS_WEIGHTS.UI];
+  const c = CVSS_WEIGHTS.CIA[m.C as keyof typeof CVSS_WEIGHTS.CIA];
+  const i = CVSS_WEIGHTS.CIA[m.I as keyof typeof CVSS_WEIGHTS.CIA];
+  const a = CVSS_WEIGHTS.CIA[m.A as keyof typeof CVSS_WEIGHTS.CIA];
+
+  const iscBase = 1 - (1 - c) * (1 - i) * (1 - a);
+  const isc = m.S === 'U' ? 6.42 * iscBase : 7.52 * (iscBase - 0.029) - 3.25 * Math.pow(iscBase - 0.02, 15);
+  const exploitability = 8.22 * av * ac * pr * ui;
+
+  const score = isc <= 0 ? 0 : roundUpToTenth(
+    m.S === 'U' ? Math.min(isc + exploitability, 10) : Math.min(1.08 * (isc + exploitability), 10)
+  );
+  const vector = `CVSS:3.1/AV:${m.AV}/AC:${m.AC}/PR:${m.PR}/UI:${m.UI}/S:${m.S}/C:${m.C}/I:${m.I}/A:${m.A}`;
+  return { score, vector };
+}
+
+function parseCvssVector(vector?: string): CvssMetrics | null {
+  if (!vector) return null;
+  const parts = Object.fromEntries(vector.split('/').filter((p) => p.includes(':')).map((p) => p.split(':'))) as Record<string, string>;
+  if (!parts.AV) return null;
+  return { AV: parts.AV, AC: parts.AC, PR: parts.PR, UI: parts.UI, S: parts.S, C: parts.C, I: parts.I, A: parts.A };
+}
+
 function VulnModal({ vuln, onClose, onSaved, isRequest }: {
   vuln?: any;
   onClose: () => void;
@@ -608,6 +678,15 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
   });
 
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
+
+  const [cvssMetrics, setCvssMetrics] = useState<CvssMetrics>(
+    parseCvssVector(vuln?.cvssVector) || { AV: 'N', AC: 'L', PR: 'N', UI: 'N', S: 'U', C: 'N', I: 'N', A: 'N' }
+  );
+
+  useEffect(() => {
+    const { score, vector } = calculateCvss(cvssMetrics);
+    setForm((f) => ({ ...f, cvssScore: score.toString(), cvssVector: vector }));
+  }, [cvssMetrics]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -677,13 +756,7 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className={labelCls}>CVSS Score</label>
-              <input type="number" step="0.1" min="0" max="10" value={form.cvssScore}
-                onChange={(e) => set('cvssScore', e.target.value)}
-                className={inputCls} />
-            </div>
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>CVE ID</label>
               <input type="text" value={form.cveId}
@@ -695,6 +768,26 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
               <input type="text" value={form.cweId}
                 onChange={(e) => set('cweId', e.target.value)}
                 className={inputCls} />
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg bg-gray-800/30 border border-gray-700 space-y-3">
+            <p className="text-xs font-medium text-gray-300">CVSS v3.1 Calculator</p>
+            <div className="grid grid-cols-4 gap-3">
+              {(Object.keys(CVSS_OPTIONS) as (keyof typeof CVSS_OPTIONS)[]).map((key) => (
+                <div key={key}>
+                  <label className={labelCls}>{CVSS_LABELS[key]}</label>
+                  <select value={cvssMetrics[key]} onChange={(e) => setCvssMetrics((m) => ({ ...m, [key]: e.target.value }))} className={inputCls}>
+                    {CVSS_OPTIONS[key].map(([abbr, label]) => (
+                      <option key={abbr} value={abbr}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between pt-1 text-sm">
+              <span className="text-gray-400">Score: <span className="text-white font-semibold">{form.cvssScore || '-'}</span></span>
+              <span className="text-gray-400 truncate ml-4">Vector: <span className="text-cyan-400">{form.cvssVector}</span></span>
             </div>
           </div>
 

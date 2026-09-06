@@ -528,6 +528,13 @@ function TemplateUploader() {
           Templates are versioned: uploads stay as inactive drafts until you review the validation
           report and activate them from the Browse tab. Existing projects keep their original template.
         </p>
+        <p className="text-xs text-amber-400/90 mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+          <strong>How field detection works:</strong> the parser only picks up placeholders that are
+          highlighted in yellow inside the DOCX (e.g. highlight the text <code>{'{Client Name, Location}'}</code>).
+          Consecutive highlighted words/runs are merged into one field, so keep a placeholder's highlight
+          continuous and don&apos;t highlight surrounding text you don&apos;t want extracted. Plain,
+          non-highlighted text is left untouched and won&apos;t be treated as a field.
+        </p>
         <form onSubmit={handleUpload} className="space-y-4">
           <div>
             <label className="block text-sm text-gray-300 mb-1">Template Name</label>
