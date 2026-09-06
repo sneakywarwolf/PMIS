@@ -70,6 +70,39 @@ requested scope.
 - Reuses existing `assignedTlId` team relation for team/org scoping — no
   schema changes required for this phase.
 
+## Security requirements
+
+- **Input validation** — `scope`, `granularity`, `tlId` validated via a DTO with
+  `class-validator` (`@IsIn(['self','team','org'])`, `@IsIn(['week','month','quarter'])`,
+  `@IsOptional() @IsString()` for `tlId`). Reject anything else with 400, don't
+  silently coerce — this is the same pattern already used elsewhere in the
+  controller layer.
+- **No injection surface** — all queries go through Prisma's typed query
+  builder (`findMany`/`groupBy` with typed `where` clauses), never raw
+  SQL/`$queryRaw` with interpolated input, so this endpoint has no SQL
+  injection surface by construction.
+- **Authorization (broken access control)** — enforced server-side, not
+  trusted from the query string:
+  - `scope=org` → guard requires `ADMIN` or `AVP` role (reuse existing
+    `RolesGuard`/`@Roles` decorator pattern from other endpoints).
+  - `scope=team` with `tlId` set → verify the resolved TL exists and is a real
+    `TEAM_LEAD`; if `tlId` doesn't match a real TL, return an empty aggregate
+    result set, not an error that reveals whether an id exists (avoid
+    user-enumeration via error message differences).
+  - `scope=team` with no `tlId` → resolve the caller's own team server-side
+    from the authenticated user's `assignedTlId`/role, never take a team id
+    from the client for "my own team".
+  - `scope=self` → always scoped to `req.user.id`, never a client-supplied
+    user id.
+  - Cross-team requests never return `members` (per-tester breakdown) — this
+    is enforced in the service method itself, not just hidden in the UI.
+- **No sensitive data leakage in errors** — validation/authz failures return
+  generic 400/403 responses, no stack traces or query details (matches
+  existing global exception filter).
+- **Rate/volume bounds** — `heatmap` and `timeline` windows are fixed
+  server-side (12 months), not client-controllable, preventing unbounded
+  date-range queries.
+
 ## Out of scope (deferred to later phases)
 
 - Frontend rendering of any of the above (phases 2–3).
