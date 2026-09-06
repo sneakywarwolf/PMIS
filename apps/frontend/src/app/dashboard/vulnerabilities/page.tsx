@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { Fragment, useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
@@ -38,6 +38,7 @@ export default function VulnerabilitiesPage() {
   const [editingVuln, setEditingVuln] = useState<any>(null);
   const [message, setMessage] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'pending'>('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Bulk upload state
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
@@ -333,12 +334,13 @@ export default function VulnerabilitiesPage() {
             </thead>
             <tbody>
               {displayVulns.map((vuln, i) => (
+                <Fragment key={vuln.id}>
                 <motion.tr
-                  key={vuln.id}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.02 }}
-                  className="border-b border-gray-700/50 hover:bg-white/5 transition-colors"
+                  onClick={() => setExpandedId(expandedId === vuln.id ? null : vuln.id)}
+                  className="border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer"
                 >
                   <td className="px-4 py-3">
                     <div>
@@ -364,21 +366,21 @@ export default function VulnerabilitiesPage() {
                       {activeTab === 'pending' && isAdminOrTL ? (
                         <>
                           <button
-                            onClick={() => handleApprove(vuln.id)}
+                            onClick={(e) => { e.stopPropagation(); handleApprove(vuln.id); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
                             title="Approve"
                           >
                             <CheckCircle className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => handleReject(vuln.id)}
+                            onClick={(e) => { e.stopPropagation(); handleReject(vuln.id); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
                             title="Reject"
                           >
                             <XCircle className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => openEditModal(vuln)}
+                            onClick={(e) => { e.stopPropagation(); openEditModal(vuln); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
                             title="Edit"
                           >
@@ -388,7 +390,7 @@ export default function VulnerabilitiesPage() {
                       ) : (
                         <>
                           <button
-                            onClick={() => openEditModal(vuln)}
+                            onClick={(e) => { e.stopPropagation(); openEditModal(vuln); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
                             title="Edit"
                           >
@@ -396,7 +398,7 @@ export default function VulnerabilitiesPage() {
                           </button>
                           {user?.role === 'ADMIN' && (
                             <button
-                              onClick={() => handleDelete(vuln.id)}
+                              onClick={(e) => { e.stopPropagation(); handleDelete(vuln.id); }}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
                               title="Deactivate"
                             >
@@ -408,6 +410,64 @@ export default function VulnerabilitiesPage() {
                     </div>
                   </td>
                 </motion.tr>
+                <AnimatePresence>
+                  {expandedId === vuln.id && (
+                    <motion.tr
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="bg-white/[0.02] border-b border-gray-700/50"
+                    >
+                      <td colSpan={activeTab === 'pending' ? 6 : 5} className="px-6 py-4">
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div className="col-span-2">
+                            <p className="text-xs text-gray-500 mb-1">Description</p>
+                            <p className="text-gray-300">{vuln.description}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Impact</p>
+                            <p className="text-gray-300">{vuln.impact}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Remediation</p>
+                            <p className="text-gray-300">{vuln.remediation}</p>
+                          </div>
+                          <div className="col-span-2">
+                            <p className="text-xs text-gray-500 mb-1">References</p>
+                            <p className="text-gray-300 break-all">{vuln.references}</p>
+                          </div>
+                          {vuln.cvssVector && (
+                            <div>
+                              <p className="text-xs text-gray-500 mb-1">CVSS Vector</p>
+                              <p className="text-gray-300">{vuln.cvssVector}</p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Source</p>
+                            <p className="text-gray-300">{vuln.source || 'internal'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Status</p>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${statusColors[vuln.status] || statusColors.PENDING}`}>
+                              {vuln.status}
+                            </span>
+                          </div>
+                          {vuln.reviewedBy?.username && (
+                            <div>
+                              <p className="text-xs text-gray-500 mb-1">Reviewed By</p>
+                              <p className="text-gray-300">{vuln.reviewedBy.username}</p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-xs text-gray-500 mb-1">Created</p>
+                            <p className="text-gray-300">{vuln.createdAt ? new Date(vuln.createdAt).toLocaleString() : '-'}</p>
+                          </div>
+                        </div>
+                      </td>
+                    </motion.tr>
+                  )}
+                </AnimatePresence>
+                </Fragment>
               ))}
             </tbody>
           </table>
