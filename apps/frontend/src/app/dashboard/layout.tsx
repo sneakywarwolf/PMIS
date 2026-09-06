@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useAuth, api } from '@/contexts/auth-context';
 import { useIdleTimer } from '@/hooks/use-idle-timer';
+import { isRouteAllowed } from '@/lib/rbac';
 
 interface NavItem {
   label: string;
@@ -79,6 +80,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [user, loading, router]);
 
+  useEffect(() => {
+    if (user && !isRouteAllowed(pathname, user.role)) {
+      router.replace(`/unauthorized?from=${encodeURIComponent(pathname)}`);
+    }
+  }, [user, pathname, router]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-cyber-bg flex items-center justify-center">
@@ -88,6 +95,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   if (!user) return null;
+  if (!isRouteAllowed(pathname, user.role)) return null;
 
   const filteredNav = navItems.filter(item => item.roles.includes(user.role));
 

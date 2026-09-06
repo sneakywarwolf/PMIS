@@ -51,7 +51,14 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const { config, response } = error;
-    const isAuthEndpoint = config?.url?.startsWith('/auth/login') || config?.url?.startsWith('/auth/refresh');
+    // /auth/me's 401 is the normal "not logged in yet" check on every page
+    // load (see checkAuth below) — it must not be treated as an expired
+    // session, or every logged-out visit force-redirects with a false
+    // "session expired" message.
+    const isAuthEndpoint =
+      config?.url?.startsWith('/auth/login') ||
+      config?.url?.startsWith('/auth/refresh') ||
+      config?.url?.startsWith('/auth/me');
 
     if (response?.status === 401 && !isAuthEndpoint && !config?._retriedAfterRefresh) {
       const refreshed = await attemptRefresh();
