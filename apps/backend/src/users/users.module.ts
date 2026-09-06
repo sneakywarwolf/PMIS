@@ -4,9 +4,10 @@ import { UsersController } from './users.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
-  imports: [PrismaModule, AuditModule, NotificationsModule],
+  imports: [PrismaModule, AuditModule, NotificationsModule, SettingsModule],
   controllers: [UsersController],
   providers: [UsersService],
   exports: [UsersService],

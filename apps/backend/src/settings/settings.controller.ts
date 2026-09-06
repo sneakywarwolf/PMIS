@@ -31,4 +31,11 @@ export class SettingsController {
   async history() {
     return this.settingsService.getHistory();
   }
+
+  @Get('system-health')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get infrastructure health and configuration info (Admin only)' })
+  async systemHealth() {
+    return this.settingsService.getSystemHealth();
+  }
 }

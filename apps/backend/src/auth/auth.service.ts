@@ -157,6 +157,11 @@ export class AuthService {
       throw new BadRequestException('Current password is incorrect');
     }
 
+    const policyErrors = await this.settingsService.validatePassword(dto.newPassword);
+    if (policyErrors.length > 0) {
+      throw new BadRequestException(policyErrors.join('; '));
+    }
+
     const newHash = await argon2.hash(dto.newPassword, {
       type: argon2.argon2id,
       memoryCost: 65536,

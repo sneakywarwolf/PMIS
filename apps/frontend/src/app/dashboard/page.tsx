@@ -36,6 +36,17 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return;
     fetchStats();
+
+    let interval: ReturnType<typeof setInterval> | undefined;
+    api.get('/settings').then((res) => {
+      const seconds = res.data?.settings?.appearance?.dashboardRefreshIntervalSeconds;
+      if (seconds && seconds > 0) {
+        interval = setInterval(fetchStats, seconds * 1000);
+      }
+    });
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 

@@ -1,6 +1,8 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { RedisService } from '../redis/redis.service';
+import { StorageService } from '../reports/storage.service';
 import { DEFAULT_SETTINGS } from './settings.defaults';
 
 const SETTINGS_ID = 'singleton';
@@ -9,6 +11,7 @@ const THEME_OPTIONS = ['light', 'dark', 'auto'];
 const DENSITY_OPTIONS = ['compact', 'comfortable', 'spacious'];
 const INACTIVITY_OPTIONS = ['logout', 'warn'];
 const TIME_FORMAT_OPTIONS = ['12h', '24h'];
+const PROJECT_STATUS_OPTIONS = ['NOT_STARTED', 'IN_PROGRESS', 'AWAITING_REVIEW', 'COMPLETED'];
 
 function isPlainObject(v: any) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -97,6 +100,26 @@ function validatePatch(patch: any) {
     errors.push(`formatting.timeFormat must be one of ${TIME_FORMAT_OPTIONS.join(', ')}`);
   }
 
+  const workflowDefaults = patch.workflow?.defaults;
+  if (workflowDefaults) {
+    for (const key of ['creationStatus', 'workingStatus', 'completionStatus']) {
+      const v = workflowDefaults[key];
+      if (v !== undefined && !PROJECT_STATUS_OPTIONS.includes(v)) {
+        errors.push(`workflow.defaults.${key} must be one of ${PROJECT_STATUS_OPTIONS.join(', ')}`);
+      }
+    }
+  }
+
+  const system = patch.system;
+  if (system?.attachmentRetentionDays !== undefined) {
+    const v = system.attachmentRetentionDays;
+    if (typeof v !== 'number' || v < 1 || v > 3650) errors.push('system.attachmentRetentionDays must be a number between 1 and 3650');
+  }
+  if (system?.projectArchivalDays !== undefined) {
+    const v = system.projectArchivalDays;
+    if (typeof v !== 'number' || v < 1 || v > 3650) errors.push('system.projectArchivalDays must be a number between 1 and 3650');
+  }
+
   return errors;
 }
 
@@ -105,6 +128,8 @@ export class SettingsService {
   constructor(
     private prisma: PrismaService,
     private auditService: AuditService,
+    private redisService: RedisService,
+    private storageService: StorageService,
   ) {}
 
   async get() {
@@ -115,6 +140,24 @@ export class SettingsService {
       updatedAt: row?.updatedAt ?? null,
       updatedById: row?.updatedById ?? null,
     };
+  }
+
+  /** Validates a user-supplied password against the admin-configured security policy. */
+  async validatePassword(password: string): Promise<string[]> {
+    const { settings } = await this.get();
+    const { passwordMinLength, passwordRequireComplexity } = settings.security;
+    const errors: string[] = [];
+
+    if (password.length < passwordMinLength) {
+      errors.push(`Password must be at least ${passwordMinLength} characters`);
+    }
+    if (passwordRequireComplexity) {
+      if (!/[a-z]/.test(password)) errors.push('Password must contain a lowercase letter');
+      if (!/[A-Z]/.test(password)) errors.push('Password must contain an uppercase letter');
+      if (!/[0-9]/.test(password)) errors.push('Password must contain a number');
+      if (!/[^a-zA-Z0-9]/.test(password)) errors.push('Password must contain a symbol');
+    }
+    return errors;
   }
 
   async update(patch: any, actorId: string, ipAddress: string, userAgent: string) {
@@ -144,6 +187,51 @@ export class SettingsService {
     });
 
     return this.get();
+  }
+
+  async getSystemHealth() {
+    let dbStatus: 'up' | 'down' = 'down';
+    let dbSizeMb: number | null = null;
+    try {
+      const [{ size }] = await this.prisma.$queryRaw<{ size: bigint }[]>`SELECT pg_database_size(current_database()) as size`;
+      dbStatus = 'up';
+      dbSizeMb = Math.round(Number(size) / (1024 * 1024));
+    } catch {
+      dbStatus = 'down';
+    }
+
+    let redisStatus: 'up' | 'down' = 'down';
+    try {
+      redisStatus = (await this.redisService.ping()) === 'PONG' ? 'up' : 'down';
+    } catch {
+      redisStatus = 'down';
+    }
+
+    const storage = await this.storageService.healthCheck();
+
+    return {
+      backend: {
+        port: Number(process.env.PORT) || 4000,
+        nodeEnv: process.env.NODE_ENV || 'development',
+        uptimeSeconds: Math.round(process.uptime()),
+        memoryUsedMb: Math.round(process.memoryUsage().rss / (1024 * 1024)),
+      },
+      database: {
+        status: dbStatus,
+        port: 5432,
+        sizeMb: dbSizeMb,
+      },
+      redis: {
+        status: redisStatus,
+        port: 6379,
+      },
+      storage: {
+        status: storage.reachable ? 'up' : 'down',
+        bucket: storage.bucket,
+        endpoint: storage.endpoint,
+        port: storage.port,
+      },
+    };
   }
 
   async getHistory(limit = 20) {

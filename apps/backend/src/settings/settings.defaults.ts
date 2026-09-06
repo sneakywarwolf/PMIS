@@ -24,6 +24,19 @@ export const DEFAULT_SETTINGS = {
     severityColors: { Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#3b82f6', Info: '#6b7280' },
     vulnerabilityStatuses: ['PENDING', 'APPROVED', 'REJECTED'],
     projectStatuses: ['NOT_STARTED', 'IN_PROGRESS', 'AWAITING_REVIEW', 'COMPLETED'],
+    defaults: {
+      creationStatus: 'NOT_STARTED',
+      workingStatus: 'IN_PROGRESS',
+      completionStatus: 'COMPLETED',
+    },
+  },
+  // ponytail: retention/archival periods are stored and validated here but not
+  // yet enforced by a scheduled job — there's no cron/worker infra in this repo
+  // yet. Add a scheduled task (e.g. @nestjs/schedule) reading these values when
+  // actual deletion/archival of old attachments and completed projects is needed.
+  system: {
+    attachmentRetentionDays: 90,
+    projectArchivalDays: 365,
   },
   security: {
     sessionTimeoutMinutes: 15,
@@ -37,16 +50,6 @@ export const DEFAULT_SETTINGS = {
   },
   notifications: {
     defaultEnabledTypes: ['VULNERABILITY_REQUESTED', 'VULNERABILITY_APPROVED', 'VULNERABILITY_REJECTED', 'USER_CREATED'],
-  },
-  navigation: {
-    defaultLandingPage: {
-      ADMIN: '/dashboard',
-      AVP: '/dashboard',
-      TEAM_LEAD: '/dashboard',
-      TESTER: '/dashboard',
-    },
-    sidebarOrder: ['Dashboard', 'Projects', 'Reports', 'Vulnerabilities', 'Users', 'Settings'],
-    sidebarHidden: [] as string[],
   },
   formatting: {
     dateFormat: 'DD/MM/YYYY',

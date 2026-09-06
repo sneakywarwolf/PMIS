@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SettingsService } from '../settings/settings.service';
 import { User, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
@@ -12,6 +13,7 @@ export class UsersService {
     private prisma: PrismaService,
     private auditService: AuditService,
     private notificationsService: NotificationsService,
+    private settingsService: SettingsService,
   ) {}
 
   async findAll(requestingUser: User) {
@@ -95,6 +97,11 @@ export class UsersService {
       if (!tl || (tl.role !== UserRole.TEAM_LEAD && tl.role !== UserRole.AVP)) {
         throw new BadRequestException('Invalid team lead assignment');
       }
+    }
+
+    const policyErrors = await this.settingsService.validatePassword(dto.password);
+    if (policyErrors.length > 0) {
+      throw new BadRequestException(policyErrors.join('; '));
     }
 
     const passwordHash = await argon2.hash(dto.password, {

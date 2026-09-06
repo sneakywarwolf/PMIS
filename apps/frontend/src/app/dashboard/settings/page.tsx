@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Navigation, Calendar, Save, Loader2, Clock } from 'lucide-react';
+import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, Save, Loader2, Clock, ServerCog } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
@@ -14,8 +14,8 @@ const TABS = [
   { id: 'security', label: 'Security & Sessions', icon: ShieldCheck },
   { id: 'attachments', label: 'Attachments', icon: Paperclip },
   { id: 'notifications', label: 'Notifications', icon: Bell },
-  { id: 'navigation', label: 'Navigation', icon: Navigation },
   { id: 'formatting', label: 'Formatting', icon: Calendar },
+  { id: 'system', label: 'System', icon: ServerCog },
 ];
 
 const inputCls = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
@@ -122,8 +122,8 @@ function SettingsContent() {
         {activeTab === 'security' && <SecurityTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'attachments' && <AttachmentsTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'notifications' && <NotificationsTab settings={settings} setCategory={setCategory} />}
-        {activeTab === 'navigation' && <NavigationTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'formatting' && <FormattingTab settings={settings} setCategory={setCategory} />}
+        {activeTab === 'system' && <SystemTab settings={settings} setCategory={setCategory} />}
 
         <div className="flex justify-end pt-6 mt-6 border-t border-gray-700">
           <button
@@ -343,7 +343,7 @@ function SecurityTab({ settings, setCategory }: any) {
       <div>
         <label className={labelCls}>Session Timeout (minutes)</label>
         <input type="number" min={1} max={1440} value={s.sessionTimeoutMinutes} onChange={(e) => setCategory('security', { sessionTimeoutMinutes: parseInt(e.target.value) || 0 })} className={inputCls} />
-        <p className={hintCls}>Allowed range: 1–1440 minutes. Not yet wired to JWT expiry — stored for future enforcement.</p>
+        <p className={hintCls}>Allowed range: 1–1440 minutes. Applies to new logins and access-token refreshes.</p>
       </div>
       <div>
         <label className={labelCls}>Inactivity Behavior</label>
@@ -355,7 +355,7 @@ function SecurityTab({ settings, setCategory }: any) {
       <div>
         <label className={labelCls}>Password Minimum Length</label>
         <input type="number" min={8} max={64} value={s.passwordMinLength} onChange={(e) => setCategory('security', { passwordMinLength: parseInt(e.target.value) || 0 })} className={inputCls} />
-        <p className={hintCls}>Allowed range: 8–64 characters. Actual enforced rule lives in the auth service's validator — update both to stay in sync.</p>
+        <p className={hintCls}>Allowed range: 8–64 characters. Enforced on password change and new-user creation.</p>
       </div>
       <div className="flex items-center gap-3 pt-6">
         <input
@@ -416,37 +416,6 @@ function NotificationsTab({ settings, setCategory }: any) {
   );
 }
 
-function NavigationTab({ settings, setCategory }: any) {
-  const nav = settings.navigation;
-  return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-sm font-medium text-white mb-3">Default Landing Page Per Role</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {Object.keys(nav.defaultLandingPage).map((role) => (
-            <div key={role}>
-              <label className={labelCls}>{role.replace('_', ' ')}</label>
-              <input
-                value={nav.defaultLandingPage[role]}
-                onChange={(e) => setCategory('navigation', { defaultLandingPage: { ...nav.defaultLandingPage, [role]: e.target.value } })}
-                className={inputCls}
-              />
-            </div>
-          ))}
-        </div>
-        <p className={hintCls}>Not yet wired into post-login redirect — stored for future use.</p>
-      </div>
-      <div className="border-t border-gray-700 pt-6">
-        <TagListEditor
-          label="Sidebar Module Order"
-          values={nav.sidebarOrder}
-          onChange={(v) => setCategory('navigation', { sidebarOrder: v })}
-        />
-        <p className={hintCls}>Not yet wired into the sidebar's rendering order — stored for future use.</p>
-      </div>
-    </div>
-  );
-}
 
 function FormattingTab({ settings, setCategory }: any) {
   const f = settings.formatting;
@@ -476,6 +445,112 @@ function FormattingTab({ settings, setCategory }: any) {
         <input value={f.numberFormat} onChange={(e) => setCategory('formatting', { numberFormat: e.target.value })} className={inputCls} placeholder="e.g. en-IN" />
       </div>
       <p className={`${hintCls} col-span-2`}>Not yet wired into date/number rendering across the app — stored centrally so a future pass can consume one source of truth.</p>
+    </div>
+  );
+}
+
+const PROJECT_STATUS_OPTIONS = ['NOT_STARTED', 'IN_PROGRESS', 'AWAITING_REVIEW', 'COMPLETED'];
+
+function SystemTab({ settings, setCategory }: any) {
+  const w = settings.workflow.defaults;
+  const sys = settings.system;
+  const [health, setHealth] = useState<any>(null);
+  const [healthLoading, setHealthLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/settings/system-health')
+      .then((res) => setHealth(res.data))
+      .finally(() => setHealthLoading(false));
+  }, []);
+
+  const StatusBadge = ({ status }: { status: string }) => (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium ${status === 'up' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
+      {status === 'up' ? 'Online' : 'Offline'}
+    </span>
+  );
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h3 className="text-sm font-medium text-white mb-3">System Health &amp; Configuration</h3>
+        {healthLoading ? (
+          <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
+        ) : health ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-white">Backend</span>
+                <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400">Online</span>
+              </div>
+              <p className="text-xs text-gray-500">Port {health.backend.port} · {health.backend.nodeEnv} · up {Math.floor(health.backend.uptimeSeconds / 60)}m · {health.backend.memoryUsedMb} MB RSS</p>
+            </div>
+            <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-white">PostgreSQL</span>
+                <StatusBadge status={health.database.status} />
+              </div>
+              <p className="text-xs text-gray-500">Port {health.database.port} · {health.database.sizeMb != null ? `${health.database.sizeMb} MB used` : 'size unavailable'}</p>
+            </div>
+            <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-white">Redis</span>
+                <StatusBadge status={health.redis.status} />
+              </div>
+              <p className="text-xs text-gray-500">Port {health.redis.port} · sessions &amp; rate-limiting</p>
+            </div>
+            <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-white">MinIO Storage</span>
+                <StatusBadge status={health.storage.status} />
+              </div>
+              <p className="text-xs text-gray-500">{health.storage.endpoint}:{health.storage.port} · bucket "{health.storage.bucket}"</p>
+            </div>
+          </div>
+        ) : (
+          <p className={hintCls}>Could not load system health.</p>
+        )}
+      </div>
+
+      <div className="border-t border-gray-700 pt-6">
+        <h3 className="text-sm font-medium text-white mb-3">Workflow Defaults</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className={labelCls}>Status on Creation</label>
+            <select value={w.creationStatus} onChange={(e) => setCategory('workflow', { defaults: { ...w, creationStatus: e.target.value } })} className={inputCls}>
+              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Working Status</label>
+            <select value={w.workingStatus} onChange={(e) => setCategory('workflow', { defaults: { ...w, workingStatus: e.target.value } })} className={inputCls}>
+              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Completion Status</label>
+            <select value={w.completionStatus} onChange={(e) => setCategory('workflow', { defaults: { ...w, completionStatus: e.target.value } })} className={inputCls}>
+              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            </select>
+          </div>
+        </div>
+        <p className={hintCls}>Controls which status a new project starts in, which status marks it "in progress" once a finding is added, and which status a generated report moves it to.</p>
+      </div>
+
+      <div className="border-t border-gray-700 pt-6">
+        <h3 className="text-sm font-medium text-white mb-3">Retention &amp; Archival</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Attachment Retention Period (days)</label>
+            <input type="number" min={1} max={3650} value={sys.attachmentRetentionDays} onChange={(e) => setCategory('system', { attachmentRetentionDays: parseInt(e.target.value) || 0 })} className={inputCls} />
+            <p className={hintCls}>Allowed range: 1–3650 days.</p>
+          </div>
+          <div>
+            <label className={labelCls}>Project Archival Period (days)</label>
+            <input type="number" min={1} max={3650} value={sys.projectArchivalDays} onChange={(e) => setCategory('system', { projectArchivalDays: parseInt(e.target.value) || 0 })} className={inputCls} />
+            <p className={hintCls}>Allowed range: 1–3650 days. Applies to completed projects, including their generated reports and issue logs.</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
