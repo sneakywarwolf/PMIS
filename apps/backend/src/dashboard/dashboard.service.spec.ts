@@ -79,14 +79,41 @@ describe('DashboardService.completion stats', () => {
   it('getOrgCompletionStats aggregates totals per team', async () => {
     prisma.user.findMany
       .mockResolvedValueOnce([{ id: 'tl-1', username: 'tl1' }]) // all TLs
-      .mockResolvedValueOnce([{ id: 'tester-1', username: 'tester1' }]); // testers under tl-1
-    prisma.project.findMany.mockResolvedValue([project({ id: 'p1', tlId: 'tl-1' })]);
+      .mockResolvedValueOnce([{ id: 'tester-1', assignedTlId: 'tl-1' }]); // all active testers with a team
+
+    const p1 = project({ id: 'p1', tlId: 'tl-1' });
+    prisma.project.findMany.mockResolvedValue([{ ...p1, tlId: 'tl-1', testerId: 'tester-1' }]);
 
     const result = await service.getOrgCompletionStats('month');
 
+    expect(prisma.project.findMany).toHaveBeenCalledWith({
+      where: { status: ProjectStatus.COMPLETED },
+      select: { id: true, name: true, complianceType: true, endDate: true, tlId: true, testerId: true },
+    });
     expect(result.totalCompleted).toBe(1);
     expect(result.teams).toEqual([
       { tlId: 'tl-1', tlName: 'tl1', teamSize: 1, totalCompleted: 1, byType: { VAPT: 1, CERT_IN: 0, PCI: 0, ASV: 0 } },
     ]);
+  });
+
+  it('getOrgCompletionStats assigns a project to the tester\'s current team, not the project\'s stale tlId, avoiding double-counting', async () => {
+    prisma.user.findMany
+      .mockResolvedValueOnce([
+        { id: 'tl-a', username: 'tlA' },
+        { id: 'tl-b', username: 'tlB' },
+      ]) // all TLs
+      .mockResolvedValueOnce([{ id: 'tester-1', assignedTlId: 'tl-b' }]); // tester-1 now belongs to tl-b
+
+    // Project was created under tl-a, but its tester has since moved to tl-b.
+    const staleProject = project({ id: 'p1', tlId: 'tl-a', testerId: 'tester-1' });
+    prisma.project.findMany.mockResolvedValue([staleProject]);
+
+    const result = await service.getOrgCompletionStats('month');
+
+    const byTl = Object.fromEntries(result.teams.map((t) => [t.tlId, t.totalCompleted]));
+    expect(byTl['tl-b']).toBe(1);
+    expect(byTl['tl-a']).toBe(0);
+    const sumOfTeamTotals = result.teams.reduce((sum, t) => sum + t.totalCompleted, 0);
+    expect(sumOfTeamTotals).toBe(result.totalCompleted);
   });
 });

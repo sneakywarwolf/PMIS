@@ -82,25 +82,31 @@ export class DashboardService {
       select: { id: true, username: true },
     });
 
-    const teams = await Promise.all(
-      teamLeads.map(async (tl) => {
-        const testers = await this.prisma.user.findMany({
-          where: { assignedTlId: tl.id, isActive: true },
-          select: { id: true },
-        });
-        const teamRows = rows.filter(
-          (r: any) => r.tlId === tl.id || testers.some((t) => t.id === r.testerId),
-        ) as CompletedProjectRow[];
-        const teamStats = buildCompletionStats(teamRows, granularity);
-        return {
-          tlId: tl.id,
-          tlName: tl.username,
-          teamSize: testers.length,
-          totalCompleted: teamStats.totalCompleted,
-          byType: teamStats.byType,
-        };
-      }),
-    );
+    // All active testers with a current team assignment, fetched once and reused
+    // both for teamSize and to resolve each project's owning team below.
+    const allTesters = await this.prisma.user.findMany({
+      where: { assignedTlId: { not: null }, isActive: true },
+      select: { id: true, assignedTlId: true },
+    });
+    const testerToTl = new Map(allTesters.map((t) => [t.id, t.assignedTlId as string]));
+
+    // A project belongs to exactly one team: the tester's *current* team if known,
+    // else the project's own (possibly stale) tlId. Prevents double-counting when
+    // a tester has since moved teams.
+    const owningTlId = (r: any) => testerToTl.get(r.testerId) ?? r.tlId;
+
+    const teams = teamLeads.map((tl) => {
+      const teamSize = allTesters.filter((t) => t.assignedTlId === tl.id).length;
+      const teamRows = rows.filter((r: any) => owningTlId(r) === tl.id) as CompletedProjectRow[];
+      const teamStats = buildCompletionStats(teamRows, granularity);
+      return {
+        tlId: tl.id,
+        tlName: tl.username,
+        teamSize,
+        totalCompleted: teamStats.totalCompleted,
+        byType: teamStats.byType,
+      };
+    });
 
     return { ...base, teams };
   }
