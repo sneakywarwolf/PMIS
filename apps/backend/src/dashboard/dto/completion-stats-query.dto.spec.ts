@@ -23,22 +23,22 @@ describe('CompletionStatsQueryDto', () => {
   });
 
   it('rejects an invalid granularity value', async () => {
-    const dto = plainToInstance(CompletionStatsQueryDto, { scope: 'self', granularity: 'invalid' });
+    const dto = plainToInstance(CompletionStatsQueryDto, { scope: 'self', granularity: 'century' });
     const errors = await validate(dto);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].property).toBe('granularity');
   });
 
   it('rejects non-string tlId', async () => {
-    const dto = plainToInstance(CompletionStatsQueryDto, { scope: 'self', granularity: 'month', tlId: 123 });
+    const dto = plainToInstance(CompletionStatsQueryDto, { scope: 'self', granularity: 'month', tlId: { $ne: null } });
     const errors = await validate(dto);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0].property).toBe('tlId');
   });
 
-  it('accepts valid org-scope with quarter granularity', async () => {
-    const dto = plainToInstance(CompletionStatsQueryDto, { scope: 'org', granularity: 'quarter', tlId: 'clx456' });
+  it('rejects missing scope', async () => {
+    const dto = plainToInstance(CompletionStatsQueryDto, { granularity: 'month' });
     const errors = await validate(dto);
-    expect(errors).toHaveLength(0);
+    expect(errors.length).toBeGreaterThan(0);
   });
 });
