@@ -1,10 +1,109 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { User, UserRole } from '@prisma/client';
+import { User, UserRole, ProjectStatus } from '@prisma/client';
+import { buildCompletionStats, CompletedProjectRow, CompletionStatsBase } from './completion-stats.util';
+import { ComplianceType } from '@prisma/client';
+import { CompletionStatsGranularity } from './dto/completion-stats-query.dto';
 
 @Injectable()
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
+
+  private readonly completedProjectSelect = {
+    id: true,
+    name: true,
+    complianceType: true,
+    endDate: true,
+  } as const;
+
+  async getSelfCompletionStats(userId: string, granularity: CompletionStatsGranularity) {
+    const rows = await this.prisma.project.findMany({
+      where: { testerId: userId, status: ProjectStatus.COMPLETED },
+      select: this.completedProjectSelect,
+    });
+    return buildCompletionStats(rows as CompletedProjectRow[], granularity);
+  }
+
+  async getTeamCompletionStats(
+    tlId: string,
+    granularity: CompletionStatsGranularity,
+    includeMembers: boolean,
+  ): Promise<CompletionStatsBase & { members?: Array<{ id: string; username: string; totalCompleted: number; byType: Record<ComplianceType, number> }> }> {
+    const tl = await this.prisma.user.findUnique({ where: { id: tlId } });
+    if (!tl || tl.role !== UserRole.TEAM_LEAD) {
+      const empty = buildCompletionStats([], granularity);
+      return includeMembers ? { ...empty, members: [] } : empty;
+    }
+
+    const testers = await this.prisma.user.findMany({
+      where: { assignedTlId: tlId, isActive: true },
+      select: { id: true, username: true },
+    });
+    const testerIds = testers.map((t) => t.id);
+
+    const rows = await this.prisma.project.findMany({
+      where: {
+        status: ProjectStatus.COMPLETED,
+        OR: [{ tlId }, { testerId: { in: testerIds } }],
+      },
+      select: { ...this.completedProjectSelect, testerId: true },
+    });
+
+    const base = buildCompletionStats(rows as CompletedProjectRow[], granularity);
+    if (!includeMembers) {
+      return base;
+    }
+
+    const members = testers.map((tester) => {
+      const testerRows = rows.filter((r) => r.testerId === tester.id) as CompletedProjectRow[];
+      const memberStats = buildCompletionStats(testerRows, granularity);
+      return {
+        id: tester.id,
+        username: tester.username,
+        totalCompleted: memberStats.totalCompleted,
+        byType: memberStats.byType,
+      };
+    });
+
+    return { ...base, members };
+  }
+
+  async getOrgCompletionStats(
+    granularity: CompletionStatsGranularity,
+  ): Promise<CompletionStatsBase & { teams: Array<{ tlId: string; tlName: string; teamSize: number; totalCompleted: number; byType: Record<ComplianceType, number> }> }> {
+    const rows = await this.prisma.project.findMany({
+      where: { status: ProjectStatus.COMPLETED },
+      select: { ...this.completedProjectSelect, tlId: true, testerId: true },
+    });
+    const base = buildCompletionStats(rows as CompletedProjectRow[], granularity);
+
+    const teamLeads = await this.prisma.user.findMany({
+      where: { role: UserRole.TEAM_LEAD, isActive: true },
+      select: { id: true, username: true },
+    });
+
+    const teams = await Promise.all(
+      teamLeads.map(async (tl) => {
+        const testers = await this.prisma.user.findMany({
+          where: { assignedTlId: tl.id, isActive: true },
+          select: { id: true },
+        });
+        const teamRows = rows.filter(
+          (r: any) => r.tlId === tl.id || testers.some((t) => t.id === r.testerId),
+        ) as CompletedProjectRow[];
+        const teamStats = buildCompletionStats(teamRows, granularity);
+        return {
+          tlId: tl.id,
+          tlName: tl.username,
+          teamSize: testers.length,
+          totalCompleted: teamStats.totalCompleted,
+          byType: teamStats.byType,
+        };
+      }),
+    );
+
+    return { ...base, teams };
+  }
 
   async getTeamStats(tlId: string) {
     // Get all testers under this TL
