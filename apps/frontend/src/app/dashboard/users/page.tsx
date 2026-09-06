@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Users, Plus, Search, UserPlus, Key, Pencil, Trash2, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, Upload, Download, AlertTriangle, XCircle } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { useConfirm } from '@/components/confirm-provider';
 
 interface TeamLead {
   id: string;
@@ -13,6 +14,7 @@ interface TeamLead {
 
 export default function UsersPage() {
   const { user } = useAuth();
+  const confirmDialog = useConfirm();
   const [users, setUsers] = useState<any[]>([]);
   const [teamLeads, setTeamLeads] = useState<TeamLead[]>([]);
   const [managers, setManagers] = useState<TeamLead[]>([]);
@@ -104,7 +106,8 @@ export default function UsersPage() {
   };
 
   const handleDeactivate = async (userId: string) => {
-    if (!confirm('Deactivate this user? They will no longer be able to log in.')) return;
+    const ok = await confirmDialog({ title: 'Deactivate user?', message: 'They will no longer be able to log in.', confirmLabel: 'Deactivate', danger: true });
+    if (!ok) return;
     try {
       await api.delete(`/users/${userId}`);
       fetchUsers();
@@ -300,6 +303,7 @@ export default function UsersPage() {
                 <div className="flex items-center gap-1">Team Lead {sortField === 'teamLead' ? (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-400" /> : <ArrowDown className="w-3 h-3 text-emerald-400" />) : <ArrowUpDown className="w-3 h-3 text-gray-600" />}</div>
               </th>
               <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Phone</th>
+              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Joined</th>
               <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Status</th>
               <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Actions</th>
             </tr>
@@ -334,6 +338,7 @@ export default function UsersPage() {
                   {u.assignedTlId ? teamLeads.find(tl => tl.id === u.assignedTlId)?.fullName || teamLeads.find(tl => tl.id === u.assignedTlId)?.username || 'Unknown' : 'N/A'}
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-400">{u.phone || 'N/A'}</td>
+                <td className="px-4 py-3 text-sm text-gray-400">{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}</td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 rounded-full text-xs ${
                     u.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-700 text-gray-400'

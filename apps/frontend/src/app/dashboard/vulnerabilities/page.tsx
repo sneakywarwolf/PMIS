@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw, Clock } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
+import { useConfirm } from '@/components/confirm-provider';
 
 const severityColors: Record<string, string> = {
   Critical: 'bg-red-500/10 text-red-400 border-red-500/20',
@@ -38,6 +39,7 @@ export default function VulnerabilitiesPage() {
   const [showPendingModal, setShowPendingModal] = useState(false);
   const [editingVuln, setEditingVuln] = useState<any>(null);
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'changeTracker'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -97,7 +99,8 @@ export default function VulnerabilitiesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Deactivate this vulnerability?')) return;
+    const ok = await confirmDialog({ title: 'Deactivate vulnerability?', message: 'This vulnerability will be deactivated and hidden from active listings.', confirmLabel: 'Deactivate', danger: true });
+    if (!ok) return;
     try {
       await api.delete(`/vulnerabilities/${id}`);
       fetchVulnerabilities();

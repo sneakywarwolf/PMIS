@@ -21,8 +21,10 @@ import {
   CheckCircle,
   AlertCircle,
   Eye,
+  Download,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { useConfirm } from '@/components/confirm-provider';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
 
 const severityColors: Record<string, string> = {
@@ -119,6 +121,7 @@ export default function ProjectDetailPage() {
   const { id } = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const confirmDialog = useConfirm();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -144,7 +147,8 @@ export default function ProjectDetailPage() {
   }, [fetchProject]);
 
   const handleDeleteFinding = async (findingId: string) => {
-    if (!confirm('Delete this finding?')) return;
+    const ok = await confirmDialog({ title: 'Delete finding?', message: 'This finding and its POC steps will be permanently deleted.', confirmLabel: 'Delete', danger: true });
+    if (!ok) return;
     try {
       await api.delete(`/findings/${findingId}`);
       fetchProject();
@@ -426,6 +430,8 @@ export default function ProjectDetailPage() {
           </div>
         )}
       </div>
+
+      <GeneratedReportsSection projectId={project.id} refreshKey={reportResult} />
 
       {/* Add/Edit Finding Modal */}
       {showAddModal && (
@@ -1449,6 +1455,53 @@ function CvssCalculator({ initialVector, onApply }: {
         </button>
       </div>
       <p className="text-xs text-gray-500 font-mono break-all">{vector}</p>
+    </div>
+  );
+}
+
+function GeneratedReportsSection({ projectId, refreshKey }: { projectId: string; refreshKey: any }) {
+  const [reports, setReports] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get(`/reports/history/${projectId}`)
+      .then((res) => setReports(res.data))
+      .catch(() => setReports([]))
+      .finally(() => setLoading(false));
+  }, [projectId, refreshKey]);
+
+  if (loading || reports.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-lg font-semibold text-white">Generated Reports ({reports.length})</h2>
+      <div className="glass-card rounded-xl divide-y divide-gray-800">
+        {reports.map((r) => (
+          <div key={r.id} className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <FileText className="w-4 h-4 text-blue-400 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm text-white truncate">{r.fileName || r.template?.name || 'Report'}</p>
+                <p className="text-xs text-gray-500">
+                  Generated {new Date(r.createdAt).toLocaleString()} by {r.generatedBy?.username || 'unknown'}
+                </p>
+              </div>
+            </div>
+            {r.docxUrl ? (
+              <a
+                href={r.docxUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 text-xs font-medium transition-all shrink-0"
+              >
+                <Download className="w-3.5 h-3.5" /> Download
+              </a>
+            ) : (
+              <span className="text-xs text-gray-600 shrink-0">Unavailable</span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

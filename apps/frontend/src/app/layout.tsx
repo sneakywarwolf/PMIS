@@ -4,6 +4,7 @@ import { MotionConfig } from 'framer-motion';
 import './globals.css';
 import { AuthProvider } from '@/contexts/auth-context';
 import { ToastProvider } from '@/components/toast-provider';
+import { ConfirmProvider } from '@/components/confirm-provider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -44,7 +45,9 @@ export default function RootLayout({
         <MotionConfig reducedMotion="user">
           <AuthProvider>
             <ToastProvider>
+              <ConfirmProvider>
               {children}
+              </ConfirmProvider>
             </ToastProvider>
           </AuthProvider>
         </MotionConfig>
