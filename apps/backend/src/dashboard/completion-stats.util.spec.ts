@@ -80,16 +80,16 @@ describe('buildCompletionStats', () => {
     const now = new Date('2026-12-31');
     const projects = Array.from({ length: 15 }, (_, i) =>
       row({
-        id: `p${15 - i}`,
-        endDate: new Date(2026, 0, 1 + i)
+        id: `p${i}`,
+        endDate: new Date(2026, 0, i + 1)
       })
     );
 
     const result = buildCompletionStats(projects, 'month', now);
 
     expect(result.portfolio).toHaveLength(10);
-    expect(result.portfolio[0].id).toBe('p15');
-    expect(result.portfolio[9].id).toBe('p6');
+    expect(result.portfolio[0].id).toBe('p14');
+    expect(result.portfolio[9].id).toBe('p5');
   });
 
   it('handles empty array correctly', () => {

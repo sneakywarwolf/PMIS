@@ -85,7 +85,7 @@ export function buildCompletionStats(
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const portfolio = [...projects]
-    .sort((a, b) => a.endDate.getTime() - b.endDate.getTime())
+    .sort((a, b) => b.endDate.getTime() - a.endDate.getTime())
     .slice(0, 10)
     .map((p) => ({
       id: p.id,
