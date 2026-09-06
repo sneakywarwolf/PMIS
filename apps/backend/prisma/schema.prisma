@@ -59,6 +59,7 @@ enum AuditAction {
   VULNERABILITY_CREATED
   VULNERABILITY_UPDATED
   VULNERABILITY_DELETED
+  SETTINGS_UPDATED
   ADMIN_OVERRIDE
 }
 
@@ -409,4 +410,17 @@ model Notification {
   @@index([read])
   @@index([createdAt])
   @@map("notifications")
+}
+
+// Singleton row (id is always "singleton") holding all admin-configurable
+// application settings as JSON. Keeping this as one flexible JSON blob
+// avoids a migration for every new setting; validation of shape/ranges
+// happens in SettingsService, not the schema.
+model AppSettings {
+  id          String   @id @default("singleton")
+  data        Json
+  updatedById String?  @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
 }

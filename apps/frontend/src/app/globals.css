@@ -13,6 +13,20 @@
   --cyber-secondary: #06b6d4;
 }
 
+/* Global reduced-motion safety net: framer-motion components that check
+   useReducedMotion() individually still animate at full speed unless they
+   opt out explicitly. This CSS-level fallback guarantees every animation
+   (including third-party ones we don't control) collapses to near-instant
+   for users who've asked the OS for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
