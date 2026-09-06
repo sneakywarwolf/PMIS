@@ -59,6 +59,13 @@ export class VulnerabilitiesController {
     response.send(csv);
   }
 
+  @Get('change-tracker')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'List all vulnerability changes across the system (Admin only)' })
+  async getChangeTracker(@Query('limit') limit?: string) {
+    return this.vulnerabilitiesService.getAllHistory(limit ? parseInt(limit) : 100);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get vulnerability by ID' })
   async findOne(@Param('id') id: string) {

@@ -38,7 +38,7 @@ export default function VulnerabilitiesPage() {
   const [showPendingModal, setShowPendingModal] = useState(false);
   const [editingVuln, setEditingVuln] = useState<any>(null);
   const toast = useToast();
-  const [activeTab, setActiveTab] = useState<'all' | 'pending'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'changeTracker'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Bulk upload state
@@ -292,9 +292,23 @@ export default function VulnerabilitiesPage() {
               </span>
             )}
           </button>
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('changeTracker')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+                activeTab === 'changeTracker' ? 'bg-purple-600 text-white' : 'bg-gray-800/50 text-gray-400 hover:text-white'
+              }`}
+            >
+              <Clock className="w-4 h-4" /> Change Tracker
+            </button>
+          )}
         </div>
       )}
 
+      {activeTab === 'changeTracker' ? (
+        <ChangeTrackerTab />
+      ) : (
+      <>
       {/* Filters */}
       <div className="flex gap-4">
         <div className="relative flex-1 max-w-md">
@@ -431,6 +445,8 @@ export default function VulnerabilitiesPage() {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* Detail side drawer — overlays the page without navigating away, so
           table filters/sort/scroll position stay exactly as they were. */}
@@ -903,6 +919,69 @@ function VulnHistoryTimeline({ vulnId }: { vulnId: string }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ChangeTrackerTab() {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/vulnerabilities/change-tracker')
+      .then((res) => setLogs(res.data))
+      .catch(() => setLogs([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const ACTION_STYLES: Record<string, string> = {
+    VULNERABILITY_CREATED: 'bg-emerald-500/10 text-emerald-400',
+    VULNERABILITY_UPDATED: 'bg-blue-500/10 text-blue-400',
+    VULNERABILITY_DELETED: 'bg-red-500/10 text-red-400',
+    VULNERABILITY_REQUESTED: 'bg-amber-500/10 text-amber-400',
+    VULNERABILITY_APPROVED: 'bg-emerald-500/10 text-emerald-400',
+    VULNERABILITY_REJECTED: 'bg-red-500/10 text-red-400',
+  };
+
+  return (
+    <div className="glass-card rounded-xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-800">
+        <h3 className="text-sm font-medium text-white flex items-center gap-2">
+          <Clock className="w-4 h-4 text-purple-400" /> Vulnerability Change Tracker
+        </h3>
+        <p className="text-xs text-gray-500 mt-1">Every create, edit, delete, request, approval, and rejection across all vulnerabilities — admin-only.</p>
+      </div>
+
+      {loading ? (
+        <div className="p-8 text-center text-gray-500 text-sm">Loading…</div>
+      ) : logs.length === 0 ? (
+        <div className="p-8 text-center text-gray-500 text-sm">No vulnerability changes recorded yet.</div>
+      ) : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-500 text-xs border-b border-gray-800">
+              <th className="px-5 py-2 font-medium">Timestamp</th>
+              <th className="px-5 py-2 font-medium">Actor</th>
+              <th className="px-5 py-2 font-medium">Action</th>
+              <th className="px-5 py-2 font-medium">Vulnerability</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.map((log: any) => (
+              <tr key={log.id} className="border-b border-gray-800/60 hover:bg-white/[0.02]">
+                <td className="px-5 py-2.5 text-gray-400 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                <td className="px-5 py-2.5 text-white">{log.actor?.username || 'System'}</td>
+                <td className="px-5 py-2.5">
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${ACTION_STYLES[log.action] || 'bg-gray-500/10 text-gray-400'}`}>
+                    {log.action.replace('VULNERABILITY_', '').replace(/_/g, ' ').toLowerCase()}
+                  </span>
+                </td>
+                <td className="px-5 py-2.5 text-gray-300">{log.vulnerabilityName || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

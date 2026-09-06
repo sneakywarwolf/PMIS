@@ -169,6 +169,28 @@ export class VulnerabilitiesService {
     });
   }
 
+  /** Admin-only feed of every vulnerability change across the system (not scoped to one record). */
+  async getAllHistory(limit = 100) {
+    const logs = await this.prisma.auditLog.findMany({
+      where: { targetType: 'VULNERABILITY' },
+      orderBy: { timestamp: 'desc' },
+      take: limit,
+      include: { actor: { select: { id: true, username: true } } },
+    });
+
+    const vulnIds = [...new Set(logs.map((l) => l.targetId).filter((id): id is string => !!id))];
+    const vulns = await this.prisma.vulnerability.findMany({
+      where: { id: { in: vulnIds } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(vulns.map((v) => [v.id, v.name]));
+
+    return logs.map((log) => ({
+      ...log,
+      vulnerabilityName: log.targetId ? nameById.get(log.targetId) ?? '(deleted)' : null,
+    }));
+  }
+
   async request(data: {
     name: string;
     severity: string;
