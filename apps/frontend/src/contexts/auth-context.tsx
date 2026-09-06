@@ -29,6 +29,45 @@ const api = axios.create({
   },
 });
 
+// On a 401 (expired access token), try one silent refresh and retry the
+// original request before giving up — avoids surfacing a raw "Authentication
+// Required" toast for what is really just an expired access token.
+let refreshPromise: Promise<boolean> | null = null;
+
+function attemptRefresh(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = api
+      .post('/auth/refresh')
+      .then((res) => !!res.data?.user)
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const { config, response } = error;
+    const isAuthEndpoint = config?.url?.startsWith('/auth/login') || config?.url?.startsWith('/auth/refresh');
+
+    if (response?.status === 401 && !isAuthEndpoint && !config?._retriedAfterRefresh) {
+      const refreshed = await attemptRefresh();
+      if (refreshed) {
+        config._retriedAfterRefresh = true;
+        return api(config);
+      }
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.href = '/login?sessionExpired=1';
+      }
+    }
+
+    return Promise.reject(error);
+  },
+);
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);

@@ -34,8 +34,8 @@ export class AuthController {
       dto.rememberMe,
     );
 
-    const accessMaxAge = result.remember_me ? 24 * 60 * 60 * 1000 : 15 * 60 * 1000;
-    const refreshMaxAge = result.remember_me ? 30 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+    const accessMaxAge = result.access_expiry_seconds * 1000;
+    const refreshMaxAge = result.refresh_expiry_seconds * 1000;
 
     response.cookie('access_token', result.access_token, {
       httpOnly: true,
@@ -76,14 +76,14 @@ export class AuthController {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 15 * 60 * 1000,
+      maxAge: result.access_expiry_seconds * 1000,
     });
 
     response.cookie('refresh_token', result.refresh_token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: result.refresh_expiry_seconds * 1000,
     });
 
     return { user: result.user };

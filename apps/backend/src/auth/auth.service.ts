@@ -5,6 +5,7 @@ import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 import { LoginDto, ChangePasswordDto } from './dto/auth.dto';
 import { v4 as uuidv4 } from 'uuid';
 import { User } from '@prisma/client';
@@ -19,6 +20,7 @@ export class AuthService {
     private redisService: RedisService,
     private configService: ConfigService,
     private auditService: AuditService,
+    private settingsService: SettingsService,
   ) {}
 
   async validateUser(username: string, password: string, ipAddress: string, userAgent: string, rememberMe?: boolean) {
@@ -182,15 +184,19 @@ export class AuthService {
   }
 
   private async generateTokens(user: User, rememberMe?: boolean) {
-    const payload = { 
-      sub: user.id, 
-      username: user.username, 
+    const payload = {
+      sub: user.id,
+      username: user.username,
       role: user.role,
       assignedTlId: user.assignedTlId,
     };
 
-    // If remember me, extend session to 24h access / 30d refresh
-    const accessExpiry = rememberMe ? '24h' : this.configService.get('JWT_ACCESS_EXPIRY', '15m');
+    // If remember me, extend session to 24h access / 30d refresh.
+    // Otherwise the access-token lifetime follows the admin-configured
+    // security.sessionTimeoutMinutes setting.
+    const { settings } = await this.settingsService.get();
+    const accessExpirySeconds = rememberMe ? 24 * 60 * 60 : settings.security.sessionTimeoutMinutes * 60;
+    const accessExpiry = `${accessExpirySeconds}s`;
     const refreshExpiryDays = rememberMe ? 30 : 7;
     const refreshExpirySeconds = refreshExpiryDays * 24 * 60 * 60;
 
@@ -215,6 +221,8 @@ export class AuthService {
       access_token: accessToken,
       refresh_token: refreshToken,
       remember_me: !!rememberMe,
+      access_expiry_seconds: accessExpirySeconds,
+      refresh_expiry_seconds: refreshExpirySeconds,
       user: {
         id: user.id,
         username: user.username,

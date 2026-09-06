@@ -21,6 +21,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useAuth, api } from '@/contexts/auth-context';
+import { useIdleTimer } from '@/hooks/use-idle-timer';
 
 interface NavItem {
   label: string;
@@ -66,6 +67,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [collapsed, setCollapsed] = useState(false);
   const prevPathnameRef = useRef(pathname);
   const transitionKind = classifyTransition(prevPathnameRef.current, pathname);
+  const idleTimer = useIdleTimer(!!user);
 
   useEffect(() => {
     prevPathnameRef.current = pathname;
@@ -201,6 +203,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </AnimatePresence>
         </div>
       </main>
+
+      <AnimatePresence>
+        {idleTimer.warning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 6 }}
+              className="bg-gray-900 border border-amber-500/30 rounded-xl shadow-2xl p-6 w-full max-w-sm text-center"
+            >
+              <p className="text-white font-semibold mb-1">Still there?</p>
+              <p className="text-sm text-gray-400 mb-4">
+                You'll be logged out in {idleTimer.secondsRemaining}s due to inactivity.
+              </p>
+              <button
+                onClick={idleTimer.stayActive}
+                className="w-full py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-medium transition-colors"
+              >
+                Stay logged in
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
