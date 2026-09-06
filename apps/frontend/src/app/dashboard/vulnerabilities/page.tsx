@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw } from 'lucide-react';
+import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw, Clock } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
 
@@ -524,6 +524,7 @@ export default function VulnerabilitiesPage() {
                       <p className="text-gray-300">{vuln.createdAt ? new Date(vuln.createdAt).toLocaleString() : '-'}</p>
                     </div>
                   </div>
+                  <VulnHistoryTimeline vulnId={vuln.id} />
                 </div>
               </motion.div>
             </Fragment>
@@ -868,6 +869,40 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
           </div>
         </form>
       </motion.div>
+    </div>
+  );
+}
+
+function VulnHistoryTimeline({ vulnId }: { vulnId: string }) {
+  const [history, setHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    api.get(`/vulnerabilities/${vulnId}/history`)
+      .then((res) => setHistory(res.data))
+      .catch(() => setHistory([]));
+  }, [vulnId]);
+
+  if (history.length === 0) return null;
+
+  return (
+    <div className="pt-2 border-t border-gray-800">
+      <p className="text-xs text-gray-500 mb-3 flex items-center gap-1.5">
+        <Clock className="w-3.5 h-3.5" /> Activity Timeline
+      </p>
+      <div className="space-y-3">
+        {history.map((log: any) => (
+          <div key={log.id} className="flex items-start gap-2 text-xs">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+            <div>
+              <p className="text-gray-300">
+                <span className="font-medium text-white">{log.actor?.username || 'System'}</span>{' '}
+                {log.action.replace('VULNERABILITY_', '').replace(/_/g, ' ').toLowerCase()}
+              </p>
+              <p className="text-gray-500">{new Date(log.timestamp).toLocaleString()}</p>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -79,11 +79,23 @@ export class VulnerabilitiesService {
     references: string;
     cveId?: string;
     cweId?: string;
-  }) {
-    return this.prisma.vulnerability.create({ data });
+  }, actorId?: string) {
+    const created = await this.prisma.vulnerability.create({ data });
+    if (actorId) {
+      await this.auditService.log({
+        actorId,
+        action: 'VULNERABILITY_CREATED',
+        targetType: 'VULNERABILITY',
+        targetId: created.id,
+        ipAddress: 'unknown',
+        userAgent: 'unknown',
+        details: { name: created.name, severity: created.severity },
+      });
+    }
+    return created;
   }
 
-  async update(id: string, data: any) {
+  async update(id: string, data: any, actorId?: string) {
     const vuln = await this.prisma.vulnerability.findUnique({ where: { id } });
     if (!vuln) {
       throw new NotFoundException('Vulnerability not found');
@@ -105,18 +117,55 @@ export class VulnerabilitiesService {
       });
     }
 
+    if (actorId) {
+      await this.auditService.log({
+        actorId,
+        action: 'VULNERABILITY_UPDATED',
+        targetType: 'VULNERABILITY',
+        targetId: id,
+        ipAddress: 'unknown',
+        userAgent: 'unknown',
+        details: {
+          before: { severity: vuln.severity, status: vuln.status },
+          after: { severity: updated.severity, status: updated.status },
+        },
+      });
+    }
+
     return updated;
   }
 
-  async remove(id: string) {
+  async remove(id: string, actorId?: string) {
     const vuln = await this.prisma.vulnerability.findUnique({ where: { id } });
     if (!vuln) {
       throw new NotFoundException('Vulnerability not found');
     }
 
-    return this.prisma.vulnerability.update({
+    const removed = await this.prisma.vulnerability.update({
       where: { id },
       data: { isActive: false },
+    });
+
+    if (actorId) {
+      await this.auditService.log({
+        actorId,
+        action: 'VULNERABILITY_DELETED',
+        targetType: 'VULNERABILITY',
+        targetId: id,
+        ipAddress: 'unknown',
+        userAgent: 'unknown',
+        details: { name: vuln.name },
+      });
+    }
+
+    return removed;
+  }
+
+  async getHistory(id: string) {
+    return this.prisma.auditLog.findMany({
+      where: { targetType: 'VULNERABILITY', targetId: id },
+      orderBy: { timestamp: 'desc' },
+      include: { actor: { select: { id: true, username: true } } },
     });
   }
 
@@ -149,6 +198,16 @@ export class VulnerabilitiesService {
       excludeUserId: requestedById,
     });
 
+    await this.auditService.log({
+      actorId: requestedById,
+      action: 'VULNERABILITY_REQUESTED',
+      targetType: 'VULNERABILITY',
+      targetId: vuln.id,
+      ipAddress: 'unknown',
+      userAgent: 'unknown',
+      details: { name: vuln.name, severity: vuln.severity },
+    });
+
     return vuln;
   }
 
@@ -178,6 +237,16 @@ export class VulnerabilitiesService {
       });
     }
 
+    await this.auditService.log({
+      actorId: reviewedById,
+      action: 'VULNERABILITY_APPROVED',
+      targetType: 'VULNERABILITY',
+      targetId: id,
+      ipAddress: 'unknown',
+      userAgent: 'unknown',
+      details: { name: vuln.name },
+    });
+
     return updated;
   }
 
@@ -206,6 +275,16 @@ export class VulnerabilitiesService {
         relatedId: id,
       });
     }
+
+    await this.auditService.log({
+      actorId: reviewedById,
+      action: 'VULNERABILITY_REJECTED',
+      targetType: 'VULNERABILITY',
+      targetId: id,
+      ipAddress: 'unknown',
+      userAgent: 'unknown',
+      details: { name: vuln.name },
+    });
 
     return updated;
   }
