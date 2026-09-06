@@ -451,6 +451,8 @@ export default function ProjectDetailPage() {
 function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose: () => void; onSaved: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [templates, setTemplates] = useState<any[]>([]);
+  const [customFields, setCustomFields] = useState<any[]>([]);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>(project.customFieldValues || {});
   const [form, setForm] = useState({
     name: project.name,
     clientName: project.clientName,
@@ -485,11 +487,24 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     fetchTemplates();
   }, [form.complianceType]);
 
+  useEffect(() => {
+    if (!form.templateId) {
+      setCustomFields([]);
+      return;
+    }
+    api.get(`/reports/templates/${form.templateId}/fields`)
+      .then((res) => setCustomFields(res.data.filter((f: any) => f.isCustom)))
+      .catch(() => setCustomFields([]));
+  }, [form.templateId]);
+
+  const setCustomFieldValue = (name: string, value: string) =>
+    setCustomFieldValues((prev) => ({ ...prev, [name]: value }));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const payload: any = { ...form };
+      const payload: any = { ...form, customFieldValues };
       if (!payload.templateId) payload.templateId = undefined;
       await api.put(`/projects/${project.id}`, payload);
       onSaved();
@@ -610,6 +625,22 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
             <label className={labelCls}>Testing Limitation</label>
             <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
           </div>
+
+          {customFields.length > 0 && (
+            <div className="space-y-3 pt-2 border-t border-gray-700">
+              <p className="text-sm font-medium text-gray-300 pt-2">Additional Template Fields</p>
+              {customFields.map((field) => (
+                <div key={field.id}>
+                  <label className="block text-sm text-gray-300 mb-1">{field.name}</label>
+                  <input
+                    value={customFieldValues[field.normalizedName] || ''}
+                    onChange={(e) => setCustomFieldValue(field.normalizedName, e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
             <button

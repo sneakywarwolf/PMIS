@@ -340,12 +340,30 @@ function ReportGenerator() {
 // Template browser — admin sees drafts and can activate them
 // ---------------------------------------------------------------------------
 
+const CANONICAL_FIELD_NAMES = [
+  'start_date', 'end_date', 'qa_reviewer_name', 'team_lead_name', 'tester_name',
+  'app_version', 'version_ex', 'client_name_location', 'client_name', 'month_dd_yyyy',
+  'tools_name', 'tools_used', 'details_scope', 'scope', 'staging_uat',
+  'testing_environment', 'black_box', 'grey_box', 'login_role_types',
+  'nature_or_purpose', 'testing_limitation', 'build_details',
+];
+
+function slugifyFieldName(raw: string) {
+  return raw.trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, '');
+}
+
 function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
   const [fields, setFields] = useState<any[]>([]);
   const [activating, setActivating] = useState<string | null>(null);
+  const [addingField, setAddingField] = useState(false);
+  const [newFieldLabel, setNewFieldLabel] = useState('');
+  const [newFieldName, setNewFieldName] = useState('');
+  const [savingField, setSavingField] = useState(false);
+  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
 
   useEffect(() => {
     fetchTemplates();
@@ -364,11 +382,51 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
 
   const viewFields = async (template: any) => {
     setSelectedTemplate(template);
+    setAddingField(false);
+    setEditingFieldId(null);
     try {
       const response = await api.get(`/reports/templates/${template.id}/fields`);
       setFields(response.data);
     } catch (error) {
       console.error('Failed to fetch fields:', error);
+    }
+  };
+
+  const isDuplicateFieldName = (slug: string) => {
+    if (!slug) return false;
+    const collides = (other: string) => slug.includes(other) || other.includes(slug);
+    return CANONICAL_FIELD_NAMES.some(collides) || fields.some((f) => collides(f.normalizedName));
+  };
+
+  const saveNewField = async () => {
+    const slug = slugifyFieldName(newFieldName);
+    if (!newFieldLabel.trim() || !slug || isDuplicateFieldName(slug)) return;
+    setSavingField(true);
+    try {
+      const res = await api.post(`/reports/templates/${selectedTemplate.id}/fields`, {
+        name: newFieldLabel.trim(),
+        normalizedName: slug,
+        category: 'OTHER',
+      });
+      setFields((prev) => [...prev, res.data]);
+      setNewFieldLabel('');
+      setNewFieldName('');
+      setAddingField(false);
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to add field');
+    } finally {
+      setSavingField(false);
+    }
+  };
+
+  const saveEditedLabel = async (fieldId: string) => {
+    if (!editLabel.trim()) return;
+    try {
+      const res = await api.put(`/reports/templates/fields/${fieldId}`, { name: editLabel.trim() });
+      setFields((prev) => prev.map((f) => (f.id === fieldId ? res.data : f)));
+      setEditingFieldId(null);
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to update field');
     }
   };
 
@@ -448,28 +506,122 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
         <p className="text-gray-500 text-sm py-8 text-center">No templates uploaded yet</p>
       )}
 
-      {selectedTemplate && fields.length > 0 && (
+      {selectedTemplate && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           className="glass-card rounded-xl p-6"
         >
-          <h3 className="text-lg font-semibold text-white mb-4">
-            Fields in {selectedTemplate.name}
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white">
+              Fields in {selectedTemplate.name}
+            </h3>
+            {isAdmin && !addingField && (
+              <button
+                onClick={() => setAddingField(true)}
+                className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/20 transition-all"
+              >
+                + Add Field
+              </button>
+            )}
+          </div>
+
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {fields.map((field) => (
               <div key={field.id} className="flex items-center justify-between p-2 rounded bg-white/5">
-                <div>
-                  <p className="text-sm text-white">{field.name}</p>
-                  <p className="text-xs text-gray-400">{field.category} {field.isRepeatable && '• Repeats per finding'}</p>
-                </div>
-                <code className="text-xs text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded">
-                  {field.normalizedName}
-                </code>
+                {editingFieldId === field.id ? (
+                  <div className="flex items-center gap-2 flex-1">
+                    <input
+                      autoFocus
+                      value={editLabel}
+                      onChange={(e) => setEditLabel(e.target.value)}
+                      className="flex-1 px-2 py-1 rounded bg-gray-800 border border-gray-600 text-sm text-white"
+                    />
+                    <button onClick={() => saveEditedLabel(field.id)} className="text-xs text-emerald-400 px-2">Save</button>
+                    <button onClick={() => setEditingFieldId(null)} className="text-xs text-gray-400 px-2">Cancel</button>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <p className="text-sm text-white">{field.name}</p>
+                      <p className="text-xs text-gray-400">
+                        {field.category} {field.isRepeatable && '• Repeats per finding'} {field.isCustom && '• Manual'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded">
+                        {field.normalizedName}
+                      </code>
+                      {isAdmin && (
+                        <button
+                          onClick={() => { setEditingFieldId(field.id); setEditLabel(field.name); }}
+                          className="text-xs text-gray-400 hover:text-white"
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             ))}
+            {fields.length === 0 && !addingField && (
+              <p className="text-gray-500 text-sm py-4 text-center">No fields detected yet</p>
+            )}
           </div>
+
+          {addingField && (
+            <div className="mt-4 p-3 rounded-lg bg-gray-800/40 border border-gray-700 space-y-2">
+              <p className="text-xs text-gray-400">
+                Field name must be lowercase, use underscores instead of spaces (e.g. <code>client_contact_email</code>),
+                no special characters or brackets, and must not duplicate an existing field on this template. It's used
+                internally to match the placeholder during report generation — it doesn't need to match the visible label.
+              </p>
+              <input
+                placeholder="Label (e.g. Client Contact Email)"
+                value={newFieldLabel}
+                onChange={(e) => {
+                  setNewFieldLabel(e.target.value);
+                  if (!newFieldName || slugifyFieldName(newFieldName) === slugifyFieldName(newFieldLabel)) {
+                    setNewFieldName(slugifyFieldName(e.target.value));
+                  }
+                }}
+                className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 text-sm text-white"
+              />
+              <div>
+                <input
+                  placeholder="field_name"
+                  value={newFieldName}
+                  onChange={(e) => setNewFieldName(slugifyFieldName(e.target.value))}
+                  className={`w-full px-3 py-2 rounded-lg bg-gray-800/50 border text-sm font-mono ${
+                    newFieldName && isDuplicateFieldName(newFieldName)
+                      ? 'border-red-500 text-red-400'
+                      : 'border-gray-700 text-emerald-400'
+                  }`}
+                />
+                {newFieldName && isDuplicateFieldName(newFieldName) && (
+                  <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
+                    <XCircle className="w-3 h-3" /> Duplicate field name
+                  </p>
+                )}
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => { setAddingField(false); setNewFieldLabel(''); setNewFieldName(''); }}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveNewField}
+                  disabled={savingField || !newFieldLabel.trim() || !newFieldName || isDuplicateFieldName(newFieldName)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+                >
+                  {savingField ? 'Saving...' : 'Save Field'}
+                </button>
+              </div>
+            </div>
+          )}
         </motion.div>
       )}
     </div>

@@ -177,6 +177,8 @@ model Project {
   applicationNature  String?  @map("application_nature")
   testingLimitation  String?  @map("testing_limitation")
 
+  customFieldValues Json?   @map("custom_field_values")
+
   reportDocxPath  String?   @map("report_docx_path")
   reportPdfPath   String?   @map("report_pdf_path")
   isDraft         Boolean   @default(true) @map("is_draft")
@@ -239,6 +241,7 @@ model TemplateField {
   category      TemplateFieldCategory @default(OTHER) @map("field_category")
   description   String?
   isRepeatable  Boolean   @default(false) @map("is_repeatable")
+  isCustom      Boolean   @default(false) @map("is_custom")
   sortOrder     Int       @default(0) @map("sort_order")
 
   createdAt     DateTime  @default(now()) @map("created_at")

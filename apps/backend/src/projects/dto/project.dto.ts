@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsDateString, IsObject } from 'class-validator';
 import { ProjectStatus, TemplateCategory, TemplateSubType, ComplianceType } from '@prisma/client';
 
 export class CreateProjectDto {
@@ -75,6 +75,10 @@ export class CreateProjectDto {
   @IsOptional()
   @IsString()
   testingLimitation?: string;
+
+  @IsOptional()
+  @IsObject()
+  customFieldValues?: Record<string, string>;
 }
 
 export class UpdateProjectDto {
@@ -153,6 +157,10 @@ export class UpdateProjectDto {
   @IsOptional()
   @IsString()
   complianceStatus?: string;
+
+  @IsOptional()
+  @IsObject()
+  customFieldValues?: Record<string, string>;
 }
 
 export class ReassignProjectDto {

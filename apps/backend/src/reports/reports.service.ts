@@ -179,6 +179,118 @@ export class ReportsService {
     return template.fields;
   }
 
+  /**
+   * Names already consumed by buildFieldRules()'s hardcoded project-field matching.
+   * A custom field must never collide with these or generation would silently
+   * double-fill or misfill a placeholder.
+   */
+  private static readonly CANONICAL_FIELD_NAMES = [
+    'start_date', 'end_date', 'qa_reviewer_name', 'team_lead_name', 'tester_name',
+    'app_version', 'version_ex', 'client_name_location', 'client_name', 'month_dd_yyyy',
+    'tools_name', 'tools_used', 'details_scope', 'scope', 'staging_uat',
+    'testing_environment', 'black_box', 'grey_box', 'login_role_types',
+    'nature_or_purpose', 'testing_limitation', 'build_details',
+  ];
+
+  /** Slug: lowercase, spaces/dashes → underscore, strip anything else. */
+  private slugifyFieldName(raw: string): string {
+    return raw
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, '_')
+      .replace(/[^a-z0-9_]/g, '');
+  }
+
+  /**
+   * Placeholder matching is substring-based (see docx-manipulator's
+   * `normalized.includes(m)`), so a collision isn't just exact-equality —
+   * one name containing the other would also misfire at generation time.
+   */
+  private async assertFieldNameAvailable(templateId: string, normalizedName: string, excludeFieldId?: string) {
+    if (!normalizedName) {
+      throw new BadRequestException('Field name cannot be empty');
+    }
+    if (!/^[a-z0-9_]+$/.test(normalizedName)) {
+      throw new BadRequestException('Field name must be lowercase letters, numbers, and underscores only');
+    }
+
+    const collidesWith = (other: string) => normalizedName.includes(other) || other.includes(normalizedName);
+
+    if (ReportsService.CANONICAL_FIELD_NAMES.some(collidesWith)) {
+      throw new BadRequestException(`"${normalizedName}" is reserved by the report engine and cannot be reused`);
+    }
+
+    const existingFields = await this.prisma.templateField.findMany({
+      where: { templateId, ...(excludeFieldId ? { id: { not: excludeFieldId } } : {}) },
+      select: { normalizedName: true },
+    });
+    if (existingFields.some((f) => collidesWith(f.normalizedName))) {
+      throw new BadRequestException(`"${normalizedName}" already exists on this template`);
+    }
+  }
+
+  async addTemplateField(
+    templateId: string,
+    data: { name: string; normalizedName: string; category: string; description?: string },
+    adminId: string,
+  ) {
+    const template = await this.prisma.reportTemplate.findUnique({ where: { id: templateId } });
+    if (!template) {
+      throw new NotFoundException('Template not found');
+    }
+
+    const normalizedName = this.slugifyFieldName(data.normalizedName);
+    await this.assertFieldNameAvailable(templateId, normalizedName);
+
+    const maxSort = await this.prisma.templateField.aggregate({
+      where: { templateId },
+      _max: { sortOrder: true },
+    });
+
+    const field = await this.prisma.templateField.create({
+      data: {
+        templateId,
+        name: data.name,
+        normalizedName,
+        category: data.category as any,
+        description: data.description,
+        isCustom: true,
+        sortOrder: (maxSort._max.sortOrder ?? 0) + 1,
+      },
+    });
+
+    await this.auditService.log({
+      actorId: adminId,
+      action: 'TEMPLATE_FIELD_ADDED',
+      targetType: 'TEMPLATE',
+      targetId: templateId,
+      ipAddress: 'unknown',
+      userAgent: 'unknown',
+      details: { fieldName: normalizedName },
+    });
+
+    return field;
+  }
+
+  async updateTemplateField(
+    fieldId: string,
+    data: { name?: string; category?: string; description?: string },
+  ) {
+    const field = await this.prisma.templateField.findUnique({ where: { id: fieldId } });
+    if (!field) {
+      throw new NotFoundException('Field not found');
+    }
+
+    return this.prisma.templateField.update({
+      where: { id: fieldId },
+      data: {
+        ...(data.name ? { name: data.name } : {}),
+        ...(data.category ? { category: data.category as any } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}),
+      },
+    });
+  }
+
   async activateTemplate(id: string, adminId: string, ipAddress: string, userAgent: string) {
     const template = await this.prisma.reportTemplate.findUnique({ where: { id } });
     if (!template) {
@@ -320,6 +432,7 @@ export class ReportsService {
 
     // Build field rules automatically from project + profiles (no manual form)
     const rules = this.buildFieldRules(project);
+    rules.push(...this.buildCustomFieldRules(project));
 
     // Findings: approved only, sorted by effective CVSS descending
     const sortedFindings = project.findings
@@ -524,6 +637,15 @@ export class ReportsService {
    * come before generic ones. Per-person contact fields (phone/email/title)
    * are NOT here — they are filled row-aware by the contact-table pass.
    */
+  /** Admin-added custom fields, filled from `project.customFieldValues`. */
+  private buildCustomFieldRules(project: any): FieldRule[] {
+    const values = project.customFieldValues as Record<string, string> | null;
+    if (!values) return [];
+    return Object.entries(values)
+      .filter(([, value]) => value != null)
+      .map(([match, value]) => ({ match: [match], value: String(value) }));
+  }
+
   private buildFieldRules(project: any): FieldRule[] {
     const tl = project.tl;
     const tester = project.tester;

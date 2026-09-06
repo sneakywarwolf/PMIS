@@ -137,6 +137,7 @@ export class ProjectsService {
         loginSystemTypes: dto.loginSystemTypes,
         applicationNature: dto.applicationNature,
         testingLimitation: dto.testingLimitation,
+        customFieldValues: dto.customFieldValues,
       },
       include: {
         tester: { select: { id: true, username: true } },
@@ -184,6 +185,7 @@ export class ProjectsService {
       ...(dto.endDate !== undefined && { endDate: dto.endDate ? new Date(dto.endDate) : null }),
       ...(dto.templateId !== undefined && { templateId: dto.templateId || null }),
       ...(dto.complianceStatus !== undefined && { complianceStatus: dto.complianceStatus }),
+      ...(dto.customFieldValues !== undefined && { customFieldValues: dto.customFieldValues }),
     };
     for (const field of detailFields) {
       if (dto[field] !== undefined) {
