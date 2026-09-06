@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Loader2, Save, FolderKanban } from 'lucide-react';
 import { api } from '@/contexts/auth-context';
+import { useToast } from '@/components/toast-provider';
 
 const inputCls =
   'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white transition-all';
 const labelCls = 'block text-sm text-gray-300 mb-1';
 
 export default function NewProjectPage() {
+  const toast = useToast();
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
@@ -82,9 +84,10 @@ export default function NewProjectPage() {
       if (Object.keys(customFieldValues).length > 0) payload.customFieldValues = customFieldValues;
 
       const res = await api.post('/projects', payload);
+      toast('Project created');
       router.push(`/dashboard/projects/${res.data.id}`);
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to create project');
+      toast(error.response?.data?.message || 'Failed to create project', 'error');
     } finally {
       setSubmitting(false);
     }

@@ -97,6 +97,13 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
 }
 
+/* The closed <select> box picks up the dark theme above, but its dropdown
+   list defaults to browser/OS white unless <option> is styled explicitly. */
+select option {
+  background-color: var(--cyber-surface);
+  color: #e5e7eb;
+}
+
 /* Status badges */
 .status-badge {
   @apply px-2 py-0.5 rounded-full text-xs font-medium;

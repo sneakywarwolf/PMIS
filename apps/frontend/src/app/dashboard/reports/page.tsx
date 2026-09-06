@@ -9,6 +9,7 @@ import {
   AlertTriangle, XCircle, Check,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { useToast } from '@/components/toast-provider';
 
 const subTypeIcons: any = {
   WEB: Monitor,
@@ -103,6 +104,7 @@ export default function ReportsPage() {
 // ---------------------------------------------------------------------------
 
 function ReportGenerator() {
+  const toast = useToast();
   const searchParams = useSearchParams();
   const preselectedProjectId = searchParams.get('project');
 
@@ -142,7 +144,7 @@ function ReportGenerator() {
       const response = await api.get(`/reports/preflight/${project.id}`);
       setPreflight(response.data);
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Preflight check failed');
+      toast(error.response?.data?.message || 'Preflight check failed', 'error');
       setStep(1);
     } finally {
       setLoading(false);
@@ -156,8 +158,9 @@ function ReportGenerator() {
       const response = await api.post('/reports/generate', { projectId: selectedProject.id });
       setResult(response.data);
       setStep(3);
+      toast('Report generated successfully');
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Report generation failed');
+      toast(error.response?.data?.message || 'Report generation failed', 'error');
     } finally {
       setGenerating(false);
     }
@@ -353,6 +356,7 @@ function slugifyFieldName(raw: string) {
 }
 
 function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
+  const toast = useToast();
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
@@ -412,8 +416,9 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
       setNewFieldLabel('');
       setNewFieldName('');
       setAddingField(false);
+      toast('Field added');
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to add field');
+      toast(error.response?.data?.message || 'Failed to add field', 'error');
     } finally {
       setSavingField(false);
     }
@@ -425,8 +430,9 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
       const res = await api.put(`/reports/templates/fields/${fieldId}`, { name: editLabel.trim() });
       setFields((prev) => prev.map((f) => (f.id === fieldId ? res.data : f)));
       setEditingFieldId(null);
+      toast('Field updated');
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to update field');
+      toast(error.response?.data?.message || 'Failed to update field', 'error');
     }
   };
 
@@ -436,8 +442,9 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
     try {
       await api.put(`/reports/templates/${template.id}/activate`);
       fetchTemplates();
+      toast('Template activated');
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Activation failed');
+      toast(error.response?.data?.message || 'Activation failed', 'error');
     } finally {
       setActivating(null);
     }
@@ -633,6 +640,7 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
 // ---------------------------------------------------------------------------
 
 function TemplateUploader() {
+  const toast = useToast();
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [validation, setValidation] = useState<any>(null);
@@ -665,8 +673,9 @@ function TemplateUploader() {
       setUploadedName(res.data.name);
       setFile(null);
       setFormData({ ...formData, name: '' });
+      toast('Template uploaded');
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Upload failed');
+      toast(error.response?.data?.message || 'Upload failed', 'error');
     } finally {
       setUploading(false);
     }

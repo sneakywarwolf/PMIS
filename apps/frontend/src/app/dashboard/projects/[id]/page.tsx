@@ -23,6 +23,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
 
 const severityColors: Record<string, string> = {
   Critical: 'bg-red-500/10 text-red-400 border-red-500/20',
@@ -836,6 +837,10 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedVuln, setSelectedVuln] = useState<Vulnerability | null>(finding?.vulnerability || null);
   const searchRef = useRef<HTMLDivElement>(null);
+  // New findings walk through Search -> Preview -> Configure as distinct steps
+  // instead of one long scrolling form. Editing an existing finding skips
+  // straight to Configure since the vulnerability is already fixed.
+  const [step, setStep] = useState<'search' | 'configure'>(finding ? 'configure' : 'search');
 
   const [form, setForm] = useState({
     testerNotes: finding?.testerNotes || '',
@@ -905,6 +910,11 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
     setSelectedVuln(vuln);
     setSearchQuery(vuln.name);
     setShowDropdown(false);
+  };
+
+  const goToConfigure = () => {
+    if (!selectedVuln) return;
+    setStep('configure');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1005,48 +1015,106 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {!finding && (
-            <div className="relative" ref={searchRef}>
-              <label className="block text-sm text-gray-300 mb-1">Vulnerability *</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Type to search vulnerabilities..."
-                  className="w-full pl-10 pr-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white"
-                  required={!finding}
-                />
-              </div>
-              {showDropdown && searchResults.length > 0 && (
-                <div className="absolute z-20 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                  {searchResults.map((vuln) => (
-                    <button
-                      key={vuln.id}
-                      type="button"
-                      onClick={() => selectVulnerability(vuln)}
-                      className="w-full text-left px-4 py-2 hover:bg-gray-700 transition-colors border-b border-gray-700/50 last:border-0"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-white">{vuln.name}</span>
-                        <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
-                          {vuln.severity}
-                        </span>
+          <AnimatePresence mode="wait">
+            {step === 'search' && (
+              <motion.div
+                key="search"
+                variants={TRANSITION_VARIANTS.scaleFade}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={TRANSITION_TIMING}
+                className="space-y-4"
+              >
+                <div className="relative" ref={searchRef}>
+                  <label className="block text-sm text-gray-300 mb-1">Search Vulnerability Database *</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Type to search vulnerabilities..."
+                      className="w-full pl-10 pr-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white"
+                    />
+                  </div>
+                  {showDropdown && searchResults.length > 0 && (
+                    <div className="absolute z-20 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                      {searchResults.map((vuln) => (
+                        <button
+                          key={vuln.id}
+                          type="button"
+                          onClick={() => selectVulnerability(vuln)}
+                          className="w-full text-left px-4 py-2 hover:bg-gray-700 transition-colors border-b border-gray-700/50 last:border-0"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-white">{vuln.name}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
+                              {vuln.severity}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 truncate">CVSS: {vuln.cvssScore ?? '-'} {vuln.cveId}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Preview of the selected canonical vulnerability, before it
+                    becomes a project-specific finding */}
+                {selectedVuln && (
+                  <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 space-y-3">
+                    <div>
+                      <p className="text-sm text-emerald-400 font-medium">{selectedVuln.name}</p>
+                      <p className="text-xs text-gray-400 mt-1">{selectedVuln.description.substring(0, 200)}...</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-xs">
+                      <div className="p-2 rounded bg-gray-800/50">
+                        <span className="text-gray-500">Severity</span>
+                        <p className="text-white">{selectedVuln.severity}</p>
                       </div>
-                      <p className="text-xs text-gray-500 truncate">CVSS: {vuln.cvssScore ?? '-'} {vuln.cveId}</p>
-                    </button>
-                  ))}
+                      <div className="p-2 rounded bg-gray-800/50">
+                        <span className="text-gray-500">CVSS</span>
+                        <p className="text-white">{selectedVuln.cvssScore ?? '-'}</p>
+                      </div>
+                      <div className="p-2 rounded bg-gray-800/50">
+                        <span className="text-gray-500">CVE/CWE</span>
+                        <p className="text-white">{selectedVuln.cveId || selectedVuln.cweId || '-'}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goToConfigure}
+                    disabled={!selectedVuln}
+                    className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50"
+                  >
+                    Continue
+                  </button>
                 </div>
-              )}
-              {selectedVuln && (
-                <div className="mt-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                  <p className="text-sm text-emerald-400 font-medium">{selectedVuln.name}</p>
-                  <p className="text-xs text-gray-400">{selectedVuln.description.substring(0, 120)}...</p>
-                </div>
-              )}
-            </div>
-          )}
+              </motion.div>
+            )}
+
+            {step === 'configure' && (
+              <motion.div
+                key="configure"
+                variants={TRANSITION_VARIANTS.scaleFade}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={TRANSITION_TIMING}
+                className="space-y-5"
+              >
 
           {finding && (
             <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700">
@@ -1055,20 +1123,21 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
             </div>
           )}
 
-          {selectedVuln && (
-            <div className="grid grid-cols-3 gap-3 text-xs">
-              <div className="p-2 rounded bg-gray-800/50">
-                <span className="text-gray-500">Severity</span>
-                <p className="text-white">{selectedVuln.severity}</p>
+          {selectedVuln && !finding && (
+            <div className="flex items-center justify-between p-3 rounded-lg bg-gray-800/50 border border-gray-700">
+              <div>
+                <p className="text-sm text-white font-medium">{selectedVuln.name}</p>
+                <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-xs ${severityColors[selectedVuln.severity] || severityColors.Info}`}>
+                  {selectedVuln.severity}
+                </span>
               </div>
-              <div className="p-2 rounded bg-gray-800/50">
-                <span className="text-gray-500">CVSS</span>
-                <p className="text-white">{selectedVuln.cvssScore ?? '-'}</p>
-              </div>
-              <div className="p-2 rounded bg-gray-800/50">
-                <span className="text-gray-500">CVE/CWE</span>
-                <p className="text-white">{selectedVuln.cveId || selectedVuln.cweId || '-'}</p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setStep('search')}
+                className="text-xs text-gray-400 hover:text-white underline"
+              >
+                Change vulnerability
+              </button>
             </div>
           )}
 
@@ -1260,6 +1329,9 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
               {submitting ? 'Saving...' : (finding ? 'Update Finding' : 'Add Finding')}
             </button>
           </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </form>
       </motion.div>
     </div>

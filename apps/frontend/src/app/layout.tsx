@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/contexts/auth-context';
+import { ToastProvider } from '@/components/toast-provider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -40,7 +41,9 @@ export default function RootLayout({
       </head>
       <body suppressHydrationWarning className={`${inter.className} bg-cyber-bg text-gray-100 min-h-screen`}>
         <AuthProvider>
-          {children}
+          <ToastProvider>
+            {children}
+          </ToastProvider>
         </AuthProvider>
       </body>
     </html>
