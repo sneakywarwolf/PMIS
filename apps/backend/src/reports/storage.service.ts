@@ -21,6 +21,17 @@ export class StorageService {
     this.ensureBucket();
   }
 
+  async healthCheck(): Promise<{ reachable: boolean; bucket: string; endpoint: string; port: number }> {
+    const endpoint = this.configService.get('MINIO_ENDPOINT', 'localhost');
+    const port = parseInt(this.configService.get('MINIO_PORT', '9000'));
+    try {
+      await this.minioClient.bucketExists(this.bucket);
+      return { reachable: true, bucket: this.bucket, endpoint, port };
+    } catch {
+      return { reachable: false, bucket: this.bucket, endpoint, port };
+    }
+  }
+
   private async ensureBucket() {
     try {
       const exists = await this.minioClient.bucketExists(this.bucket);

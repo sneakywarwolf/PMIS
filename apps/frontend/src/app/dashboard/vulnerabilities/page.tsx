@@ -1,17 +1,23 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { Fragment, useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload } from 'lucide-react';
+import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw, Clock } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { useToast } from '@/components/toast-provider';
+import { useConfirm } from '@/components/confirm-provider';
 
-const severityColors: Record<string, string> = {
-  Critical: 'bg-red-500/10 text-red-400 border-red-500/20',
-  High: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-  Medium: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-  Low: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  Info: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
+const DEFAULT_SEVERITY_COLORS: Record<string, string> = {
+  Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#3b82f6', Info: '#6b7280',
 };
+
+// Admin-configurable (Settings > Workflow > Severity Labels & Colors) — falls back
+// to the platform defaults above until settings load or for unrecognized severities.
+function severityBadgeStyle(severityColors: Record<string, string>, severity: string) {
+  const hex = severityColors[severity] || severityColors.Info || DEFAULT_SEVERITY_COLORS.Info;
+  return { backgroundColor: `${hex}1a`, color: hex, borderColor: `${hex}33` };
+}
 
 const statusColors: Record<string, string> = {
   APPROVED: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
@@ -36,9 +42,12 @@ export default function VulnerabilitiesPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPendingModal, setShowPendingModal] = useState(false);
   const [editingVuln, setEditingVuln] = useState<any>(null);
-  const [message, setMessage] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'pending'>('all');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+const toast = useToast();
+const confirmDialog = useConfirm();
+const [message, setMessage] = useState('');
+const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'changeTracker'>('all');
+const [expandedId, setExpandedId] = useState<string | null>(null);
+const [severityColors, setSeverityColors] = useState<Record<string, string>>(DEFAULT_SEVERITY_COLORS);
 
   // Bulk upload state
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
@@ -55,6 +64,13 @@ export default function VulnerabilitiesPage() {
     fetchVulnerabilities();
     if (isAdminOrTL) fetchPending();
   }, [search, severity, sort, activeTab]);
+
+  useEffect(() => {
+    api.get('/settings').then((res) => {
+      const colors = res.data?.settings?.workflow?.severityColors;
+      if (colors) setSeverityColors({ ...DEFAULT_SEVERITY_COLORS, ...colors });
+    }).catch(() => {});
+  }, []);
 
   const fetchVulnerabilities = async () => {
     setLoading(true);
@@ -82,6 +98,12 @@ export default function VulnerabilitiesPage() {
     }
   };
 
+  const handleRefresh = () => {
+    fetchVulnerabilities();
+    if (isAdminOrTL) fetchPending();
+    toast('Vulnerability database refreshed', 'info');
+  };
+
   const handleSort = (field: string) => {
     setSort(prev => ({
       field,
@@ -90,13 +112,14 @@ export default function VulnerabilitiesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Deactivate this vulnerability?')) return;
+    const ok = await confirmDialog({ title: 'Deactivate vulnerability?', message: 'This vulnerability will be deactivated and hidden from active listings.', confirmLabel: 'Deactivate', danger: true });
+    if (!ok) return;
     try {
       await api.delete(`/vulnerabilities/${id}`);
       fetchVulnerabilities();
-      setMessage('Vulnerability deactivated');
-    } catch (error) {
-      console.error('Failed to delete vulnerability:', error);
+      toast('Vulnerability deactivated');
+    } catch (error: any) {
+      toast(error.response?.data?.message || 'Failed to deactivate vulnerability', 'error');
     }
   };
 
@@ -105,9 +128,9 @@ export default function VulnerabilitiesPage() {
       await api.put(`/vulnerabilities/${id}/approve`);
       fetchPending();
       fetchVulnerabilities();
-      setMessage('Vulnerability approved');
+      toast('Vulnerability approved');
     } catch (error: any) {
-      setMessage(error.response?.data?.message || 'Approval failed');
+      toast(error.response?.data?.message || 'Approval failed', 'error');
     }
   };
 
@@ -116,9 +139,9 @@ export default function VulnerabilitiesPage() {
       await api.put(`/vulnerabilities/${id}/reject`);
       fetchPending();
       fetchVulnerabilities();
-      setMessage('Vulnerability rejected');
+      toast('Vulnerability rejected');
     } catch (error: any) {
-      setMessage(error.response?.data?.message || 'Rejection failed');
+      toast(error.response?.data?.message || 'Rejection failed', 'error');
     }
   };
 
@@ -173,7 +196,7 @@ export default function VulnerabilitiesPage() {
     setBulkUploading(true);
     try {
       const response = await api.post('/vulnerabilities/bulk-upload', { csv: pendingFileRef.current });
-      setMessage(response.data.message || `Successfully uploaded ${response.data.count} vulnerabilities.`);
+      toast(response.data.message || `Successfully uploaded ${response.data.count} vulnerabilities.`);
       setShowBulkConfirm(false);
       pendingFileRef.current = null;
       fetchVulnerabilities();
@@ -194,7 +217,6 @@ export default function VulnerabilitiesPage() {
   const openEditModal = (vuln: any) => {
     setEditingVuln({ ...vuln });
     setShowEditModal(true);
-    setMessage('');
   };
 
   const SortIcon = ({ field }: { field: string }) => {
@@ -220,6 +242,13 @@ export default function VulnerabilitiesPage() {
           <p className="text-gray-400 text-sm mt-1">Manage and reference known vulnerabilities</p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-gray-300 border border-gray-600/50 rounded-lg transition-all text-sm"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
           {isAdmin && (
             <>
               <input
@@ -255,13 +284,6 @@ export default function VulnerabilitiesPage() {
         </div>
       </div>
 
-      {message && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          className={`p-3 rounded-lg ${message.includes('success') || message.includes('approved') || message.includes('updated') || message.includes('Successfully') ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
-          {message}
-        </motion.div>
-      )}
-
       {/* Tabs */}
       {isAdminOrTL && (
         <div className="flex gap-2">
@@ -286,9 +308,23 @@ export default function VulnerabilitiesPage() {
               </span>
             )}
           </button>
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('changeTracker')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+                activeTab === 'changeTracker' ? 'bg-purple-600 text-white' : 'bg-gray-800/50 text-gray-400 hover:text-white'
+              }`}
+            >
+              <Clock className="w-4 h-4" /> Change Tracker
+            </button>
+          )}
         </div>
       )}
 
+      {activeTab === 'changeTracker' ? (
+        <ChangeTrackerTab />
+      ) : (
+      <>
       {/* Filters */}
       <div className="flex gap-4">
         <div className="relative flex-1 max-w-md">
@@ -334,13 +370,13 @@ export default function VulnerabilitiesPage() {
             </thead>
             <tbody>
               {displayVulns.map((vuln, i) => (
-                <React.Fragment key={vuln.id}>
+<React.Fragment key={vuln.id}>
                 <motion.tr
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.02 }}
                   onClick={() => setExpandedId(expandedId === vuln.id ? null : vuln.id)}
-                  className="border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer"
+className={`border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer ${expandedId === vuln.id ? 'bg-emerald-500/5' : ''}`}
                 >
                   <td className="px-4 py-3">
                     <div>
@@ -349,7 +385,7 @@ export default function VulnerabilitiesPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[vuln.severity] || severityColors.Info}`}>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={severityBadgeStyle(severityColors, vuln.severity)}>
                       {vuln.severity}
                     </span>
                   </td>
@@ -366,21 +402,21 @@ export default function VulnerabilitiesPage() {
                       {activeTab === 'pending' && isAdminOrTL ? (
                         <>
                           <button
-                            onClick={() => handleApprove(vuln.id)}
+                            onClick={(e) => { e.stopPropagation(); handleApprove(vuln.id); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
                             title="Approve"
                           >
                             <CheckCircle className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => handleReject(vuln.id)}
+                            onClick={(e) => { e.stopPropagation(); handleReject(vuln.id); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
                             title="Reject"
                           >
                             <XCircle className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => openEditModal(vuln)}
+                            onClick={(e) => { e.stopPropagation(); openEditModal(vuln); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
                             title="Edit"
                           >
@@ -390,7 +426,7 @@ export default function VulnerabilitiesPage() {
                       ) : (
                         <>
                           <button
-                            onClick={() => openEditModal(vuln)}
+                            onClick={(e) => { e.stopPropagation(); openEditModal(vuln); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
                             title="Edit"
                           >
@@ -398,7 +434,7 @@ export default function VulnerabilitiesPage() {
                           </button>
                           {user?.role === 'ADMIN' && (
                             <button
-                              onClick={() => handleDelete(vuln.id)}
+                              onClick={(e) => { e.stopPropagation(); handleDelete(vuln.id); }}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
                               title="Deactivate"
                             >
@@ -410,6 +446,7 @@ export default function VulnerabilitiesPage() {
                     </div>
                   </td>
                 </motion.tr>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -422,6 +459,108 @@ export default function VulnerabilitiesPage() {
           </div>
         )}
       </div>
+      </>
+      )}
+
+      {/* Detail side drawer — overlays the page without navigating away, so
+          table filters/sort/scroll position stay exactly as they were. */}
+      <AnimatePresence>
+        {expandedId && (() => {
+          const vuln = displayVulns.find((v) => v.id === expandedId);
+          if (!vuln) return null;
+          return (
+            <Fragment key="drawer">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/60 z-40"
+                onClick={() => setExpandedId(null)}
+              />
+              <motion.div
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+                className="fixed right-0 top-0 h-full w-full max-w-lg bg-gray-900 border-l border-gray-700 shadow-2xl z-50 overflow-y-auto"
+              >
+                <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-gray-700 px-6 py-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-500">Vulnerability Details</p>
+                    <h3 className="text-lg font-semibold text-white">{vuln.name}</h3>
+                  </div>
+                  <button
+                    onClick={() => setExpandedId(null)}
+                    className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-6 space-y-4 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={severityBadgeStyle(severityColors, vuln.severity)}>
+                      {vuln.severity}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${statusColors[vuln.status] || statusColors.PENDING}`}>
+                      {vuln.status}
+                    </span>
+                    {vuln.cvssScore != null && <span className="text-gray-400">CVSS {vuln.cvssScore}</span>}
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Description</p>
+                    <p className="text-gray-300">{vuln.description}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Impact</p>
+                    <p className="text-gray-300">{vuln.impact}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Remediation</p>
+                    <p className="text-gray-300">{vuln.remediation}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">References</p>
+                    <p className="text-gray-300 break-all">{vuln.references}</p>
+                  </div>
+                  {vuln.cvssVector && (
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">CVSS Vector</p>
+                      <p className="text-gray-300">{vuln.cvssVector}</p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4">
+                    {(vuln.cveId || vuln.cweId) && (
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">CVE / CWE</p>
+                        <p className="text-gray-300">
+                          {vuln.cveId && <span className="text-cyan-400">{vuln.cveId}</span>}
+                          {vuln.cveId && vuln.cweId && ' · '}
+                          {vuln.cweId && <span className="text-violet-400">{vuln.cweId}</span>}
+                        </p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Source</p>
+                      <p className="text-gray-300">{vuln.source || 'internal'}</p>
+                    </div>
+                    {vuln.reviewedBy?.username && (
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Reviewed By</p>
+                        <p className="text-gray-300">{vuln.reviewedBy.username}</p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-xs text-gray-500 mb-1">Created</p>
+                      <p className="text-gray-300">{vuln.createdAt ? new Date(vuln.createdAt).toLocaleString() : '-'}</p>
+                    </div>
+                  </div>
+                  <VulnHistoryTimeline vulnId={vuln.id} />
+                </div>
+              </motion.div>
+            </Fragment>
+          );
+        })()}
+      </AnimatePresence>
 
       {/* Add Modal */}
       {showAddModal && (
@@ -529,12 +668,71 @@ export default function VulnerabilitiesPage() {
   );
 }
 
+const CVSS_OPTIONS = {
+  AV: [['N', 'Network'], ['A', 'Adjacent'], ['L', 'Local'], ['P', 'Physical']],
+  AC: [['L', 'Low'], ['H', 'High']],
+  PR: [['N', 'None'], ['L', 'Low'], ['H', 'High']],
+  UI: [['N', 'None'], ['R', 'Required']],
+  S: [['U', 'Unchanged'], ['C', 'Changed']],
+  C: [['N', 'None'], ['L', 'Low'], ['H', 'High']],
+  I: [['N', 'None'], ['L', 'Low'], ['H', 'High']],
+  A: [['N', 'None'], ['L', 'Low'], ['H', 'High']],
+} as const;
+
+const CVSS_LABELS: Record<keyof typeof CVSS_OPTIONS, string> = {
+  AV: 'Attack Vector', AC: 'Attack Complexity', PR: 'Privileges Req.', UI: 'User Interaction',
+  S: 'Scope', C: 'Confidentiality', I: 'Integrity', A: 'Availability',
+};
+
+const CVSS_WEIGHTS = {
+  AV: { N: 0.85, A: 0.62, L: 0.55, P: 0.2 },
+  AC: { L: 0.77, H: 0.44 },
+  PR: { U: { N: 0.85, L: 0.62, H: 0.27 }, C: { N: 0.85, L: 0.68, H: 0.5 } },
+  UI: { N: 0.85, R: 0.62 },
+  CIA: { N: 0, L: 0.22, H: 0.56 },
+} as const;
+
+type CvssMetrics = { AV: string; AC: string; PR: string; UI: string; S: string; C: string; I: string; A: string };
+
+function roundUpToTenth(n: number) {
+  const int = Math.round(n * 100000);
+  return int % 10000 === 0 ? int / 100000 : (Math.floor(int / 10000) + 1) / 10;
+}
+
+function calculateCvss(m: CvssMetrics) {
+  const av = CVSS_WEIGHTS.AV[m.AV as keyof typeof CVSS_WEIGHTS.AV];
+  const ac = CVSS_WEIGHTS.AC[m.AC as keyof typeof CVSS_WEIGHTS.AC];
+  const pr = CVSS_WEIGHTS.PR[m.S as 'U' | 'C'][m.PR as keyof typeof CVSS_WEIGHTS.PR.U];
+  const ui = CVSS_WEIGHTS.UI[m.UI as keyof typeof CVSS_WEIGHTS.UI];
+  const c = CVSS_WEIGHTS.CIA[m.C as keyof typeof CVSS_WEIGHTS.CIA];
+  const i = CVSS_WEIGHTS.CIA[m.I as keyof typeof CVSS_WEIGHTS.CIA];
+  const a = CVSS_WEIGHTS.CIA[m.A as keyof typeof CVSS_WEIGHTS.CIA];
+
+  const iscBase = 1 - (1 - c) * (1 - i) * (1 - a);
+  const isc = m.S === 'U' ? 6.42 * iscBase : 7.52 * (iscBase - 0.029) - 3.25 * Math.pow(iscBase - 0.02, 15);
+  const exploitability = 8.22 * av * ac * pr * ui;
+
+  const score = isc <= 0 ? 0 : roundUpToTenth(
+    m.S === 'U' ? Math.min(isc + exploitability, 10) : Math.min(1.08 * (isc + exploitability), 10)
+  );
+  const vector = `CVSS:3.1/AV:${m.AV}/AC:${m.AC}/PR:${m.PR}/UI:${m.UI}/S:${m.S}/C:${m.C}/I:${m.I}/A:${m.A}`;
+  return { score, vector };
+}
+
+function parseCvssVector(vector?: string): CvssMetrics | null {
+  if (!vector) return null;
+  const parts = Object.fromEntries(vector.split('/').filter((p) => p.includes(':')).map((p) => p.split(':'))) as Record<string, string>;
+  if (!parts.AV) return null;
+  return { AV: parts.AV, AC: parts.AC, PR: parts.PR, UI: parts.UI, S: parts.S, C: parts.C, I: parts.I, A: parts.A };
+}
+
 function VulnModal({ vuln, onClose, onSaved, isRequest }: {
   vuln?: any;
   onClose: () => void;
   onSaved: () => void;
   isRequest: boolean;
 }) {
+  const toast = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     name: vuln?.name || '',
@@ -550,6 +748,17 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
   });
 
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
+
+  const [cvssMetrics, setCvssMetrics] = useState<CvssMetrics>(
+    parseCvssVector(vuln?.cvssVector) || { AV: 'N', AC: 'L', PR: 'N', UI: 'N', S: 'U', C: 'N', I: 'N', A: 'N' }
+  );
+
+  useEffect(() => {
+    const { score, vector } = calculateCvss(cvssMetrics);
+    const severity =
+      score >= 9 ? 'Critical' : score >= 7 ? 'High' : score >= 4 ? 'Medium' : score > 0 ? 'Low' : 'Info';
+    setForm((f) => ({ ...f, cvssScore: score.toString(), cvssVector: vector, severity }));
+  }, [cvssMetrics]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -568,8 +777,9 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
         await api.post('/vulnerabilities', payload);
       }
       onSaved();
+      toast(isRequest && !vuln ? 'Vulnerability requested for approval' : 'Vulnerability saved');
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to save');
+      toast(error.response?.data?.message || 'Failed to save', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -578,7 +788,7 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
   const inputCls = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
   const labelCls = 'block text-xs text-gray-400 mb-1';
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -619,13 +829,7 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className={labelCls}>CVSS Score</label>
-              <input type="number" step="0.1" min="0" max="10" value={form.cvssScore}
-                onChange={(e) => set('cvssScore', e.target.value)}
-                className={inputCls} />
-            </div>
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>CVE ID</label>
               <input type="text" value={form.cveId}
@@ -637,6 +841,26 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
               <input type="text" value={form.cweId}
                 onChange={(e) => set('cweId', e.target.value)}
                 className={inputCls} />
+            </div>
+          </div>
+
+          <div className="p-4 rounded-lg bg-gray-800/30 border border-gray-700 space-y-3">
+            <p className="text-xs font-medium text-gray-300">CVSS v3.1 Calculator</p>
+            <div className="grid grid-cols-4 gap-3">
+              {(Object.keys(CVSS_OPTIONS) as (keyof typeof CVSS_OPTIONS)[]).map((key) => (
+                <div key={key}>
+                  <label className={labelCls}>{CVSS_LABELS[key]}</label>
+                  <select value={cvssMetrics[key]} onChange={(e) => setCvssMetrics((m) => ({ ...m, [key]: e.target.value }))} className={inputCls}>
+                    {CVSS_OPTIONS[key].map(([abbr, label]) => (
+                      <option key={abbr} value={abbr}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between pt-1 text-sm">
+              <span className="text-gray-400">Score: <span className="text-white font-semibold">{form.cvssScore || '-'}</span></span>
+              <span className="text-gray-400 truncate ml-4">Vector: <span className="text-cyan-400">{form.cvssVector}</span></span>
             </div>
           </div>
 
@@ -675,6 +899,104 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
           </div>
         </form>
       </motion.div>
+    </div>,
+    document.body
+  );
+}
+
+function VulnHistoryTimeline({ vulnId }: { vulnId: string }) {
+  const [history, setHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    api.get(`/vulnerabilities/${vulnId}/history`)
+      .then((res) => setHistory(res.data))
+      .catch(() => setHistory([]));
+  }, [vulnId]);
+
+  if (history.length === 0) return null;
+
+  return (
+    <div className="pt-2 border-t border-gray-800">
+      <p className="text-xs text-gray-500 mb-3 flex items-center gap-1.5">
+        <Clock className="w-3.5 h-3.5" /> Activity Timeline
+      </p>
+      <div className="space-y-3">
+        {history.map((log: any) => (
+          <div key={log.id} className="flex items-start gap-2 text-xs">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+            <div>
+              <p className="text-gray-300">
+                <span className="font-medium text-white">{log.actor?.username || 'System'}</span>{' '}
+                {log.action.replace('VULNERABILITY_', '').replace(/_/g, ' ').toLowerCase()}
+              </p>
+              <p className="text-gray-500">{new Date(log.timestamp).toLocaleString()}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChangeTrackerTab() {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/vulnerabilities/change-tracker')
+      .then((res) => setLogs(res.data))
+      .catch(() => setLogs([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const ACTION_STYLES: Record<string, string> = {
+    VULNERABILITY_CREATED: 'bg-emerald-500/10 text-emerald-400',
+    VULNERABILITY_UPDATED: 'bg-blue-500/10 text-blue-400',
+    VULNERABILITY_DELETED: 'bg-red-500/10 text-red-400',
+    VULNERABILITY_REQUESTED: 'bg-amber-500/10 text-amber-400',
+    VULNERABILITY_APPROVED: 'bg-emerald-500/10 text-emerald-400',
+    VULNERABILITY_REJECTED: 'bg-red-500/10 text-red-400',
+  };
+
+  return (
+    <div className="glass-card rounded-xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-800">
+        <h3 className="text-sm font-medium text-white flex items-center gap-2">
+          <Clock className="w-4 h-4 text-purple-400" /> Vulnerability Change Tracker
+        </h3>
+        <p className="text-xs text-gray-500 mt-1">Every create, edit, delete, request, approval, and rejection across all vulnerabilities — admin-only.</p>
+      </div>
+
+      {loading ? (
+        <div className="p-8 text-center text-gray-500 text-sm">Loading…</div>
+      ) : logs.length === 0 ? (
+        <div className="p-8 text-center text-gray-500 text-sm">No vulnerability changes recorded yet.</div>
+      ) : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-500 text-xs border-b border-gray-800">
+              <th className="px-5 py-2 font-medium">Timestamp</th>
+              <th className="px-5 py-2 font-medium">Actor</th>
+              <th className="px-5 py-2 font-medium">Action</th>
+              <th className="px-5 py-2 font-medium">Vulnerability</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.map((log: any) => (
+              <tr key={log.id} className="border-b border-gray-800/60 hover:bg-white/[0.02]">
+                <td className="px-5 py-2.5 text-gray-400 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                <td className="px-5 py-2.5 text-white">{log.actor?.username || 'System'}</td>
+                <td className="px-5 py-2.5">
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${ACTION_STYLES[log.action] || 'bg-gray-500/10 text-gray-400'}`}>
+                    {log.action.replace('VULNERABILITY_', '').replace(/_/g, ' ').toLowerCase()}
+                  </span>
+                </td>
+                <td className="px-5 py-2.5 text-gray-300">{log.vulnerabilityName || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

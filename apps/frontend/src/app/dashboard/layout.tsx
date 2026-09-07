@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
+import { classifyTransition, TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
 import {
   LayoutDashboard,
   FolderKanban,
@@ -20,6 +21,9 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useAuth, api } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
+import { useIdleTimer } from '@/hooks/use-idle-timer';
+import { isRouteAllowed } from '@/lib/rbac';
 
 interface NavItem {
   label: string;
@@ -60,15 +64,29 @@ const roleLabel = (role: string) => {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, loading } = useAuth();
+  const { primaryColor } = useBranding();
   const router = useRouter();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const prevPathnameRef = useRef(pathname);
+  const transitionKind = classifyTransition(prevPathnameRef.current, pathname);
+  const idleTimer = useIdleTimer(!!user);
+
+  useEffect(() => {
+    prevPathnameRef.current = pathname;
+  }, [pathname]);
 
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (user && !isRouteAllowed(pathname, user.role)) {
+      router.replace(`/unauthorized?from=${encodeURIComponent(pathname)}`);
+    }
+  }, [user, pathname, router]);
 
   if (loading) {
     return (
@@ -79,6 +97,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   if (!user) return null;
+  if (!isRouteAllowed(pathname, user.role)) return null;
 
   const filteredNav = navItems.filter(item => item.roles.includes(user.role));
 
@@ -94,7 +113,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="h-full flex flex-col">
           {/* Logo */}
           <div className="h-16 flex items-center px-4 border-b border-cyber-border">
-            <Shield className="w-8 h-8 text-emerald-400 shrink-0" />
+            <Shield className="w-8 h-8 shrink-0" style={{ color: primaryColor }} />
             {!collapsed && (
               <motion.span
                 initial={{ opacity: 0 }}
@@ -113,20 +132,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 ? pathname === '/dashboard'
                 : pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
-                <Link
+                <motion.div
                   key={item.href}
-                  href={item.href}
-                  className={`flex items-center px-3 py-2.5 rounded-lg transition-all duration-200 group ${
-                    isActive
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                      : 'text-gray-400 hover:text-white hover:bg-white/5'
-                  }`}
+                  whileHover={{ scale: 1.03, x: 2 }}
+                  whileTap={{ scale: 0.98 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                 >
-                  <item.icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-emerald-400' : ''}`} />
-                  {!collapsed && (
-                    <span className="ml-3 text-sm font-medium whitespace-nowrap">{item.label}</span>
-                  )}
-                </Link>
+                  <Link
+                    href={item.href}
+                    className={`flex items-center px-3 py-2.5 rounded-lg transition-all duration-200 group border ${
+                      isActive
+                        ? 'border-transparent'
+                        : 'border-transparent text-gray-400 hover:text-white hover:bg-white/5 hover:backdrop-blur-md hover:border-white/10 hover:shadow-lg'
+                    }`}
+                    style={isActive ? {
+                      backgroundColor: `${primaryColor}1a`,
+                      color: primaryColor,
+                      borderColor: `${primaryColor}33`,
+                      boxShadow: `0 0 0 1px ${primaryColor}1a`,
+                    } : undefined}
+                  >
+                    <item.icon className="w-5 h-5 shrink-0" style={isActive ? { color: primaryColor } : undefined} />
+                    {!collapsed && (
+                      <span className="ml-3 text-sm font-medium whitespace-nowrap">{item.label}</span>
+                    )}
+                  </Link>
+                </motion.div>
               );
             })}
           </nav>
@@ -169,19 +200,54 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <UserDropdown user={user} logout={logout} router={router} />
         </div>
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={pathname}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-            className="p-6"
-          >
-            {children}
-          </motion.div>
-        </AnimatePresence>
+        {/* grid-stack: entering and exiting pages share one cell so they can
+            overlap and cross-dissolve, instead of a hard cut between them */}
+        <div className="grid">
+          <AnimatePresence mode="popLayout" initial={false}>
+            <motion.div
+              key={pathname}
+              variants={TRANSITION_VARIANTS[transitionKind]}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={TRANSITION_TIMING}
+              className="p-6"
+              style={{ gridArea: '1 / 1' }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       </main>
+
+      <AnimatePresence>
+        {idleTimer.warning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-black/70 backdrop-blur-sm flex items-center justify-center"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 6 }}
+              className="bg-gray-900 border border-amber-500/30 rounded-xl shadow-2xl p-6 w-full max-w-sm text-center"
+            >
+              <p className="text-white font-semibold mb-1">Still there?</p>
+              <p className="text-sm text-gray-400 mb-4">
+                You'll be logged out in {idleTimer.secondsRemaining}s due to inactivity.
+              </p>
+              <button
+                onClick={idleTimer.stayActive}
+                className="w-full py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-medium transition-colors"
+              >
+                Stay logged in
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -334,34 +400,54 @@ function UserDropdown({ user, logout, router }: { user: any; logout: () => Promi
         <ChevronDown className="w-3 h-3" />
       </button>
 
-      {open && (
-        <>
-          <div className="fixed inset-0" onClick={() => setOpen(false)} />
-          <motion.div
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden"
-          >
-            <div className="px-4 py-3 border-b border-gray-700">
-              <p className="text-sm font-medium text-white truncate">{user.fullName || user.username}</p>
-              <p className="text-xs text-emerald-400">{roleLabel(user.role)}</p>
-            </div>
-            <Link
-              href="/dashboard/profile"
-              className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-all"
+      <AnimatePresence>
+        {open && (
+          <>
+            <motion.div
+              className="fixed inset-0 z-40"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               onClick={() => setOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: -8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -6, transition: { duration: 0.12 } }}
+              transition={{ type: 'spring', stiffness: 400, damping: 28 }}
+              style={{ transformOrigin: 'top right' }}
+              className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden"
             >
-              <UserCircle className="w-4 h-4" /> My Profile
-            </Link>
-            <button
-              onClick={async () => { await logout(); router.push('/login'); }}
-              className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-300 hover:bg-red-500/10 hover:text-red-400 transition-all"
-            >
-              <LogOut className="w-4 h-4" /> Logout
-            </button>
-          </motion.div>
-        </>
-      )}
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.04 }}
+                className="px-4 py-3 border-b border-gray-700"
+              >
+                <p className="text-sm font-medium text-white truncate">{user.fullName || user.username}</p>
+                <p className="text-xs text-emerald-400">{roleLabel(user.role)}</p>
+              </motion.div>
+              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
+                <Link
+                  href="/dashboard/profile"
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-all"
+                  onClick={() => setOpen(false)}
+                >
+                  <UserCircle className="w-4 h-4" /> My Profile
+                </Link>
+              </motion.div>
+              <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
+                <button
+                  onClick={async () => { await logout(); router.push('/login'); }}
+                  className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-gray-300 hover:bg-red-500/10 hover:text-red-400 transition-all"
+                >
+                  <LogOut className="w-4 h-4" /> Logout
+                </button>
+              </motion.div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

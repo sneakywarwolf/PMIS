@@ -13,6 +13,7 @@ import { AuditModule } from './audit/audit.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { FindingsModule } from './findings/findings.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { SettingsModule } from './settings/settings.module';
 
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
@@ -34,6 +35,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     AuditModule,
     DashboardModule,
     NotificationsModule,
+    SettingsModule,
   ],
   providers: [
     {

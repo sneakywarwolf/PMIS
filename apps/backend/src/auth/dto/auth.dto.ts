@@ -8,11 +8,8 @@ export class LoginDto {
   username: string;
 
   @IsString()
-  @MinLength(14)
+  @MinLength(8)
   password: string;
-
-  @IsOptional()
-  rememberMe?: boolean;
 }
 
 export class CreateUserDto {
@@ -25,7 +22,7 @@ export class CreateUserDto {
   email: string;
 
   @IsString()
-  @MinLength(14)
+  @MinLength(8)
   password: string;
 
   @IsEnum(UserRole)

@@ -22,6 +22,10 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
+*.log
+
+# TypeScript build cache
+*.tsbuildinfo
 
 # Database
 *.db

@@ -1,6 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -21,8 +22,11 @@ import {
   CheckCircle,
   AlertCircle,
   Eye,
+  Download,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { useConfirm } from '@/components/confirm-provider';
+import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
 
 const severityColors: Record<string, string> = {
   Critical: 'bg-red-500/10 text-red-400 border-red-500/20',
@@ -118,6 +122,7 @@ export default function ProjectDetailPage() {
   const { id } = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const confirmDialog = useConfirm();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -143,7 +148,8 @@ export default function ProjectDetailPage() {
   }, [fetchProject]);
 
   const handleDeleteFinding = async (findingId: string) => {
-    if (!confirm('Delete this finding?')) return;
+    const ok = await confirmDialog({ title: 'Delete finding?', message: 'This finding and its POC steps will be permanently deleted.', confirmLabel: 'Delete', danger: true });
+    if (!ok) return;
     try {
       await api.delete(`/findings/${findingId}`);
       fetchProject();
@@ -426,6 +432,8 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
+      <GeneratedReportsSection projectId={project.id} refreshKey={reportResult} />
+
       {/* Add/Edit Finding Modal */}
       {showAddModal && (
         <FindingModal
@@ -451,6 +459,8 @@ export default function ProjectDetailPage() {
 function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose: () => void; onSaved: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [templates, setTemplates] = useState<any[]>([]);
+  const [customFields, setCustomFields] = useState<any[]>([]);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>(project.customFieldValues || {});
   const [form, setForm] = useState({
     name: project.name,
     clientName: project.clientName,
@@ -485,11 +495,24 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     fetchTemplates();
   }, [form.complianceType]);
 
+  useEffect(() => {
+    if (!form.templateId) {
+      setCustomFields([]);
+      return;
+    }
+    api.get(`/reports/templates/${form.templateId}/fields`)
+      .then((res) => setCustomFields(res.data.filter((f: any) => f.isCustom)))
+      .catch(() => setCustomFields([]));
+  }, [form.templateId]);
+
+  const setCustomFieldValue = (name: string, value: string) =>
+    setCustomFieldValues((prev) => ({ ...prev, [name]: value }));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const payload: any = { ...form };
+      const payload: any = { ...form, customFieldValues };
       if (!payload.templateId) payload.templateId = undefined;
       await api.put(`/projects/${project.id}`, payload);
       onSaved();
@@ -610,6 +633,22 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
             <label className={labelCls}>Testing Limitation</label>
             <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
           </div>
+
+          {customFields.length > 0 && (
+            <div className="space-y-3 pt-2 border-t border-gray-700">
+              <p className="text-sm font-medium text-gray-300 pt-2">Additional Template Fields</p>
+              {customFields.map((field) => (
+                <div key={field.id}>
+                  <label className="block text-sm text-gray-300 mb-1">{field.name}</label>
+                  <input
+                    value={customFieldValues[field.normalizedName] || ''}
+                    onChange={(e) => setCustomFieldValue(field.normalizedName, e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
             <button
@@ -805,6 +844,10 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedVuln, setSelectedVuln] = useState<Vulnerability | null>(finding?.vulnerability || null);
   const searchRef = useRef<HTMLDivElement>(null);
+  // New findings walk through Search -> Preview -> Configure as distinct steps
+  // instead of one long scrolling form. Editing an existing finding skips
+  // straight to Configure since the vulnerability is already fixed.
+  const [step, setStep] = useState<'search' | 'configure'>(finding ? 'configure' : 'search');
 
   const [form, setForm] = useState({
     testerNotes: finding?.testerNotes || '',
@@ -874,6 +917,11 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
     setSelectedVuln(vuln);
     setSearchQuery(vuln.name);
     setShowDropdown(false);
+  };
+
+  const goToConfigure = () => {
+    if (!selectedVuln) return;
+    setStep('configure');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -957,7 +1005,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
     setPocSteps(updated);
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -974,48 +1022,106 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {!finding && (
-            <div className="relative" ref={searchRef}>
-              <label className="block text-sm text-gray-300 mb-1">Vulnerability *</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Type to search vulnerabilities..."
-                  className="w-full pl-10 pr-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white"
-                  required={!finding}
-                />
-              </div>
-              {showDropdown && searchResults.length > 0 && (
-                <div className="absolute z-20 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                  {searchResults.map((vuln) => (
-                    <button
-                      key={vuln.id}
-                      type="button"
-                      onClick={() => selectVulnerability(vuln)}
-                      className="w-full text-left px-4 py-2 hover:bg-gray-700 transition-colors border-b border-gray-700/50 last:border-0"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-white">{vuln.name}</span>
-                        <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
-                          {vuln.severity}
-                        </span>
+          <AnimatePresence mode="wait">
+            {step === 'search' && (
+              <motion.div
+                key="search"
+                variants={TRANSITION_VARIANTS.scaleFade}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={TRANSITION_TIMING}
+                className="space-y-4"
+              >
+                <div className="relative" ref={searchRef}>
+                  <label className="block text-sm text-gray-300 mb-1">Search Vulnerability Database *</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Type to search vulnerabilities..."
+                      className="w-full pl-10 pr-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white"
+                    />
+                  </div>
+                  {showDropdown && searchResults.length > 0 && (
+                    <div className="absolute z-20 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl max-h-96 overflow-y-auto">
+                      {searchResults.map((vuln) => (
+                        <button
+                          key={vuln.id}
+                          type="button"
+                          onClick={() => selectVulnerability(vuln)}
+                          className="w-full text-left px-4 py-2 hover:bg-gray-700 transition-colors border-b border-gray-700/50 last:border-0"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-white">{vuln.name}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
+                              {vuln.severity}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 truncate">CVSS: {vuln.cvssScore ?? '-'} {vuln.cveId}</p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Preview of the selected canonical vulnerability, before it
+                    becomes a project-specific finding */}
+                {selectedVuln && (
+                  <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 space-y-3">
+                    <div>
+                      <p className="text-sm text-emerald-400 font-medium">{selectedVuln.name}</p>
+                      <p className="text-xs text-gray-400 mt-1">{selectedVuln.description.substring(0, 200)}...</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-xs">
+                      <div className="p-2 rounded bg-gray-800/50">
+                        <span className="text-gray-500">Severity</span>
+                        <p className="text-white">{selectedVuln.severity}</p>
                       </div>
-                      <p className="text-xs text-gray-500 truncate">CVSS: {vuln.cvssScore ?? '-'} {vuln.cveId}</p>
-                    </button>
-                  ))}
+                      <div className="p-2 rounded bg-gray-800/50">
+                        <span className="text-gray-500">CVSS</span>
+                        <p className="text-white">{selectedVuln.cvssScore ?? '-'}</p>
+                      </div>
+                      <div className="p-2 rounded bg-gray-800/50">
+                        <span className="text-gray-500">CVE/CWE</span>
+                        <p className="text-white">{selectedVuln.cveId || selectedVuln.cweId || '-'}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goToConfigure}
+                    disabled={!selectedVuln}
+                    className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50"
+                  >
+                    Continue
+                  </button>
                 </div>
-              )}
-              {selectedVuln && (
-                <div className="mt-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                  <p className="text-sm text-emerald-400 font-medium">{selectedVuln.name}</p>
-                  <p className="text-xs text-gray-400">{selectedVuln.description.substring(0, 120)}...</p>
-                </div>
-              )}
-            </div>
-          )}
+              </motion.div>
+            )}
+
+            {step === 'configure' && (
+              <motion.div
+                key="configure"
+                variants={TRANSITION_VARIANTS.scaleFade}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                transition={TRANSITION_TIMING}
+                className="space-y-5"
+              >
 
           {finding && (
             <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700">
@@ -1024,20 +1130,21 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
             </div>
           )}
 
-          {selectedVuln && (
-            <div className="grid grid-cols-3 gap-3 text-xs">
-              <div className="p-2 rounded bg-gray-800/50">
-                <span className="text-gray-500">Severity</span>
-                <p className="text-white">{selectedVuln.severity}</p>
+          {selectedVuln && !finding && (
+            <div className="flex items-center justify-between p-3 rounded-lg bg-gray-800/50 border border-gray-700">
+              <div>
+                <p className="text-sm text-white font-medium">{selectedVuln.name}</p>
+                <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-xs ${severityColors[selectedVuln.severity] || severityColors.Info}`}>
+                  {selectedVuln.severity}
+                </span>
               </div>
-              <div className="p-2 rounded bg-gray-800/50">
-                <span className="text-gray-500">CVSS</span>
-                <p className="text-white">{selectedVuln.cvssScore ?? '-'}</p>
-              </div>
-              <div className="p-2 rounded bg-gray-800/50">
-                <span className="text-gray-500">CVE/CWE</span>
-                <p className="text-white">{selectedVuln.cveId || selectedVuln.cweId || '-'}</p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setStep('search')}
+                className="text-xs text-gray-400 hover:text-white underline"
+              >
+                Change vulnerability
+              </button>
             </div>
           )}
 
@@ -1135,16 +1242,6 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
             />
           </div>
 
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Tester Notes</label>
-            <textarea
-              rows={3}
-              value={form.testerNotes}
-              onChange={(e) => setForm({ ...form, testerNotes: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 text-sm text-white"
-            />
-          </div>
-
           <div className="border border-gray-700 rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-white">POC Steps</h3>
@@ -1229,9 +1326,13 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
               {submitting ? 'Saving...' : (finding ? 'Update Finding' : 'Add Finding')}
             </button>
           </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </form>
       </motion.div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -1346,6 +1447,53 @@ function CvssCalculator({ initialVector, onApply }: {
         </button>
       </div>
       <p className="text-xs text-gray-500 font-mono break-all">{vector}</p>
+    </div>
+  );
+}
+
+function GeneratedReportsSection({ projectId, refreshKey }: { projectId: string; refreshKey: any }) {
+  const [reports, setReports] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get(`/reports/history/${projectId}`)
+      .then((res) => setReports(res.data))
+      .catch(() => setReports([]))
+      .finally(() => setLoading(false));
+  }, [projectId, refreshKey]);
+
+  if (loading || reports.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-lg font-semibold text-white">Generated Reports ({reports.length})</h2>
+      <div className="glass-card rounded-xl divide-y divide-gray-800">
+        {reports.map((r) => (
+          <div key={r.id} className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <FileText className="w-4 h-4 text-blue-400 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm text-white truncate">{r.fileName || r.template?.name || 'Report'}</p>
+                <p className="text-xs text-gray-500">
+                  Generated {new Date(r.createdAt).toLocaleString()} by {r.generatedBy?.username || 'unknown'}
+                </p>
+              </div>
+            </div>
+            {r.docxUrl ? (
+              <a
+                href={r.docxUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 text-xs font-medium transition-all shrink-0"
+              >
+                <Download className="w-3.5 h-3.5" /> Download
+              </a>
+            ) : (
+              <span className="text-xs text-gray-600 shrink-0">Unavailable</span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

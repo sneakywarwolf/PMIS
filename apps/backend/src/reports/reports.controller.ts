@@ -63,6 +63,27 @@ export class ReportsController {
     return this.reportsService.getTemplates(category, subType, true);
   }
 
+  @Post('templates/:id/fields')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Manually add a field the extractor missed' })
+  async addTemplateField(
+    @Param('id') id: string,
+    @Body() body: { name: string; normalizedName: string; category: string; description?: string },
+    @CurrentUser('id') adminId: string,
+  ) {
+    return this.reportsService.addTemplateField(id, body, adminId);
+  }
+
+  @Put('templates/fields/:fieldId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Edit a template field label/category/description' })
+  async updateTemplateField(
+    @Param('fieldId') fieldId: string,
+    @Body() body: { name?: string; category?: string; description?: string },
+  ) {
+    return this.reportsService.updateTemplateField(fieldId, body);
+  }
+
   @Get('templates/:id/fields')
   @ApiOperation({ summary: 'Get extracted fields for a template' })
   async getTemplateFields(@Param('id') id: string) {

@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FolderKanban, Plus, Search, FileText, Edit, AlertTriangle, X, Loader2, CheckCircle, Eye, LayoutGrid, Table2 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { useToast } from '@/components/toast-provider';
 
 const statusColors: Record<string, string> = {
   NOT_STARTED: 'bg-gray-700 text-gray-300',
@@ -50,11 +52,21 @@ interface Project {
 }
 
 export default function ProjectsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ProjectsPageContent />
+    </Suspense>
+  );
+}
+
+function ProjectsPageContent() {
+  const toast = useToast();
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [generatingReport, setGeneratingReport] = useState<string | null>(null);
@@ -80,8 +92,9 @@ export default function ProjectsPage() {
     try {
       const response = await api.post('/reports/generate', { projectId });
       setReportResult(response.data);
+      toast('Report generated successfully');
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Report generation failed');
+      toast(error.response?.data?.message || 'Report generation failed', 'error');
     } finally {
       setGeneratingReport(null);
     }
@@ -118,7 +131,7 @@ export default function ProjectsPage() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to generate issue log');
+      toast(error.response?.data?.message || 'Failed to generate issue log', 'error');
     }
   };
 
@@ -418,6 +431,7 @@ export default function ProjectsPage() {
 }
 
 function EditProjectModal({ project, onClose, onSaved }: { project: Project; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [templates, setTemplates] = useState<any[]>([]);
   const [form, setForm] = useState({
@@ -463,8 +477,9 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
       if (!payload.templateId) payload.templateId = undefined;
       await api.put(`/projects/${project.id}`, payload);
       onSaved();
+      toast('Project updated');
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to update project');
+      toast(error.response?.data?.message || 'Failed to update project', 'error');
     } finally {
       setSubmitting(false);
     }
