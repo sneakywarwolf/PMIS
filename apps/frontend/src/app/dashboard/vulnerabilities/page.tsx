@@ -1,19 +1,23 @@
 'use client';
 
 import { Fragment, useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw, Clock } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
 
-const severityColors: Record<string, string> = {
-  Critical: 'bg-red-500/10 text-red-400 border-red-500/20',
-  High: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-  Medium: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-  Low: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  Info: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
+const DEFAULT_SEVERITY_COLORS: Record<string, string> = {
+  Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#3b82f6', Info: '#6b7280',
 };
+
+// Admin-configurable (Settings > Workflow > Severity Labels & Colors) — falls back
+// to the platform defaults above until settings load or for unrecognized severities.
+function severityBadgeStyle(severityColors: Record<string, string>, severity: string) {
+  const hex = severityColors[severity] || severityColors.Info || DEFAULT_SEVERITY_COLORS.Info;
+  return { backgroundColor: `${hex}1a`, color: hex, borderColor: `${hex}33` };
+}
 
 const statusColors: Record<string, string> = {
   APPROVED: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
@@ -42,6 +46,7 @@ export default function VulnerabilitiesPage() {
   const confirmDialog = useConfirm();
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'changeTracker'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [severityColors, setSeverityColors] = useState<Record<string, string>>(DEFAULT_SEVERITY_COLORS);
 
   // Bulk upload state
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
@@ -58,6 +63,13 @@ export default function VulnerabilitiesPage() {
     fetchVulnerabilities();
     if (isAdminOrTL) fetchPending();
   }, [search, severity, sort, activeTab]);
+
+  useEffect(() => {
+    api.get('/settings').then((res) => {
+      const colors = res.data?.settings?.workflow?.severityColors;
+      if (colors) setSeverityColors({ ...DEFAULT_SEVERITY_COLORS, ...colors });
+    }).catch(() => {});
+  }, []);
 
   const fetchVulnerabilities = async () => {
     setLoading(true);
@@ -374,7 +386,7 @@ export default function VulnerabilitiesPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[vuln.severity] || severityColors.Info}`}>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={severityBadgeStyle(severityColors, vuln.severity)}>
                       {vuln.severity}
                     </span>
                   </td>
@@ -487,7 +499,7 @@ export default function VulnerabilitiesPage() {
                 </div>
                 <div className="p-6 space-y-4 text-sm">
                   <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[vuln.severity] || severityColors.Info}`}>
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={severityBadgeStyle(severityColors, vuln.severity)}>
                       {vuln.severity}
                     </span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${statusColors[vuln.status] || statusColors.PENDING}`}>
@@ -777,7 +789,7 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
   const inputCls = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
   const labelCls = 'block text-xs text-gray-400 mb-1';
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -888,7 +900,8 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
           </div>
         </form>
       </motion.div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
