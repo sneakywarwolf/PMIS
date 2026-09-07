@@ -51,10 +51,10 @@ export class DashboardController {
     }
 
     if (scope === 'team') {
-      if (tlId && tlId !== user.id) {
+      const ownTlId = user.role === UserRole.TEAM_LEAD ? user.id : (user as any).assignedTlId;
+      if (tlId && tlId !== ownTlId) {
         return this.dashboardService.getTeamCompletionStats(tlId, granularity, false);
       }
-      const ownTlId = user.role === UserRole.TEAM_LEAD ? user.id : (user as any).assignedTlId;
       if (!ownTlId) {
         return this.dashboardService.getTeamCompletionStats('__none__', granularity, true);
       }

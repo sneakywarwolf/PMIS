@@ -60,4 +60,10 @@ describe('DashboardController.getCompletionStats', () => {
     await controller.getCompletionStats({ scope: 'team', granularity: 'month', tlId: 'tl-other' } as any, user as any);
     expect(service.getTeamCompletionStats).toHaveBeenCalledWith('tl-other', 'month', false);
   });
+
+  it('scope=team with tlId equal to caller\'s own assignedTlId is treated as own team, not foreign', async () => {
+    const user = makeUser({ id: 'tester-1', role: UserRole.TESTER, assignedTlId: 'tl-9' });
+    await controller.getCompletionStats({ scope: 'team', granularity: 'month', tlId: 'tl-9' } as any, user as any);
+    expect(service.getTeamCompletionStats).toHaveBeenCalledWith('tl-9', 'month', true);
+  });
 });
