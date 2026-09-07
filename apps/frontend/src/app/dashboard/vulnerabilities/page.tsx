@@ -42,12 +42,11 @@ export default function VulnerabilitiesPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPendingModal, setShowPendingModal] = useState(false);
   const [editingVuln, setEditingVuln] = useState<any>(null);
-const toast = useToast();
-const confirmDialog = useConfirm();
-const [message, setMessage] = useState('');
-const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'changeTracker'>('all');
-const [expandedId, setExpandedId] = useState<string | null>(null);
-const [severityColors, setSeverityColors] = useState<Record<string, string>>(DEFAULT_SEVERITY_COLORS);
+  const toast = useToast();
+  const confirmDialog = useConfirm();
+  const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'changeTracker'>('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [severityColors, setSeverityColors] = useState<Record<string, string>>(DEFAULT_SEVERITY_COLORS);
 
   // Bulk upload state
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
@@ -370,13 +369,15 @@ const [severityColors, setSeverityColors] = useState<Record<string, string>>(DEF
             </thead>
             <tbody>
               {displayVulns.map((vuln, i) => (
-<React.Fragment key={vuln.id}>
+                <Fragment key={vuln.id}>
                 <motion.tr
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.02 }}
                   onClick={() => setExpandedId(expandedId === vuln.id ? null : vuln.id)}
-className={`border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer ${expandedId === vuln.id ? 'bg-emerald-500/5' : ''}`}
+                  className={`border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer ${
+                    expandedId === vuln.id ? 'bg-emerald-500/5' : ''
+                  }`}
                 >
                   <td className="px-4 py-3">
                     <div>
