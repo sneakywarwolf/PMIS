@@ -1,6 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -1004,7 +1005,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
     setPocSteps(updated);
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -1330,7 +1331,8 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
           </AnimatePresence>
         </form>
       </motion.div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
