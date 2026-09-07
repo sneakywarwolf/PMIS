@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Users, Plus, Search, UserPlus, Key, Pencil, Trash2, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, Upload, Download, AlertTriangle, XCircle } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
 import { useConfirm } from '@/components/confirm-provider';
 
 interface TeamLead {
@@ -14,6 +15,7 @@ interface TeamLead {
 
 export default function UsersPage() {
   const { user } = useAuth();
+  const { roleAccentColors } = useBranding();
   const confirmDialog = useConfirm();
   const [users, setUsers] = useState<any[]>([]);
   const [teamLeads, setTeamLeads] = useState<TeamLead[]>([]);
@@ -324,12 +326,13 @@ export default function UsersPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    u.role === 'ADMIN' ? 'bg-red-500/10 text-red-400' :
-                    u.role === 'AVP' ? 'bg-purple-500/10 text-purple-400' :
-                    u.role === 'TEAM_LEAD' ? 'bg-blue-500/10 text-blue-400' :
-                    'bg-emerald-500/10 text-emerald-400'
-                  }`}>
+                  <span
+                    className="px-2 py-0.5 rounded-full text-xs font-medium"
+                    style={{
+                      backgroundColor: `${roleAccentColors[u.role] || '#6b7280'}1a`,
+                      color: roleAccentColors[u.role] || '#9ca3af',
+                    }}
+                  >
                     {u.role}
                   </span>
                 </td>

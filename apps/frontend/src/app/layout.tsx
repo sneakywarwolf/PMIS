@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google';
 import { MotionConfig } from 'framer-motion';
 import './globals.css';
 import { AuthProvider } from '@/contexts/auth-context';
+import { BrandingProvider } from '@/contexts/branding-context';
 import { ToastProvider } from '@/components/toast-provider';
 import { ConfirmProvider } from '@/components/confirm-provider';
 
@@ -44,11 +45,13 @@ export default function RootLayout({
       <body suppressHydrationWarning className={`${inter.className} bg-cyber-bg text-gray-100 min-h-screen`}>
         <MotionConfig reducedMotion="user">
           <AuthProvider>
-            <ToastProvider>
-              <ConfirmProvider>
-              {children}
-              </ConfirmProvider>
-            </ToastProvider>
+            <BrandingProvider>
+              <ToastProvider>
+                <ConfirmProvider>
+                {children}
+                </ConfirmProvider>
+              </ToastProvider>
+            </BrandingProvider>
           </AuthProvider>
         </MotionConfig>
       </body>

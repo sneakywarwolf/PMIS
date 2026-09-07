@@ -21,6 +21,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useAuth, api } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
 import { useIdleTimer } from '@/hooks/use-idle-timer';
 import { isRouteAllowed } from '@/lib/rbac';
 
@@ -63,6 +64,7 @@ const roleLabel = (role: string) => {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, loading } = useAuth();
+  const { primaryColor } = useBranding();
   const router = useRouter();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -111,7 +113,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="h-full flex flex-col">
           {/* Logo */}
           <div className="h-16 flex items-center px-4 border-b border-cyber-border">
-            <Shield className="w-8 h-8 text-emerald-400 shrink-0" />
+            <Shield className="w-8 h-8 shrink-0" style={{ color: primaryColor }} />
             {!collapsed && (
               <motion.span
                 initial={{ opacity: 0 }}
@@ -138,13 +140,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 >
                   <Link
                     href={item.href}
-                    className={`flex items-center px-3 py-2.5 rounded-lg transition-all duration-200 group border border-transparent ${
+                    className={`flex items-center px-3 py-2.5 rounded-lg transition-all duration-200 group border ${
                       isActive
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-[0_0_0_1px_rgba(16,185,129,0.1)]'
-                        : 'text-gray-400 hover:text-white hover:bg-white/5 hover:backdrop-blur-md hover:border-white/10 hover:shadow-lg'
+                        ? 'border-transparent'
+                        : 'border-transparent text-gray-400 hover:text-white hover:bg-white/5 hover:backdrop-blur-md hover:border-white/10 hover:shadow-lg'
                     }`}
+                    style={isActive ? {
+                      backgroundColor: `${primaryColor}1a`,
+                      color: primaryColor,
+                      borderColor: `${primaryColor}33`,
+                      boxShadow: `0 0 0 1px ${primaryColor}1a`,
+                    } : undefined}
                   >
-                    <item.icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-emerald-400' : ''}`} />
+                    <item.icon className="w-5 h-5 shrink-0" style={isActive ? { color: primaryColor } : undefined} />
                     {!collapsed && (
                       <span className="ml-3 text-sm font-medium whitespace-nowrap">{item.label}</span>
                     )}
