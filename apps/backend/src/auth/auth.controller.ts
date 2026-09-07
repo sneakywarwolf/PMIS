@@ -31,7 +31,6 @@ export class AuthController {
       dto.password,
       ipAddress,
       userAgent,
-      dto.rememberMe,
     );
 
     const accessMaxAge = result.access_expiry_seconds * 1000;

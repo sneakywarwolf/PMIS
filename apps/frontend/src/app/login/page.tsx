@@ -17,7 +17,6 @@ export default function LoginPage() {
 function LoginForm() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
@@ -38,7 +37,7 @@ function LoginForm() {
     setIsLoading(true);
 
     try {
-      await login(username, password, rememberMe);
+      await login(username, password);
       router.push('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid credentials');
@@ -110,19 +109,6 @@ function LoginForm() {
                   minLength={14}
                 />
               </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                id="remember-me"
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-700 bg-gray-800/50 text-emerald-600 focus:ring-emerald-500"
-              />
-              <label htmlFor="remember-me" className="text-sm text-gray-400 select-none cursor-pointer">
-                Remember me for 24 hours
-              </label>
             </div>
 
             <button

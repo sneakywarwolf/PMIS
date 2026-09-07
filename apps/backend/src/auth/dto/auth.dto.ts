@@ -10,9 +10,6 @@ export class LoginDto {
   @IsString()
   @MinLength(8)
   password: string;
-
-  @IsOptional()
-  rememberMe?: boolean;
 }
 
 export class CreateUserDto {

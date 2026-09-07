@@ -23,7 +23,7 @@ export class AuthService {
     private settingsService: SettingsService,
   ) {}
 
-  async validateUser(username: string, password: string, ipAddress: string, userAgent: string, rememberMe?: boolean) {
+  async validateUser(username: string, password: string, ipAddress: string, userAgent: string) {
     const normalizedInput = username.trim();
 
     // 1. Try exact username match
@@ -90,10 +90,10 @@ export class AuthService {
       action: 'LOGIN',
       ipAddress,
       userAgent,
-      details: { username: user.username, rememberMe: !!rememberMe },
+      details: { username: user.username },
     });
 
-    return this.generateTokens(user, rememberMe);
+    return this.generateTokens(user);
   }
 
   async refreshTokens(refreshToken: string, ipAddress: string, userAgent: string) {
@@ -188,7 +188,7 @@ export class AuthService {
     });
   }
 
-  private async generateTokens(user: User, rememberMe?: boolean) {
+  private async generateTokens(user: User) {
     const payload = {
       sub: user.id,
       username: user.username,
@@ -196,13 +196,12 @@ export class AuthService {
       assignedTlId: user.assignedTlId,
     };
 
-    // If remember me, extend session to 24h access / 30d refresh.
-    // Otherwise the access-token lifetime follows the admin-configured
+    // Access-token lifetime follows the admin-configured
     // security.sessionTimeoutMinutes setting.
     const { settings } = await this.settingsService.get();
-    const accessExpirySeconds = rememberMe ? 24 * 60 * 60 : settings.security.sessionTimeoutMinutes * 60;
+    const accessExpirySeconds = settings.security.sessionTimeoutMinutes * 60;
     const accessExpiry = `${accessExpirySeconds}s`;
-    const refreshExpiryDays = rememberMe ? 30 : 7;
+    const refreshExpiryDays = 7;
     const refreshExpirySeconds = refreshExpiryDays * 24 * 60 * 60;
 
     const accessToken = this.jwtService.sign(payload, {
@@ -225,7 +224,6 @@ export class AuthService {
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
-      remember_me: !!rememberMe,
       access_expiry_seconds: accessExpirySeconds,
       refresh_expiry_seconds: refreshExpirySeconds,
       user: {

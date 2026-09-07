@@ -14,7 +14,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string, rememberMe?: boolean) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   loading: boolean;
 }
@@ -94,8 +94,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const login = async (username: string, password: string, rememberMe?: boolean) => {
-    const response = await api.post('/auth/login', { username, password, rememberMe });
+  const login = async (username: string, password: string) => {
+    const response = await api.post('/auth/login', { username, password });
     setUser(response.data.user);
   };
 
