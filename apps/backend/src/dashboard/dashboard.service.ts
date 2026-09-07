@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { User, UserRole, ProjectStatus } from '@prisma/client';
-import { buildCompletionStats, CompletedProjectRow, CompletionStatsBase } from './completion-stats.util';
+import { buildCompletionStats, CompletionStatsBase, isCompletedProjectRow } from './completion-stats.util';
 import { ComplianceType } from '@prisma/client';
 import { CompletionStatsGranularity } from './dto/completion-stats-query.dto';
 
@@ -16,12 +16,20 @@ export class DashboardService {
     endDate: true,
   } as const;
 
+  // Completed projects always carry an endDate/complianceType in practice, but the
+  // schema allows null; excluding null rows at the DB level keeps corrupt/incomplete
+  // records out of the stats instead of crashing or polluting byType.
+  private readonly completedProjectWhere = {
+    endDate: { not: null },
+    complianceType: { not: null },
+  } as const;
+
   async getSelfCompletionStats(userId: string, granularity: CompletionStatsGranularity) {
     const rows = await this.prisma.project.findMany({
-      where: { testerId: userId, status: ProjectStatus.COMPLETED },
+      where: { testerId: userId, status: ProjectStatus.COMPLETED, ...this.completedProjectWhere },
       select: this.completedProjectSelect,
     });
-    return buildCompletionStats(rows as CompletedProjectRow[], granularity);
+    return buildCompletionStats(rows.filter(isCompletedProjectRow), granularity);
   }
 
   async getTeamCompletionStats(
@@ -41,21 +49,36 @@ export class DashboardService {
     });
     const testerIds = testers.map((t) => t.id);
 
-    const rows = await this.prisma.project.findMany({
+    // Broad candidate fetch: a project may belong to this team either via its own
+    // (possibly stale) tlId or via a tester currently on this team. Ownership is
+    // resolved below, same as getOrgCompletionStats, so a project whose tester has
+    // since moved to another team isn't double-counted across team/org views.
+    const candidateRows = await this.prisma.project.findMany({
       where: {
         status: ProjectStatus.COMPLETED,
+        ...this.completedProjectWhere,
         OR: [{ tlId }, { testerId: { in: testerIds } }],
       },
-      select: { ...this.completedProjectSelect, testerId: true },
+      select: { ...this.completedProjectSelect, tlId: true, testerId: true },
     });
 
-    const base = buildCompletionStats(rows as CompletedProjectRow[], granularity);
+    const candidateTesterIds = [...new Set(candidateRows.map((r) => r.testerId))];
+    const candidateTesters = await this.prisma.user.findMany({
+      where: { id: { in: candidateTesterIds } },
+      select: { id: true, assignedTlId: true },
+    });
+    const testerToTl = new Map(candidateTesters.map((t) => [t.id, t.assignedTlId]));
+    const owningTlId = (r: { testerId: string; tlId: string }) => testerToTl.get(r.testerId) ?? r.tlId;
+
+    const rows = candidateRows.filter((r) => owningTlId(r) === tlId).filter(isCompletedProjectRow);
+
+    const base = buildCompletionStats(rows, granularity);
     if (!includeMembers) {
       return base;
     }
 
     const members = testers.map((tester) => {
-      const testerRows = rows.filter((r) => r.testerId === tester.id) as CompletedProjectRow[];
+      const testerRows = rows.filter((r) => r.testerId === tester.id);
       const memberStats = buildCompletionStats(testerRows, granularity);
       return {
         id: tester.id,
@@ -71,11 +94,12 @@ export class DashboardService {
   async getOrgCompletionStats(
     granularity: CompletionStatsGranularity,
   ): Promise<CompletionStatsBase & { teams: Array<{ tlId: string; tlName: string; teamSize: number; totalCompleted: number; byType: Record<ComplianceType, number> }> }> {
-    const rows = await this.prisma.project.findMany({
-      where: { status: ProjectStatus.COMPLETED },
+    const rawRows = await this.prisma.project.findMany({
+      where: { status: ProjectStatus.COMPLETED, ...this.completedProjectWhere },
       select: { ...this.completedProjectSelect, tlId: true, testerId: true },
     });
-    const base = buildCompletionStats(rows as CompletedProjectRow[], granularity);
+    const rows = rawRows.filter(isCompletedProjectRow);
+    const base = buildCompletionStats(rows, granularity);
 
     const teamLeads = await this.prisma.user.findMany({
       where: { role: UserRole.TEAM_LEAD, isActive: true },
@@ -97,7 +121,7 @@ export class DashboardService {
 
     const teams = teamLeads.map((tl) => {
       const teamSize = allTesters.filter((t) => t.assignedTlId === tl.id).length;
-      const teamRows = rows.filter((r: any) => owningTlId(r) === tl.id) as CompletedProjectRow[];
+      const teamRows = rows.filter((r) => owningTlId(r) === tl.id);
       const teamStats = buildCompletionStats(teamRows, granularity);
       return {
         tlId: tl.id,

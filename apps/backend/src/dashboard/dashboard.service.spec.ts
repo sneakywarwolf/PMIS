@@ -37,7 +37,12 @@ describe('DashboardService.completion stats', () => {
     const result = await service.getSelfCompletionStats('tester-1', 'month');
 
     expect(prisma.project.findMany).toHaveBeenCalledWith({
-      where: { testerId: 'tester-1', status: ProjectStatus.COMPLETED },
+      where: {
+        testerId: 'tester-1',
+        status: ProjectStatus.COMPLETED,
+        endDate: { not: null },
+        complianceType: { not: null },
+      },
       select: { id: true, name: true, complianceType: true, endDate: true },
     });
     expect(result.totalCompleted).toBe(1);
@@ -76,6 +81,36 @@ describe('DashboardService.completion stats', () => {
     ]);
   });
 
+  it('getTeamCompletionStats counts a project via the tester\'s current team, not the project\'s stale tlId', async () => {
+    prisma.user.findUnique.mockResolvedValue({ id: 'tl-b', role: UserRole.TEAM_LEAD, username: 'tlB' });
+    prisma.user.findMany
+      .mockResolvedValueOnce([{ id: 'tester-1', username: 'tester1' }]) // current members of tl-b
+      .mockResolvedValueOnce([{ id: 'tester-1', assignedTlId: 'tl-b' }]); // tester-1's current team
+
+    // Project was created under tl-a, but its tester has since moved to tl-b.
+    const staleProject = project({ id: 'p1', tlId: 'tl-a', testerId: 'tester-1' });
+    prisma.project.findMany.mockResolvedValue([staleProject]);
+
+    const result = await service.getTeamCompletionStats('tl-b', 'month', false);
+
+    expect(result.totalCompleted).toBe(1);
+  });
+
+  it('getTeamCompletionStats excludes a project whose tester has since moved to another team, even if the project\'s own tlId still matches', async () => {
+    prisma.user.findUnique.mockResolvedValue({ id: 'tl-a', role: UserRole.TEAM_LEAD, username: 'tlA' });
+    prisma.user.findMany
+      .mockResolvedValueOnce([]) // no active members currently on tl-a
+      .mockResolvedValueOnce([{ id: 'tester-1', assignedTlId: 'tl-b' }]); // tester-1 moved to tl-b
+
+    // Project's own tlId is still tl-a, but tester-1 now belongs to tl-b.
+    const staleProject = project({ id: 'p1', tlId: 'tl-a', testerId: 'tester-1' });
+    prisma.project.findMany.mockResolvedValue([staleProject]);
+
+    const result = await service.getTeamCompletionStats('tl-a', 'month', false);
+
+    expect(result.totalCompleted).toBe(0);
+  });
+
   it('getOrgCompletionStats aggregates totals per team', async () => {
     prisma.user.findMany
       .mockResolvedValueOnce([{ id: 'tl-1', username: 'tl1' }]) // all TLs
@@ -87,7 +122,7 @@ describe('DashboardService.completion stats', () => {
     const result = await service.getOrgCompletionStats('month');
 
     expect(prisma.project.findMany).toHaveBeenCalledWith({
-      where: { status: ProjectStatus.COMPLETED },
+      where: { status: ProjectStatus.COMPLETED, endDate: { not: null }, complianceType: { not: null } },
       select: { id: true, name: true, complianceType: true, endDate: true, tlId: true, testerId: true },
     });
     expect(result.totalCompleted).toBe(1);

@@ -8,6 +8,14 @@ export interface CompletedProjectRow {
   endDate: Date;
 }
 
+// ponytail: DB `where` filters already exclude null endDate/complianceType at query time;
+// this guard just lets TS narrow the Prisma result type without an unsafe `as` cast.
+export function isCompletedProjectRow<T extends { complianceType: ComplianceType | null; endDate: Date | null }>(
+  row: T,
+): row is T & { complianceType: ComplianceType; endDate: Date } {
+  return row.complianceType !== null && row.endDate !== null;
+}
+
 export interface CompletionStatsBase {
   totalCompleted: number;
   byType: Record<ComplianceType, number>;
