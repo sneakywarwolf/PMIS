@@ -23,7 +23,7 @@ export default function UsersPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
-  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', fullName: '', phone: '', designation: '' });
+  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', managerId: '', fullName: '', phone: '', designation: '' });
   const [sortField, setSortField] = useState<string>('username');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [message, setMessage] = useState('');
@@ -76,7 +76,7 @@ export default function UsersPage() {
     try {
       await api.post('/users', newUser);
       setShowAddModal(false);
-      setNewUser({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', fullName: '', phone: '', designation: '' });
+      setNewUser({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', managerId: '', fullName: '', phone: '', designation: '' });
       fetchUsers();
     } catch (error) {
       console.error('Failed to create user:', error);
@@ -303,7 +303,6 @@ export default function UsersPage() {
                 <div className="flex items-center gap-1">Team Lead {sortField === 'teamLead' ? (sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-400" /> : <ArrowDown className="w-3 h-3 text-emerald-400" />) : <ArrowUpDown className="w-3 h-3 text-gray-600" />}</div>
               </th>
               <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Phone</th>
-              <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Joined</th>
               <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Status</th>
               <th className="text-left px-4 py-3 text-sm font-medium text-gray-400">Actions</th>
             </tr>
@@ -338,7 +337,6 @@ export default function UsersPage() {
                   {u.assignedTlId ? teamLeads.find(tl => tl.id === u.assignedTlId)?.fullName || teamLeads.find(tl => tl.id === u.assignedTlId)?.username || 'Unknown' : 'N/A'}
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-400">{u.phone || 'N/A'}</td>
-                <td className="px-4 py-3 text-sm text-gray-400">{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}</td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 rounded-full text-xs ${
                     u.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-700 text-gray-400'
@@ -389,11 +387,11 @@ export default function UsersPage() {
 
       {/* Add User Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="glass-card rounded-xl p-6 w-full max-w-md"
+            className="glass-card rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
           >
             <h2 className="text-lg font-semibold text-white mb-4">Add New User</h2>
             <form onSubmit={handleCreateUser} className="space-y-4">
@@ -459,6 +457,17 @@ export default function UsersPage() {
                   </select>
                 </div>
               )}
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Manager</label>
+                <select value={newUser.managerId}
+                  onChange={(e) => setNewUser({ ...newUser, managerId: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+                  <option value="">None</option>
+                  {managers.map(m => (
+                    <option key={m.id} value={m.id}>{m.fullName || m.username}</option>
+                  ))}
+                </select>
+              </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowAddModal(false)}
                   className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-all">Cancel</button>
