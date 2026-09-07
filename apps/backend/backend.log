@@ -1,0 +1,141 @@
+
+> @vapt/backend@1.0.0 start:dev
+> nest start --watch
+
+[2J[3J[H[[90m5:50:11 pm[0m] Starting compilation in watch mode...
+
+[[90m5:50:17 pm[0m] Found 0 errors. Watching for file changes.
+
+(node:27944) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[NestFactory] [39m[32mStarting Nest application...[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPrismaModule dependencies initialized[39m[38;5;3m +28ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPassportModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mJwtModule dependencies initialized[39m[38;5;3m +3ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mJwtModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigHostModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAuditModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mNotificationsModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDashboardModule dependencies initialized[39m[38;5;3m +19ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mRedisModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mProjectsModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mVulnerabilitiesModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mUsersModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAppModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mFindingsModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAuthModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mReportsModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[WebSocketsController] [39m[32mDashboardGateway subscribed to the "join_team_room" message[39m[38;5;3m +93ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[WebSocketsController] [39m[32mDashboardGateway subscribed to the "leave_team_room" message[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAuthController {/auth}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/auth/login, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/auth/refresh, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/auth/logout, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/auth/change-password, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/auth/me, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mUsersController {/users}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/team-leads, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/managers, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/sample-csv, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/profile, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/profile, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/team-hierarchy, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/:id, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/bulk-upload, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/:id, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/:id/activate, PUT} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/:id/reset-password, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/users/:id, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mNotificationsController {/notifications}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/notifications, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/notifications/count, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/notifications/:id/read, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/notifications/read-all, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mProjectsController {/projects}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/projects, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/projects/:id, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/projects, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/projects/:id, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/projects/:id/reassign, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/projects/:id/review, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mFindingsController {/findings}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/findings/upload-poc-image, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/findings/project/:projectId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/findings/:id, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/findings, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/findings/:id, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/findings/:id, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/findings/:id/poc-steps, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/findings/:id/poc-steps/:stepId, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/findings/:id/poc-steps/:stepId, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mReportsController {/reports}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/reports/templates, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/reports/templates, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/reports/templates/all, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/reports/templates/:id/fields, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/reports/templates/:id/activate, PUT} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/reports/templates/:id/deactivate, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/reports/generate, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/reports/preflight/:projectId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/reports/history/:projectId, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mVulnerabilitiesController {/vulnerabilities}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/pending, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/severities, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/export, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/sample-csv, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/:id, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/request, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/bulk-upload, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/:id, PUT} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/:id, DELETE} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/:id/approve, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/vulnerabilities/:id/reject, PUT} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mDashboardController {/dashboard}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/dashboard/team, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/dashboard/vulnerabilities, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/dashboard/admin, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:19 pm [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/dashboard/activity, GET} route[39m[38;5;3m +0ms[39m
+prisma:info Starting a postgresql pool with 9 connections.
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:20 pm [32m    LOG[39m [38;5;3m[RedisService] [39m[32mRedis connected successfully[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:20 pm [32m    LOG[39m [38;5;3m[NestApplication] [39m[32mNest application successfully started[39m[38;5;3m +16ms[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:20 pm [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mVAPT Command Center API running on port 4000[39m
+[32m[Nest] 29096  - [39m07/09/2026, 5:50:20 pm [32m    LOG[39m [38;5;3m[Bootstrap] [39m[32mSwagger docs available at http://localhost:4000/api/docs[39m
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."notifications"."id", "public"."notifications"."user_id", "public"."notifications"."type"::text, "public"."notifications"."title", "public"."notifications"."message", "public"."notifications"."read", "public"."notifications"."link_url", "public"."notifications"."related_id", "public"."notifications"."created_at" FROM "public"."notifications" WHERE "public"."notifications"."user_id" = $1 ORDER BY "public"."notifications"."created_at" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."notifications"."id" FROM "public"."notifications" WHERE ("public"."notifications"."user_id" = $1 AND "public"."notifications"."read" = $2) OFFSET $3) AS "sub"
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."notifications"."id", "public"."notifications"."user_id", "public"."notifications"."type"::text, "public"."notifications"."title", "public"."notifications"."message", "public"."notifications"."read", "public"."notifications"."link_url", "public"."notifications"."related_id", "public"."notifications"."created_at" FROM "public"."notifications" WHERE "public"."notifications"."user_id" = $1 ORDER BY "public"."notifications"."created_at" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."notifications"."id" FROM "public"."notifications" WHERE ("public"."notifications"."user_id" = $1 AND "public"."notifications"."read" = $2) OFFSET $3) AS "sub"
+prisma:query SELECT "public"."findings"."id", "public"."findings"."project_id", "public"."findings"."vuln_id", "public"."findings"."evidence_paths", "public"."findings"."tester_notes", "public"."findings"."status"::text, "public"."findings"."affected_instances", "public"."findings"."authentication_type", "public"."findings"."proof_of_concept", "public"."findings"."vulnerability_dependency", "public"."findings"."report_status", "public"."findings"."cvss_score_override", "public"."findings"."cvss_vector_override", "public"."findings"."created_by", "public"."findings"."created_at", "public"."findings"."updated_at" FROM "public"."findings" WHERE 1=1 OFFSET $1
+prisma:query SELECT "public"."vulnerabilities"."id", "public"."vulnerabilities"."name", "public"."vulnerabilities"."severity", "public"."vulnerabilities"."cvss_score", "public"."vulnerabilities"."cvss_vector", "public"."vulnerabilities"."description", "public"."vulnerabilities"."impact", "public"."vulnerabilities"."remediation", "public"."vulnerabilities"."references", "public"."vulnerabilities"."cve_id", "public"."vulnerabilities"."cwe_id", "public"."vulnerabilities"."source", "public"."vulnerabilities"."status"::text, "public"."vulnerabilities"."is_active", "public"."vulnerabilities"."requested_by", "public"."vulnerabilities"."reviewed_by", "public"."vulnerabilities"."reviewed_at", "public"."vulnerabilities"."updated_at", "public"."vulnerabilities"."created_at" FROM "public"."vulnerabilities" WHERE "public"."vulnerabilities"."id" IN ($1,$2,$3,$4,$5,$6,$7) OFFSET $8
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."notifications"."id", "public"."notifications"."user_id", "public"."notifications"."type"::text, "public"."notifications"."title", "public"."notifications"."message", "public"."notifications"."read", "public"."notifications"."link_url", "public"."notifications"."related_id", "public"."notifications"."created_at" FROM "public"."notifications" WHERE "public"."notifications"."user_id" = $1 ORDER BY "public"."notifications"."created_at" DESC LIMIT $2 OFFSET $3
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."notifications"."id" FROM "public"."notifications" WHERE ("public"."notifications"."user_id" = $1 AND "public"."notifications"."read" = $2) OFFSET $3) AS "sub"
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."users"."id" FROM "public"."users" WHERE "public"."users"."is_active" = $1 OFFSET $2) AS "sub"
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."findings"."id" FROM "public"."findings" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."report_templates"."id" FROM "public"."report_templates" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."projects"."id" FROM "public"."projects" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."users"."id" FROM "public"."users" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query SELECT "public"."findings"."id", "public"."findings"."project_id", "public"."findings"."vuln_id", "public"."findings"."evidence_paths", "public"."findings"."tester_notes", "public"."findings"."status"::text, "public"."findings"."affected_instances", "public"."findings"."authentication_type", "public"."findings"."proof_of_concept", "public"."findings"."vulnerability_dependency", "public"."findings"."report_status", "public"."findings"."cvss_score_override", "public"."findings"."cvss_vector_override", "public"."findings"."created_by", "public"."findings"."created_at", "public"."findings"."updated_at" FROM "public"."findings" WHERE 1=1 OFFSET $1
+prisma:query SELECT COUNT("public"."projects"."status"), "public"."projects"."status"::text FROM "public"."projects" WHERE 1=1 GROUP BY "public"."projects"."status" OFFSET $1
+prisma:query SELECT "public"."vulnerabilities"."id", "public"."vulnerabilities"."name", "public"."vulnerabilities"."severity", "public"."vulnerabilities"."cvss_score", "public"."vulnerabilities"."cvss_vector", "public"."vulnerabilities"."description", "public"."vulnerabilities"."impact", "public"."vulnerabilities"."remediation", "public"."vulnerabilities"."references", "public"."vulnerabilities"."cve_id", "public"."vulnerabilities"."cwe_id", "public"."vulnerabilities"."source", "public"."vulnerabilities"."status"::text, "public"."vulnerabilities"."is_active", "public"."vulnerabilities"."requested_by", "public"."vulnerabilities"."reviewed_by", "public"."vulnerabilities"."reviewed_at", "public"."vulnerabilities"."updated_at", "public"."vulnerabilities"."created_at" FROM "public"."vulnerabilities" WHERE "public"."vulnerabilities"."id" IN ($1,$2,$3,$4,$5,$6,$7) OFFSET $8
+prisma:query SELECT "public"."users"."id", "public"."users"."username", "public"."users"."email", "public"."users"."role"::text, "public"."users"."assigned_tl_id", "public"."users"."is_active", "public"."users"."is_force_password_change" FROM "public"."users" WHERE ("public"."users"."id" = $1 AND 1=1) LIMIT $2 OFFSET $3
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."users"."id" FROM "public"."users" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."users"."id" FROM "public"."users" WHERE "public"."users"."is_active" = $1 OFFSET $2) AS "sub"
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."report_templates"."id" FROM "public"."report_templates" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."findings"."id" FROM "public"."findings" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."projects"."id" FROM "public"."projects" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query SELECT COUNT("public"."projects"."status"), "public"."projects"."status"::text FROM "public"."projects" WHERE 1=1 GROUP BY "public"."projects"."status" OFFSET $1
+^C^C^C

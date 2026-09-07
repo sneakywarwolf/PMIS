@@ -38,6 +38,7 @@ export default function VulnerabilitiesPage() {
   const [editingVuln, setEditingVuln] = useState<any>(null);
   const [message, setMessage] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'pending'>('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Bulk upload state
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
@@ -333,12 +334,13 @@ export default function VulnerabilitiesPage() {
             </thead>
             <tbody>
               {displayVulns.map((vuln, i) => (
+                <React.Fragment key={vuln.id}>
                 <motion.tr
-                  key={vuln.id}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.02 }}
-                  className="border-b border-gray-700/50 hover:bg-white/5 transition-colors"
+                  onClick={() => setExpandedId(expandedId === vuln.id ? null : vuln.id)}
+                  className="border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer"
                 >
                   <td className="px-4 py-3">
                     <div>

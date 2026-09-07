@@ -1,0 +1,97 @@
+
+> @vapt/frontend@1.0.0 dev
+> next dev -p 3000
+
+  ▲ Next.js 15.0.0
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+ ✓ Ready in 1929ms
+ ○ Compiling /dashboard ...
+(node:32564) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ Compiled /dashboard/projects in 10.7s (2633 modules)
+ GET /dashboard/projects 200 in 3079ms
+ GET /dashboard 200 in 11201ms
+ ○ Compiling /dashboard/vulnerabilities ...
+ ⨯ ./src/app/dashboard/vulnerabilities/page.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Nirmal Chakraborty\Documents\kimi\Workspaces\PMIS\vapt-command-center\apps\frontend\src\app\dashboard\vulnerabilities\page.tsx[0m:216:1]
+ [2m213[0m |   }
+ [2m214[0m | 
+ [2m215[0m |   return (
+ [2m216[0m |     <div className="space-y-6">
+     : [35;1m     ^^^[0m
+ [2m217[0m |       <div className="flex items-center justify-between">
+ [2m218[0m |         <div>
+ [2m219[0m |           <h1 className="text-2xl font-bold text-white">Vulnerability Database</h1>
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/app/dashboard/vulnerabilities/page.tsx
+ ⨯ ./src/app/dashboard/vulnerabilities/page.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Nirmal Chakraborty\Documents\kimi\Workspaces\PMIS\vapt-command-center\apps\frontend\src\app\dashboard\vulnerabilities\page.tsx[0m:216:1]
+ [2m213[0m |   }
+ [2m214[0m | 
+ [2m215[0m |   return (
+ [2m216[0m |     <div className="space-y-6">
+     : [35;1m     ^^^[0m
+ [2m217[0m |       <div className="flex items-center justify-between">
+ [2m218[0m |         <div>
+ [2m219[0m |           <h1 className="text-2xl font-bold text-white">Vulnerability Database</h1>
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/app/dashboard/vulnerabilities/page.tsx
+ ⨯ ./src/app/dashboard/vulnerabilities/page.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Nirmal Chakraborty\Documents\kimi\Workspaces\PMIS\vapt-command-center\apps\frontend\src\app\dashboard\vulnerabilities\page.tsx[0m:216:1]
+ [2m213[0m |   }
+ [2m214[0m | 
+ [2m215[0m |   return (
+ [2m216[0m |     <div className="space-y-6">
+     : [35;1m     ^^^[0m
+ [2m217[0m |       <div className="flex items-center justify-between">
+ [2m218[0m |         <div>
+ [2m219[0m |           <h1 className="text-2xl font-bold text-white">Vulnerability Database</h1>
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/app/dashboard/vulnerabilities/page.tsx
+ GET /dashboard/vulnerabilities 500 in 7325ms
+ GET /dashboard/vulnerabilities 500 in 43ms
+ GET /dashboard/vulnerabilities 500 in 39ms
+ GET /dashboard/vulnerabilities 500 in 21ms
+ ⨯ ./src/app/dashboard/vulnerabilities/page.tsx
+Error:   [31mx[0m Unexpected token `div`. Expected jsx identifier
+     ,-[[36;1;4mC:\Users\Nirmal Chakraborty\Documents\kimi\Workspaces\PMIS\vapt-command-center\apps\frontend\src\app\dashboard\vulnerabilities\page.tsx[0m:216:1]
+ [2m213[0m |   }
+ [2m214[0m | 
+ [2m215[0m |   return (
+ [2m216[0m |     <div className="space-y-6">
+     : [35;1m     ^^^[0m
+ [2m217[0m |       <div className="flex items-center justify-between">
+ [2m218[0m |         <div>
+ [2m219[0m |           <h1 className="text-2xl font-bold text-white">Vulnerability Database</h1>
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./src/app/dashboard/vulnerabilities/page.tsx
+ GET /_next/static/webpack/963cb04efc83b6b7.webpack.hot-update.json 500 in 1702ms
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ GET / 500 in 1749ms
+ GET / 500 in 11ms
+^C^C
