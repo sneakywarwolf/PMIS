@@ -1241,16 +1241,6 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
             />
           </div>
 
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Tester Notes</label>
-            <textarea
-              rows={3}
-              value={form.testerNotes}
-              onChange={(e) => setForm({ ...form, testerNotes: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 text-sm text-white"
-            />
-          </div>
-
           <div className="border border-gray-700 rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium text-white">POC Steps</h3>

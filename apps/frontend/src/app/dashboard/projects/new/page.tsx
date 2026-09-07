@@ -143,19 +143,14 @@ export default function NewProjectPage() {
             </div>
             <div>
               <label className={labelCls}>Compliance Category *</label>
-              <select value={form.category} onChange={(e) => set('category', e.target.value)} className={inputCls}>
+              <select
+                value={form.category}
+                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value, complianceType: e.target.value }))}
+                className={inputCls}
+              >
                 <option value="VAPT">VAPT</option>
                 <option value="PCI">PCI</option>
                 <option value="CERT_IN">Cert-IN</option>
-                <option value="ASV">ASV</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Compliance Type *</label>
-              <select value={form.complianceType} onChange={(e) => set('complianceType', e.target.value)} className={inputCls}>
-                <option value="VAPT">VAPT</option>
-                <option value="CERT_IN">Cert-IN</option>
-                <option value="PCI">PCI</option>
                 <option value="ASV">ASV</option>
               </select>
             </div>
