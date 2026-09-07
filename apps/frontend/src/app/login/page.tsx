@@ -1,19 +1,35 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Shield, Lock, User, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get('sessionExpired') === '1') {
+      setError('Your session expired. Please log in again.');
+    } else if (searchParams.get('idleTimeout') === '1') {
+      setError('You were logged out due to inactivity.');
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,7 +37,7 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      await login(username, password, rememberMe);
+      await login(username, password);
       router.push('/dashboard');
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid credentials');
@@ -93,19 +109,6 @@ export default function LoginPage() {
                   minLength={14}
                 />
               </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                id="remember-me"
-                type="checkbox"
-                checked={rememberMe}
-                onChange={(e) => setRememberMe(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-700 bg-gray-800/50 text-emerald-600 focus:ring-emerald-500"
-              />
-              <label htmlFor="remember-me" className="text-sm text-gray-400 select-none cursor-pointer">
-                Remember me for 24 hours
-              </label>
             </div>
 
             <button

@@ -6,12 +6,14 @@ import { AuthController } from './auth.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { RedisModule } from '../redis/redis.module';
 import { AuditModule } from '../audit/audit.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
     PrismaModule,
     RedisModule,
     AuditModule,
+    SettingsModule,
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_ACCESS_SECRET || 'default-secret',

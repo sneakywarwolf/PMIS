@@ -5,6 +5,7 @@ import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 import { LoginDto, ChangePasswordDto } from './dto/auth.dto';
 import { v4 as uuidv4 } from 'uuid';
 import { User } from '@prisma/client';
@@ -19,9 +20,10 @@ export class AuthService {
     private redisService: RedisService,
     private configService: ConfigService,
     private auditService: AuditService,
+    private settingsService: SettingsService,
   ) {}
 
-  async validateUser(username: string, password: string, ipAddress: string, userAgent: string, rememberMe?: boolean) {
+  async validateUser(username: string, password: string, ipAddress: string, userAgent: string) {
     const normalizedInput = username.trim();
 
     // 1. Try exact username match
@@ -88,10 +90,10 @@ export class AuthService {
       action: 'LOGIN',
       ipAddress,
       userAgent,
-      details: { username: user.username, rememberMe: !!rememberMe },
+      details: { username: user.username },
     });
 
-    return this.generateTokens(user, rememberMe);
+    return this.generateTokens(user);
   }
 
   async refreshTokens(refreshToken: string, ipAddress: string, userAgent: string) {
@@ -155,6 +157,11 @@ export class AuthService {
       throw new BadRequestException('Current password is incorrect');
     }
 
+    const policyErrors = await this.settingsService.validatePassword(dto.newPassword);
+    if (policyErrors.length > 0) {
+      throw new BadRequestException(policyErrors.join('; '));
+    }
+
     const newHash = await argon2.hash(dto.newPassword, {
       type: argon2.argon2id,
       memoryCost: 65536,
@@ -181,17 +188,20 @@ export class AuthService {
     });
   }
 
-  private async generateTokens(user: User, rememberMe?: boolean) {
-    const payload = { 
-      sub: user.id, 
-      username: user.username, 
+  private async generateTokens(user: User) {
+    const payload = {
+      sub: user.id,
+      username: user.username,
       role: user.role,
       assignedTlId: user.assignedTlId,
     };
 
-    // If remember me, extend session to 24h access / 30d refresh
-    const accessExpiry = rememberMe ? '24h' : this.configService.get('JWT_ACCESS_EXPIRY', '15m');
-    const refreshExpiryDays = rememberMe ? 30 : 7;
+    // Access-token lifetime follows the admin-configured
+    // security.sessionTimeoutMinutes setting.
+    const { settings } = await this.settingsService.get();
+    const accessExpirySeconds = settings.security.sessionTimeoutMinutes * 60;
+    const accessExpiry = `${accessExpirySeconds}s`;
+    const refreshExpiryDays = 7;
     const refreshExpirySeconds = refreshExpiryDays * 24 * 60 * 60;
 
     const accessToken = this.jwtService.sign(payload, {
@@ -214,7 +224,8 @@ export class AuthService {
     return {
       access_token: accessToken,
       refresh_token: refreshToken,
-      remember_me: !!rememberMe,
+      access_expiry_seconds: accessExpirySeconds,
+      refresh_expiry_seconds: refreshExpirySeconds,
       user: {
         id: user.id,
         username: user.username,

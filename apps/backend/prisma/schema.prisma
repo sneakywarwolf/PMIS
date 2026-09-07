@@ -56,6 +56,10 @@ enum AuditAction {
   VULNERABILITY_REQUESTED
   VULNERABILITY_APPROVED
   VULNERABILITY_REJECTED
+  VULNERABILITY_CREATED
+  VULNERABILITY_UPDATED
+  VULNERABILITY_DELETED
+  SETTINGS_UPDATED
   ADMIN_OVERRIDE
 }
 
@@ -177,6 +181,8 @@ model Project {
   applicationNature  String?  @map("application_nature")
   testingLimitation  String?  @map("testing_limitation")
 
+  customFieldValues Json?   @map("custom_field_values")
+
   reportDocxPath  String?   @map("report_docx_path")
   reportPdfPath   String?   @map("report_pdf_path")
   isDraft         Boolean   @default(true) @map("is_draft")
@@ -239,6 +245,7 @@ model TemplateField {
   category      TemplateFieldCategory @default(OTHER) @map("field_category")
   description   String?
   isRepeatable  Boolean   @default(false) @map("is_repeatable")
+  isCustom      Boolean   @default(false) @map("is_custom")
   sortOrder     Int       @default(0) @map("sort_order")
 
   createdAt     DateTime  @default(now()) @map("created_at")
@@ -403,4 +410,17 @@ model Notification {
   @@index([read])
   @@index([createdAt])
   @@map("notifications")
+}
+
+// Singleton row (id is always "singleton") holding all admin-configurable
+// application settings as JSON. Keeping this as one flexible JSON blob
+// avoids a migration for every new setting; validation of shape/ranges
+// happens in SettingsService, not the schema.
+model AppSettings {
+  id          String   @id @default("singleton")
+  data        Json
+  updatedById String?  @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("app_settings")
 }

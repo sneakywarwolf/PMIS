@@ -1,16 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Loader2, Save, FolderKanban } from 'lucide-react';
 import { api } from '@/contexts/auth-context';
+import { useToast } from '@/components/toast-provider';
 
 const inputCls =
   'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white transition-all';
 const labelCls = 'block text-sm text-gray-300 mb-1';
 
 export default function NewProjectPage() {
+  const toast = useToast();
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
@@ -39,6 +41,24 @@ export default function NewProjectPage() {
 
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
 
+  const [customFields, setCustomFields] = useState<any[]>([]);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
+  const setCustomFieldValue = (name: string, value: string) =>
+    setCustomFieldValues((prev) => ({ ...prev, [name]: value }));
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get(`/reports/templates?category=${form.category}&subType=${form.subType}`)
+      .then(async (res) => {
+        const template = res.data[0];
+        if (!template) return;
+        const fieldsRes = await api.get(`/reports/templates/${template.id}/fields`);
+        if (!cancelled) setCustomFields(fieldsRes.data.filter((f: any) => f.isCustom));
+      })
+      .catch(() => { if (!cancelled) setCustomFields([]); });
+    return () => { cancelled = true; };
+  }, [form.category, form.subType]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
@@ -61,11 +81,13 @@ export default function NewProjectPage() {
       for (const key of optional) {
         if ((form as any)[key]) payload[key] = (form as any)[key];
       }
+      if (Object.keys(customFieldValues).length > 0) payload.customFieldValues = customFieldValues;
 
       const res = await api.post('/projects', payload);
+      toast('Project created');
       router.push(`/dashboard/projects/${res.data.id}`);
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to create project');
+      toast(error.response?.data?.message || 'Failed to create project', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -121,19 +143,14 @@ export default function NewProjectPage() {
             </div>
             <div>
               <label className={labelCls}>Compliance Category *</label>
-              <select value={form.category} onChange={(e) => set('category', e.target.value)} className={inputCls}>
+              <select
+                value={form.category}
+                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value, complianceType: e.target.value }))}
+                className={inputCls}
+              >
                 <option value="VAPT">VAPT</option>
                 <option value="PCI">PCI</option>
                 <option value="CERT_IN">Cert-IN</option>
-                <option value="ASV">ASV</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Compliance Type *</label>
-              <select value={form.complianceType} onChange={(e) => set('complianceType', e.target.value)} className={inputCls}>
-                <option value="VAPT">VAPT</option>
-                <option value="CERT_IN">Cert-IN</option>
-                <option value="PCI">PCI</option>
                 <option value="ASV">ASV</option>
               </select>
             </div>
@@ -222,6 +239,29 @@ export default function NewProjectPage() {
             <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
           </div>
         </motion.section>
+
+        {customFields.length > 0 && (
+          <motion.section
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="glass-card rounded-xl p-6 space-y-4"
+          >
+            <h2 className="text-base font-semibold text-white pb-3 border-b border-gray-700">Additional Template Fields</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {customFields.map((field) => (
+                <div key={field.id}>
+                  <label className={labelCls}>{field.name}</label>
+                  <input
+                    value={customFieldValues[field.normalizedName] || ''}
+                    onChange={(e) => setCustomFieldValue(field.normalizedName, e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+              ))}
+            </div>
+          </motion.section>
+        )}
 
         <div className="flex justify-end gap-3">
           <button

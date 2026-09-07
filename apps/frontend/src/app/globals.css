@@ -13,6 +13,20 @@
   --cyber-secondary: #06b6d4;
 }
 
+/* Global reduced-motion safety net: framer-motion components that check
+   useReducedMotion() individually still animate at full speed unless they
+   opt out explicitly. This CSS-level fallback guarantees every animation
+   (including third-party ones we don't control) collapses to near-instant
+   for users who've asked the OS for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
@@ -95,6 +109,13 @@ input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--cyber-primary);
   box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+}
+
+/* The closed <select> box picks up the dark theme above, but its dropdown
+   list defaults to browser/OS white unless <option> is styled explicitly. */
+select option {
+  background-color: var(--cyber-surface);
+  color: #e5e7eb;
 }
 
 /* Status badges */

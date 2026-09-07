@@ -59,6 +59,13 @@ export class VulnerabilitiesController {
     response.send(csv);
   }
 
+  @Get('change-tracker')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'List all vulnerability changes across the system (Admin only)' })
+  async getChangeTracker(@Query('limit') limit?: string) {
+    return this.vulnerabilitiesService.getAllHistory(limit ? parseInt(limit) : 100);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get vulnerability by ID' })
   async findOne(@Param('id') id: string) {
@@ -68,8 +75,14 @@ export class VulnerabilitiesController {
   @Post()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Create vulnerability entry (Admin)' })
-  async create(@Body() body: any) {
-    return this.vulnerabilitiesService.create(body);
+  async create(@Body() body: any, @CurrentUser('id') userId: string) {
+    return this.vulnerabilitiesService.create(body, userId);
+  }
+
+  @Get(':id/history')
+  @ApiOperation({ summary: 'Get audit history for a vulnerability' })
+  async getHistory(@Param('id') id: string) {
+    return this.vulnerabilitiesService.getHistory(id);
   }
 
   @Post('request')
@@ -98,15 +111,15 @@ export class VulnerabilitiesController {
   @Put(':id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Update vulnerability (Admin)' })
-  async update(@Param('id') id: string, @Body() body: any) {
-    return this.vulnerabilitiesService.update(id, body);
+  async update(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
+    return this.vulnerabilitiesService.update(id, body, userId);
   }
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Soft delete vulnerability (Admin)' })
-  async remove(@Param('id') id: string) {
-    return this.vulnerabilitiesService.remove(id);
+  async remove(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.vulnerabilitiesService.remove(id, userId);
   }
 
   @Put(':id/approve')

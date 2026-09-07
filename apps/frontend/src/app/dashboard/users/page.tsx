@@ -4,6 +4,8 @@ import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Users, Plus, Search, UserPlus, Key, Pencil, Trash2, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, Upload, Download, AlertTriangle, XCircle } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
+import { useConfirm } from '@/components/confirm-provider';
 
 interface TeamLead {
   id: string;
@@ -13,6 +15,8 @@ interface TeamLead {
 
 export default function UsersPage() {
   const { user } = useAuth();
+  const { roleAccentColors } = useBranding();
+  const confirmDialog = useConfirm();
   const [users, setUsers] = useState<any[]>([]);
   const [teamLeads, setTeamLeads] = useState<TeamLead[]>([]);
   const [managers, setManagers] = useState<TeamLead[]>([]);
@@ -21,7 +25,7 @@ export default function UsersPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
-  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', fullName: '', phone: '', designation: '' });
+  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', managerId: '', fullName: '', phone: '', designation: '' });
   const [sortField, setSortField] = useState<string>('username');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [message, setMessage] = useState('');
@@ -74,7 +78,7 @@ export default function UsersPage() {
     try {
       await api.post('/users', newUser);
       setShowAddModal(false);
-      setNewUser({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', fullName: '', phone: '', designation: '' });
+      setNewUser({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', managerId: '', fullName: '', phone: '', designation: '' });
       fetchUsers();
     } catch (error) {
       console.error('Failed to create user:', error);
@@ -104,7 +108,8 @@ export default function UsersPage() {
   };
 
   const handleDeactivate = async (userId: string) => {
-    if (!confirm('Deactivate this user? They will no longer be able to log in.')) return;
+    const ok = await confirmDialog({ title: 'Deactivate user?', message: 'They will no longer be able to log in.', confirmLabel: 'Deactivate', danger: true });
+    if (!ok) return;
     try {
       await api.delete(`/users/${userId}`);
       fetchUsers();
@@ -321,12 +326,13 @@ export default function UsersPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    u.role === 'ADMIN' ? 'bg-red-500/10 text-red-400' :
-                    u.role === 'AVP' ? 'bg-purple-500/10 text-purple-400' :
-                    u.role === 'TEAM_LEAD' ? 'bg-blue-500/10 text-blue-400' :
-                    'bg-emerald-500/10 text-emerald-400'
-                  }`}>
+                  <span
+                    className="px-2 py-0.5 rounded-full text-xs font-medium"
+                    style={{
+                      backgroundColor: `${roleAccentColors[u.role] || '#6b7280'}1a`,
+                      color: roleAccentColors[u.role] || '#9ca3af',
+                    }}
+                  >
                     {u.role}
                   </span>
                 </td>
@@ -384,11 +390,11 @@ export default function UsersPage() {
 
       {/* Add User Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="glass-card rounded-xl p-6 w-full max-w-md"
+            className="glass-card rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
           >
             <h2 className="text-lg font-semibold text-white mb-4">Add New User</h2>
             <form onSubmit={handleCreateUser} className="space-y-4">
@@ -454,6 +460,17 @@ export default function UsersPage() {
                   </select>
                 </div>
               )}
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Manager</label>
+                <select value={newUser.managerId}
+                  onChange={(e) => setNewUser({ ...newUser, managerId: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+                  <option value="">None</option>
+                  {managers.map(m => (
+                    <option key={m.id} value={m.id}>{m.fullName || m.username}</option>
+                  ))}
+                </select>
+              </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowAddModal(false)}
                   className="flex-1 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-all">Cancel</button>
