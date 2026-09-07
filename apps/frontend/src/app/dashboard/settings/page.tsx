@@ -71,7 +71,13 @@ function SettingsContent() {
   const saveCategory = async (category: string) => {
     setSaving(true);
     try {
-      await api.put('/settings', { [category]: settings[category] });
+      // The Workflow tab also displays Retention & Archival fields, which are
+      // stored under the "system" category — save both together so those
+      // edits aren't silently dropped.
+      const patch = category === 'workflow'
+        ? { workflow: settings.workflow, system: settings.system }
+        : { [category]: settings[category] };
+      await api.put('/settings', patch);
       toast(`${TABS.find((t) => t.id === category)?.label} settings saved`);
       fetchSettings();
       fetchHistory();
@@ -296,6 +302,8 @@ function TagListEditor({ label, values, onChange, hint }: { label: string; value
 
 function WorkflowTab({ settings, setCategory }: any) {
   const w = settings.workflow;
+  const defaults = settings.workflow.defaults;
+  const sys = settings.system;
   return (
     <div className="space-y-6">
       <div>
@@ -332,6 +340,47 @@ function WorkflowTab({ settings, setCategory }: any) {
         />
       </div>
       <p className={hintCls}>Note: these lists are stored for reference; existing status enums in the database are fixed at the schema level and aren't dynamically driven by this list yet.</p>
+
+      <div className="border-t border-gray-700 pt-6">
+        <h3 className="text-sm font-medium text-white mb-3">Workflow Defaults</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className={labelCls}>Status on Creation</label>
+            <select value={defaults.creationStatus} onChange={(e) => setCategory('workflow', { defaults: { ...defaults, creationStatus: e.target.value } })} className={inputCls}>
+              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Working Status</label>
+            <select value={defaults.workingStatus} onChange={(e) => setCategory('workflow', { defaults: { ...defaults, workingStatus: e.target.value } })} className={inputCls}>
+              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Completion Status</label>
+            <select value={defaults.completionStatus} onChange={(e) => setCategory('workflow', { defaults: { ...defaults, completionStatus: e.target.value } })} className={inputCls}>
+              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            </select>
+          </div>
+        </div>
+        <p className={hintCls}>Controls which status a new project starts in, which status marks it "in progress" once a finding is added, and which status a generated report moves it to.</p>
+      </div>
+
+      <div className="border-t border-gray-700 pt-6">
+        <h3 className="text-sm font-medium text-white mb-3">Retention &amp; Archival</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Attachment Retention Period (days)</label>
+            <input type="number" min={1} max={3650} value={sys.attachmentRetentionDays} onChange={(e) => setCategory('system', { attachmentRetentionDays: parseInt(e.target.value) || 0 })} className={inputCls} />
+            <p className={hintCls}>Allowed range: 1–3650 days.</p>
+          </div>
+          <div>
+            <label className={labelCls}>Project Archival Period (days)</label>
+            <input type="number" min={1} max={3650} value={sys.projectArchivalDays} onChange={(e) => setCategory('system', { projectArchivalDays: parseInt(e.target.value) || 0 })} className={inputCls} />
+            <p className={hintCls}>Allowed range: 1–3650 days. Applies to completed projects, including their generated reports and issue logs.</p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -451,9 +500,7 @@ function FormattingTab({ settings, setCategory }: any) {
 
 const PROJECT_STATUS_OPTIONS = ['NOT_STARTED', 'IN_PROGRESS', 'AWAITING_REVIEW', 'COMPLETED'];
 
-function SystemTab({ settings, setCategory }: any) {
-  const w = settings.workflow.defaults;
-  const sys = settings.system;
+function SystemTab({}: any) {
   const [health, setHealth] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(true);
 
@@ -509,47 +556,6 @@ function SystemTab({ settings, setCategory }: any) {
         ) : (
           <p className={hintCls}>Could not load system health.</p>
         )}
-      </div>
-
-      <div className="border-t border-gray-700 pt-6">
-        <h3 className="text-sm font-medium text-white mb-3">Workflow Defaults</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className={labelCls}>Status on Creation</label>
-            <select value={w.creationStatus} onChange={(e) => setCategory('workflow', { defaults: { ...w, creationStatus: e.target.value } })} className={inputCls}>
-              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Working Status</label>
-            <select value={w.workingStatus} onChange={(e) => setCategory('workflow', { defaults: { ...w, workingStatus: e.target.value } })} className={inputCls}>
-              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Completion Status</label>
-            <select value={w.completionStatus} onChange={(e) => setCategory('workflow', { defaults: { ...w, completionStatus: e.target.value } })} className={inputCls}>
-              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
-          </div>
-        </div>
-        <p className={hintCls}>Controls which status a new project starts in, which status marks it "in progress" once a finding is added, and which status a generated report moves it to.</p>
-      </div>
-
-      <div className="border-t border-gray-700 pt-6">
-        <h3 className="text-sm font-medium text-white mb-3">Retention &amp; Archival</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>Attachment Retention Period (days)</label>
-            <input type="number" min={1} max={3650} value={sys.attachmentRetentionDays} onChange={(e) => setCategory('system', { attachmentRetentionDays: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Allowed range: 1–3650 days.</p>
-          </div>
-          <div>
-            <label className={labelCls}>Project Archival Period (days)</label>
-            <input type="number" min={1} max={3650} value={sys.projectArchivalDays} onChange={(e) => setCategory('system', { projectArchivalDays: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Allowed range: 1–3650 days. Applies to completed projects, including their generated reports and issue logs.</p>
-          </div>
-        </div>
       </div>
     </div>
   );
