@@ -2,6 +2,8 @@ import { Injectable, ConflictException, BadRequestException } from '@nestjs/comm
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { CreateQuizQuestionDto } from './dto/create-quiz-question.dto';
+import { UpdateQuizQuestionDto } from './dto/update-quiz-question.dto';
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 const BASE_POINTS = 10;
@@ -102,5 +104,146 @@ export class QuizService {
 
       return attempt;
     });
+  }
+
+  async getTodayQuestion(userId: string) {
+    const active = await this.prisma.quizQuestion.findFirst({ where: { status: 'ACTIVE' } });
+    if (active) {
+      const alreadyAnswered = await this.prisma.quizAttempt.findUnique({
+        where: { questionId_userId: { questionId: active.id, userId } },
+      });
+      return {
+        id: active.id,
+        question: active.question,
+        options: active.options,
+        scheduledFor: active.scheduledFor,
+        status: active.status,
+        alreadyAnswered: Boolean(alreadyAnswered),
+      };
+    }
+
+    const recentlyRevealed = await this.prisma.quizQuestion.findFirst({
+      where: { status: 'REVEALED', revealedAt: { gte: new Date(Date.now() - TWENTY_FOUR_HOURS_MS) } },
+      orderBy: { revealedAt: 'desc' },
+    });
+    if (!recentlyRevealed) return null;
+
+    return this.buildRevealedSummary(recentlyRevealed);
+  }
+
+  private async buildRevealedSummary(question: { id: string; question: string; options: string[]; correctIndex: number; explanation: string; revealedAt: Date | null }) {
+    const attempts = await this.prisma.quizAttempt.findMany({ where: { questionId: question.id } });
+    const correctCount = attempts.filter((a) => a.isCorrect).length;
+    return {
+      id: question.id,
+      question: question.question,
+      options: question.options,
+      correctIndex: question.correctIndex,
+      explanation: question.explanation,
+      revealedAt: question.revealedAt,
+      participants: attempts.length,
+      correctCount,
+      incorrectCount: attempts.length - correctCount,
+    };
+  }
+
+  async getLog(page: number, pageSize: number) {
+    const [items, total] = await Promise.all([
+      this.prisma.quizQuestion.findMany({
+        where: { status: 'REVEALED' },
+        orderBy: { revealedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.quizQuestion.count({ where: { status: 'REVEALED' } }),
+    ]);
+    return { items, total };
+  }
+
+  async getLogEntry(id: string) {
+    const question = await this.prisma.quizQuestion.findUnique({ where: { id } });
+    if (!question || question.status !== 'REVEALED') {
+      throw new BadRequestException('This question is not in the log.');
+    }
+    return this.buildRevealedSummary(question);
+  }
+
+  async getScorecard(userId: string) {
+    const stats = await this.prisma.quizUserStats.findUnique({ where: { userId } });
+    const attempts = await this.prisma.quizAttempt.findMany({ where: { userId } });
+    const correct = attempts.filter((a) => a.isCorrect).length;
+    return {
+      totalAnswered: attempts.length,
+      correct,
+      incorrect: attempts.length - correct,
+      accuracy: attempts.length ? Math.round((correct / attempts.length) * 100) : 0,
+      totalPoints: stats?.totalPoints ?? 0,
+      currentStreak: stats?.currentStreak ?? 0,
+      bestStreak: stats?.bestStreak ?? 0,
+      badges: stats?.badges ?? [],
+    };
+  }
+
+  async getLeaderboard() {
+    const allStats = await this.prisma.quizUserStats.findMany({
+      include: { user: { select: { id: true, fullName: true } } },
+      orderBy: { totalPoints: 'desc' },
+    });
+    return allStats.map((s: any) => ({
+      userId: s.userId,
+      name: s.user.fullName,
+      totalPoints: s.totalPoints,
+      currentStreak: s.currentStreak,
+      bestStreak: s.bestStreak,
+      badges: s.badges,
+    }));
+  }
+
+  async createQuestion(createdById: string, dto: CreateQuizQuestionDto, ipAddress: string, userAgent: string) {
+    const created = await this.prisma.quizQuestion.create({
+      data: { ...dto, scheduledFor: new Date(dto.scheduledFor), createdById },
+    });
+    await this.audit.log({
+      action: 'QUIZ_QUESTION_CREATED',
+      actorId: createdById,
+      targetType: 'QUIZ_QUESTION',
+      targetId: created.id,
+      ipAddress,
+      userAgent,
+    });
+    return created;
+  }
+
+  async updateQuestion(id: string, dto: UpdateQuizQuestionDto, actorId: string, ipAddress: string, userAgent: string) {
+    const question = await this.prisma.quizQuestion.findUnique({ where: { id } });
+    if (!question || question.status !== 'SCHEDULED') {
+      throw new BadRequestException('Only a scheduled question can be edited.');
+    }
+    const data: any = { ...dto };
+    if (dto.scheduledFor) data.scheduledFor = new Date(dto.scheduledFor);
+    const updated = await this.prisma.quizQuestion.update({ where: { id }, data });
+    await this.audit.log({
+      action: 'QUIZ_QUESTION_UPDATED',
+      actorId,
+      targetType: 'QUIZ_QUESTION',
+      targetId: id,
+      ipAddress,
+      userAgent,
+    });
+    return updated;
+  }
+
+  async listQuestions() {
+    return this.prisma.quizQuestion.findMany({ orderBy: { scheduledFor: 'desc' } });
+  }
+
+  async getQuestionResponses(id: string) {
+    const question = await this.prisma.quizQuestion.findUnique({ where: { id } });
+    if (!question) throw new BadRequestException('Question not found.');
+    const attempts = await this.prisma.quizAttempt.findMany({
+      where: { questionId: id },
+      include: { user: { select: { id: true, fullName: true } } },
+    });
+    return { question, attempts };
   }
 }

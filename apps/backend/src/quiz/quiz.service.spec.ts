@@ -146,3 +146,101 @@ describe('QuizService.submitAnswer', () => {
     expect(upsertArg.update.totalPoints).toBe(20);
   });
 });
+
+describe('QuizService admin/read methods', () => {
+  let service: QuizService;
+  let audit: { log: jest.Mock };
+
+  beforeEach(async () => {
+    prisma = makePrismaMock();
+    audit = { log: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        QuizService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AuditService, useValue: audit },
+      ],
+    }).compile();
+    service = moduleRef.get(QuizService);
+  });
+
+  it('createQuestion creates the question and logs an audit entry with ipAddress/userAgent', async () => {
+    const dto = {
+      question: 'Q?',
+      options: ['a', 'b', 'c', 'd'],
+      correctIndex: 1,
+      explanation: 'because',
+      scheduledFor: '2026-09-10T00:00:00.000Z',
+    } as any;
+    prisma.quizQuestion.create.mockResolvedValue({ id: 'q1', ...dto });
+
+    const result = await service.createQuestion('admin1', dto, '1.2.3.4', 'jest-agent');
+
+    expect(result.id).toBe('q1');
+    expect(audit.log).toHaveBeenCalledWith({
+      action: 'QUIZ_QUESTION_CREATED',
+      actorId: 'admin1',
+      targetType: 'QUIZ_QUESTION',
+      targetId: 'q1',
+      ipAddress: '1.2.3.4',
+      userAgent: 'jest-agent',
+    });
+  });
+
+  it('updateQuestion updates a SCHEDULED question and logs an audit entry with ipAddress/userAgent', async () => {
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'SCHEDULED' });
+    prisma.quizQuestion.update.mockResolvedValue({ id: 'q1', question: 'Updated?' });
+
+    const result = await service.updateQuestion('q1', { question: 'Updated?' } as any, 'admin1', '1.2.3.4', 'jest-agent');
+
+    expect(result.question).toBe('Updated?');
+    expect(audit.log).toHaveBeenCalledWith({
+      action: 'QUIZ_QUESTION_UPDATED',
+      actorId: 'admin1',
+      targetType: 'QUIZ_QUESTION',
+      targetId: 'q1',
+      ipAddress: '1.2.3.4',
+      userAgent: 'jest-agent',
+    });
+  });
+
+  it('updateQuestion rejects editing a non-SCHEDULED question', async () => {
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE' });
+
+    await expect(
+      service.updateQuestion('q1', { question: 'x' } as any, 'admin1', '1.2.3.4', 'jest-agent'),
+    ).rejects.toThrow(BadRequestException);
+    expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('getScorecard returns computed accuracy and stats defaults', async () => {
+    prisma.quizUserStats.findUnique.mockResolvedValue(null);
+    prisma.quizAttempt.findMany.mockResolvedValue([{ isCorrect: true }, { isCorrect: false }]);
+
+    const result = await service.getScorecard('u1');
+
+    expect(result.totalAnswered).toBe(2);
+    expect(result.correct).toBe(1);
+    expect(result.accuracy).toBe(50);
+    expect(result.totalPoints).toBe(0);
+  });
+
+  it('getLog returns paginated REVEALED questions', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValue([{ id: 'q1' }]);
+    prisma.quizQuestion.count.mockResolvedValue(1);
+
+    const result = await service.getLog(1, 20);
+
+    expect(result.items).toEqual([{ id: 'q1' }]);
+    expect(result.total).toBe(1);
+  });
+
+  it('listQuestions returns all questions ordered by scheduledFor desc', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValue([{ id: 'q1' }]);
+
+    const result = await service.listQuestions();
+
+    expect(result).toEqual([{ id: 'q1' }]);
+    expect(prisma.quizQuestion.findMany).toHaveBeenCalledWith({ orderBy: { scheduledFor: 'desc' } });
+  });
+});
