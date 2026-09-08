@@ -7,7 +7,8 @@ Branch: `features/themes-quiz` (Quiz feature; Themes to follow separately)
 Add a "Quiz" module to PMIS: a daily Question of the Day with a 24-hour
 answer window, automatic reveal with stats, a historical Question Log,
 per-user Scorecard with leaderboard, and Admin question management
-(create/schedule/edit/view responses). No gamification (no XP/badges/points).
+(create/schedule/edit/view responses). Gamified via points, streaks, and
+milestone badges (see Gamification section).
 
 ## Data model (`apps/backend/prisma/schema.prisma`)
 
@@ -37,20 +38,45 @@ model QuizAttempt {
   user           User         @relation(fields: [userId], references: [id])
   selectedOption Int
   isCorrect      Boolean
+  pointsAwarded  Int          @default(0)
   answeredAt     DateTime     @default(now())
 
   @@unique([questionId, userId])
 }
+
+enum QuizBadge {
+  FIRST_CORRECT
+  STREAK_5
+  STREAK_10
+  STREAK_30
+  ANSWERED_50
+  ANSWERED_100
+  PERFECT_WEEK
+}
+
+model QuizUserStats {
+  userId         String      @id @map("user_id")
+  user           User        @relation(fields: [userId], references: [id])
+  totalPoints    Int         @default(0)
+  currentStreak  Int         @default(0)
+  bestStreak     Int         @default(0)
+  lastAnsweredOn DateTime?               // date-only comparison, for streak continuity
+  badges         QuizBadge[]
+}
 ```
 
 - Add inverse relations on `User`: `quizQuestions QuizQuestion[]`,
-  `quizAttempts QuizAttempt[]`.
+  `quizAttempts QuizAttempt[]`, `quizStats QuizUserStats?`.
 - Extend `AuditAction` enum with `QUIZ_QUESTION_CREATED` /
   `QUIZ_QUESTION_UPDATED`, following the existing naming convention, and log
   admin question create/edit via the existing `AuditModule`.
-- Scorecard/leaderboard data is **derived** from `QuizAttempt` via grouped
-  queries — no materialized stats table. Keeps reads always-correct with no
-  sync step, acceptable at this data volume.
+- Scorecard/leaderboard **question stats** (participation, correct/incorrect
+  counts) stay derived from `QuizAttempt` via grouped queries — no
+  materialized table for those, still cheap at this data volume.
+  `QuizUserStats` is the one exception: it's a small per-user running total
+  (points/streak/badges) that must be updated transactionally at answer time
+  anyway to evaluate streak continuity, so it's maintained directly rather
+  than recomputed from full attempt history on every read.
 
 ## Backend (`apps/backend/src/quiz/`)
 
@@ -88,6 +114,29 @@ Mirrors the shape of the existing `settings` module.
 - DTOs in `quiz/dto/` using `class-validator` (matches `auth/dto`
   convention): exactly 4 `options`, `correctIndex` in `[0,3]`.
 
+## Gamification
+
+- **Points**: a correct answer scores 10 base points; an incorrect answer
+  scores 0 (still counts toward participation). Streak bonus: `+1` point per
+  consecutive correct day, capped at `+10` (so a 10+ day correct streak
+  doubles that question's value: 10 base + 10 bonus = 20).
+- **Streaks**: `currentStreak` increments on a correct answer if
+  `lastAnsweredOn` was the prior active question's day (consecutive
+  participation with a correct result); resets to 0 on an incorrect answer
+  or a skipped day. `bestStreak` tracks the historical max.
+- **Badges** (awarded once, in `POST /quiz/today/answer` right after
+  updating `QuizUserStats`, in the same transaction): `FIRST_CORRECT`,
+  `STREAK_5`/`STREAK_10`/`STREAK_30`, `ANSWERED_50`/`ANSWERED_100` (lifetime
+  attempts), `PERFECT_WEEK` (7/7 correct in a rolling 7-question window).
+- All of `QuizAttempt.isCorrect` → point/streak/badge evaluation →
+  `QuizUserStats` upsert happens inside one Prisma `$transaction` in
+  `POST /quiz/today/answer`, so a crash mid-request can't award points
+  without recording the attempt (or vice versa).
+- Leaderboard (`GET /quiz/scorecard/leaderboard`) ranks by
+  `QuizUserStats.totalPoints` descending, ties broken by accuracy % (still
+  derived from `QuizAttempt`). Kept fully separate from PMIS
+  project-performance stats, per original requirement.
+
 ## Frontend (`apps/frontend/src/app/dashboard/quiz/`)
 
 - Sidebar (`apps/frontend/src/app/dashboard/layout.tsx` `navItems`): one new
@@ -102,7 +151,8 @@ Mirrors the shape of the existing `settings` module.
 - `log/page.tsx` — Question Log list; selecting an entry opens historical
   detail in a modal (matches the Findings detail-modal pattern, avoids an
   extra route).
-- `scorecard/page.tsx` — personal stats + leaderboard table.
+- `scorecard/page.tsx` — personal stats (points, current/best streak, badges
+  earned) + leaderboard table ranked by points.
 - `manage/page.tsx` (ADMIN only) — create/edit/schedule questions, view
   per-question responses and aggregate stats.
 - Conventions followed throughout: single `'use client'` page files, `glass`
@@ -132,6 +182,6 @@ Mirrors the shape of the existing `settings` module.
 ## Explicitly out of scope
 
 - Themes feature (separate spec, to follow).
-- XP, badges, points, or any other gamification mechanic.
-- Materialized/cached stats table (revisit only if live aggregation proves
-  too slow at scale).
+- Materialized/cached table for question-level aggregate stats (still
+  derived live from `QuizAttempt`; only per-user running totals are stored,
+  see Data model note above).
