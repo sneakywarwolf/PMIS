@@ -243,4 +243,24 @@ describe('QuizService admin/read methods', () => {
     expect(result).toEqual([{ id: 'q1' }]);
     expect(prisma.quizQuestion.findMany).toHaveBeenCalledWith({ orderBy: { scheduledFor: 'desc' } });
   });
+
+  it('getLeaderboard breaks totalPoints ties by accuracy percentage', async () => {
+    prisma.quizUserStats.findMany.mockResolvedValue([
+      { userId: 'u1', totalPoints: 50, currentStreak: 1, bestStreak: 1, badges: [], user: { id: 'u1', fullName: 'Low Accuracy' } },
+      { userId: 'u2', totalPoints: 50, currentStreak: 1, bestStreak: 1, badges: [], user: { id: 'u2', fullName: 'High Accuracy' } },
+    ]);
+    prisma.quizAttempt.findMany.mockImplementation(({ where }: any) => {
+      if (where.userId === 'u1') {
+        // 1/4 correct = 25% accuracy
+        return Promise.resolve([{ isCorrect: true }, { isCorrect: false }, { isCorrect: false }, { isCorrect: false }]);
+      }
+      // 3/4 correct = 75% accuracy
+      return Promise.resolve([{ isCorrect: true }, { isCorrect: true }, { isCorrect: true }, { isCorrect: false }]);
+    });
+
+    const result = await service.getLeaderboard();
+
+    expect(result[0].userId).toBe('u2');
+    expect(result[1].userId).toBe('u1');
+  });
 });

@@ -189,14 +189,25 @@ export class QuizService {
       include: { user: { select: { id: true, fullName: true } } },
       orderBy: { totalPoints: 'desc' },
     });
-    return allStats.map((s: any) => ({
-      userId: s.userId,
-      name: s.user.fullName,
-      totalPoints: s.totalPoints,
-      currentStreak: s.currentStreak,
-      bestStreak: s.bestStreak,
-      badges: s.badges,
-    }));
+
+    const withAccuracy = await Promise.all(
+      allStats.map(async (s: any) => {
+        const attempts = await this.prisma.quizAttempt.findMany({ where: { userId: s.userId } });
+        const correct = attempts.filter((a) => a.isCorrect).length;
+        const accuracy = attempts.length ? correct / attempts.length : 0;
+        return {
+          userId: s.userId,
+          name: s.user.fullName,
+          totalPoints: s.totalPoints,
+          currentStreak: s.currentStreak,
+          bestStreak: s.bestStreak,
+          badges: s.badges,
+          accuracy,
+        };
+      }),
+    );
+
+    return withAccuracy.sort((a, b) => b.totalPoints - a.totalPoints || b.accuracy - a.accuracy);
   }
 
   async createQuestion(createdById: string, dto: CreateQuizQuestionDto, ipAddress: string, userAgent: string) {
