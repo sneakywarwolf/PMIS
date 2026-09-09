@@ -292,7 +292,7 @@ export default function VulnerabilitiesPage() {
               activeTab === 'all' ? 'bg-emerald-600 text-white' : 'bg-gray-800/50 text-gray-400 hover:text-white'
             }`}
           >
-            All ({vulnerabilities.length})
+            Total ({vulnerabilities.filter((v) => v.isActive).length})
           </button>
           <button
             onClick={() => setActiveTab('pending')}

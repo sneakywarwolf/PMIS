@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useConfirm } from '@/components/confirm-provider';
+import { useToast } from '@/components/toast-provider';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
 
 const severityColors: Record<string, string> = {
@@ -123,6 +124,7 @@ export default function ProjectDetailPage() {
   const router = useRouter();
   const { user } = useAuth();
   const confirmDialog = useConfirm();
+  const showToast = useToast();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -138,10 +140,11 @@ export default function ProjectDetailPage() {
       setProject(response.data);
     } catch (error) {
       console.error('Failed to fetch project:', error);
+      showToast('Could not refresh project data — showing may be out of date', 'error');
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, showToast]);
 
   useEffect(() => {
     fetchProject();
@@ -440,7 +443,7 @@ export default function ProjectDetailPage() {
           projectId={project.id}
           finding={editingFinding}
           onClose={() => { setShowAddModal(false); setEditingFinding(null); }}
-          onSaved={() => { fetchProject(); setShowAddModal(false); setEditingFinding(null); }}
+          onSaved={async () => { await fetchProject(); setShowAddModal(false); setEditingFinding(null); }}
         />
       )}
 
@@ -772,7 +775,7 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
                   <p className="text-white">{finding.authenticationType || 'N/A'}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500 text-xs">Report Status</p>
+                  <p className="text-gray-500 text-xs">Status</p>
                   <p className="text-white">{finding.reportStatus}</p>
                 </div>
               </div>
@@ -1207,7 +1210,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Report Status</label>
+              <label className="block text-xs text-gray-400 mb-1">Status</label>
               <select
                 value={form.reportStatus}
                 onChange={(e) => setForm({ ...form, reportStatus: e.target.value })}
