@@ -14,6 +14,9 @@ type Question = {
   status: 'SCHEDULED' | 'ACTIVE' | 'REVEALED';
 };
 
+type ResponseEntry = { id: string; selectedOption: number; isCorrect: boolean; user?: { id: string; fullName: string } };
+type ResponsesDetail = { question: Question; attempts: ResponseEntry[] };
+
 const emptyForm = { question: '', options: ['', '', '', ''], correctIndex: 0, explanation: '', scheduledFor: '' };
 
 export default function QuizManagePage() {
@@ -22,6 +25,12 @@ export default function QuizManagePage() {
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [responses, setResponses] = useState<ResponsesDetail | null>(null);
+
+  const openResponses = async (id: string) => {
+    const res = await api.get(`/quiz/questions/${id}/responses`);
+    setResponses(res.data);
+  };
 
   const load = () => api.get('/quiz/questions').then((res) => setQuestions(res.data));
 
@@ -31,12 +40,14 @@ export default function QuizManagePage() {
 
   const startEdit = (q: Question) => {
     setEditingId(q.id);
+    const d = new Date(q.scheduledFor);
+    const localIso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     setForm({
       question: q.question,
       options: q.options,
       correctIndex: q.correctIndex,
       explanation: q.explanation,
-      scheduledFor: q.scheduledFor.slice(0, 16),
+      scheduledFor: localIso,
     });
   };
 
@@ -130,14 +141,45 @@ export default function QuizManagePage() {
                 {q.status} · {new Date(q.scheduledFor).toLocaleString()}
               </div>
             </div>
-            {q.status === 'SCHEDULED' && (
-              <button onClick={() => startEdit(q)} className="glass px-3 py-1.5 rounded-lg text-sm text-gray-300">
-                Edit
+            <div className="flex gap-2">
+              <button onClick={() => openResponses(q.id)} className="glass px-3 py-1.5 rounded-lg text-sm text-gray-300">
+                Responses
               </button>
-            )}
+              {q.status === 'SCHEDULED' && (
+                <button onClick={() => startEdit(q)} className="glass px-3 py-1.5 rounded-lg text-sm text-gray-300">
+                  Edit
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
+
+      {responses && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setResponses(null)}>
+          <div className="glass-card max-w-lg w-full p-6 rounded-xl space-y-3 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <p className="text-lg text-white">{responses.question.question}</p>
+            <div className="flex gap-4 text-sm text-gray-400">
+              <span>{responses.attempts.length} responses</span>
+              <span>{responses.attempts.filter((a) => a.isCorrect).length} correct</span>
+              <span>{responses.attempts.filter((a) => !a.isCorrect).length} incorrect</span>
+            </div>
+            <div className="space-y-1">
+              {responses.attempts.map((a) => (
+                <div key={a.id} className="flex items-center justify-between text-sm text-gray-300 border-t border-gray-800 pt-1">
+                  <span>{a.user?.fullName ?? 'Unknown user'}</span>
+                  <span>{responses.question.options[a.selectedOption]}</span>
+                  <span className={a.isCorrect ? 'text-cyan-400' : 'text-red-400'}>{a.isCorrect ? 'Correct' : 'Incorrect'}</span>
+                </div>
+              ))}
+              {responses.attempts.length === 0 && <div className="text-gray-500 text-sm">No responses yet.</div>}
+            </div>
+            <button onClick={() => setResponses(null)} className="glass px-3 py-1.5 rounded-lg text-sm text-gray-300">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

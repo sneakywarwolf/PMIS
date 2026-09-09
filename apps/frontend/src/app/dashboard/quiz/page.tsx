@@ -93,11 +93,19 @@ export default function QuizPage() {
     <div className="p-6 max-w-2xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-white">Question of the Day</h1>
-        {user?.role === 'ADMIN' && (
-          <Link href="/dashboard/quiz/manage" className="glass px-3 py-1.5 rounded-lg text-sm text-gray-200 hover:text-white">
-            Manage Quiz
+        <div className="flex items-center gap-2">
+          <Link href="/dashboard/quiz/log" className="glass px-3 py-1.5 rounded-lg text-sm text-gray-200 hover:text-white">
+            Question Log
           </Link>
-        )}
+          <Link href="/dashboard/quiz/scorecard" className="glass px-3 py-1.5 rounded-lg text-sm text-gray-200 hover:text-white">
+            Scorecard
+          </Link>
+          {user?.role === 'ADMIN' && (
+            <Link href="/dashboard/quiz/manage" className="glass px-3 py-1.5 rounded-lg text-sm text-gray-200 hover:text-white">
+              Manage Quiz
+            </Link>
+          )}
+        </div>
       </div>
 
       {!data && (
