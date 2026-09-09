@@ -463,7 +463,7 @@ export default function VulnerabilitiesPage() {
       </>
       )}
 
-      {/* Detail side drawer — overlays the page without navigating away, so
+      {/* Detail modal — overlays the page without navigating away, so
           table filters/sort/scroll position stay exactly as they were. */}
       <AnimatePresence>
         {expandedId && (() => {
@@ -475,17 +475,18 @@ export default function VulnerabilitiesPage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/60 z-40"
+                className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 flex items-center justify-center p-4"
                 onClick={() => setExpandedId(null)}
-              />
-              <motion.div
-                initial={{ x: '100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '100%' }}
-                transition={{ type: 'spring', stiffness: 320, damping: 34 }}
-                className="fixed right-0 top-0 h-full w-full max-w-lg bg-gray-900 border-l border-gray-700 shadow-2xl z-50 overflow-y-auto"
               >
-                <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-gray-700 px-6 py-4 flex items-center justify-between">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                className="bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl z-50 w-full max-w-lg max-h-[85vh] overflow-y-auto"
+              >
+                <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-gray-700 rounded-t-2xl px-6 py-4 flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500">Vulnerability Details</p>
                     <h3 className="text-lg font-semibold text-white">{vuln.name}</h3>
@@ -557,6 +558,7 @@ export default function VulnerabilitiesPage() {
                   </div>
                   <VulnHistoryTimeline vulnId={vuln.id} />
                 </div>
+              </motion.div>
               </motion.div>
             </Fragment>
           );
