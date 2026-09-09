@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SettingsService } from '../settings/settings.service';
+import { ProjectPurgeService } from '../common/project-purge.service';
 import { User, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
@@ -14,6 +15,7 @@ export class UsersService {
     private auditService: AuditService,
     private notificationsService: NotificationsService,
     private settingsService: SettingsService,
+    private projectPurge: ProjectPurgeService,
   ) {}
 
   async findAll(requestingUser: User) {
@@ -329,6 +331,20 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
+    const ownedProjects = await this.prisma.project.findMany({
+      where: { testerId: id },
+      include: {
+        reportGenerations: true,
+        findings: { include: { pocSteps: true } },
+      },
+    });
+
+    let filesDeleted = 0;
+    for (const project of ownedProjects) {
+      const result = await this.projectPurge.purgeProject(project);
+      filesDeleted += result.filesDeleted;
+    }
+
     await this.prisma.user.update({
       where: { id },
       data: { isActive: false },
@@ -341,9 +357,13 @@ export class UsersService {
       targetId: id,
       ipAddress,
       userAgent,
+      details: { projectsDeleted: ownedProjects.length, filesDeleted },
     });
 
-    return { message: 'User deactivated successfully' };
+    return {
+      message: 'User deactivated successfully',
+      projectsDeleted: ownedProjects.length,
+    };
   }
 
   async getTeamHierarchy() {

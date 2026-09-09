@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../reports/storage.service';
 import { SettingsService } from '../settings/settings.service';
 import { AuditService } from '../audit/audit.service';
+import { ProjectPurgeService } from '../common/project-purge.service';
 
 function makeSettings(attachmentRetentionDays: number, projectRetentionDays: number) {
   return { settings: { system: { attachmentRetentionDays, projectRetentionDays } } };
@@ -15,21 +16,23 @@ describe('RetentionService.runRetentionSweep', () => {
   let prisma: {
     user: { findFirst: jest.Mock };
     pocStep: { findMany: jest.Mock; update: jest.Mock };
-    project: { findMany: jest.Mock; delete: jest.Mock };
+    project: { findMany: jest.Mock };
   };
   let storage: { deleteFile: jest.Mock };
   let settingsService: { get: jest.Mock };
   let audit: { log: jest.Mock };
+  let projectPurge: { purgeProject: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
       user: { findFirst: jest.fn().mockResolvedValue({ id: 'admin1' }) },
       pocStep: { findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
-      project: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
+      project: { findMany: jest.fn().mockResolvedValue([]) },
     };
     storage = { deleteFile: jest.fn() };
     settingsService = { get: jest.fn().mockResolvedValue(makeSettings(90, 365)) };
     audit = { log: jest.fn() };
+    projectPurge = { purgeProject: jest.fn().mockResolvedValue({ filesDeleted: 3 }) };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -38,6 +41,7 @@ describe('RetentionService.runRetentionSweep', () => {
         { provide: StorageService, useValue: storage },
         { provide: SettingsService, useValue: settingsService },
         { provide: AuditService, useValue: audit },
+        { provide: ProjectPurgeService, useValue: projectPurge },
       ],
     }).compile();
     service = moduleRef.get(RetentionService);
@@ -53,27 +57,17 @@ describe('RetentionService.runRetentionSweep', () => {
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'ATTACHMENT_RETENTION_DELETED' }));
   });
 
-  it('deletes an expired completed project along with its report files, and logs the deletion', async () => {
+  it('purges an expired completed project and logs the deletion', async () => {
     prisma.project.findMany.mockResolvedValue([
-      {
-        id: 'p1',
-        name: 'Old Project',
-        status: ProjectStatus.COMPLETED,
-        reportDocxPath: 'report.docx',
-        reportPdfPath: null,
-        reportGenerations: [{ docxPath: 'gen1.docx', pdfPath: null }],
-        findings: [{ evidencePaths: ['ev1.png'], pocSteps: [{ imagePath: 'poc1.png' }] }],
-      },
+      { id: 'p1', name: 'Old Project', status: ProjectStatus.COMPLETED },
     ]);
 
     await service.runRetentionSweep();
 
-    expect(storage.deleteFile).toHaveBeenCalledWith('report.docx');
-    expect(storage.deleteFile).toHaveBeenCalledWith('gen1.docx');
-    expect(storage.deleteFile).toHaveBeenCalledWith('ev1.png');
-    expect(storage.deleteFile).toHaveBeenCalledWith('poc1.png');
-    expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: 'p1' } });
-    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'PROJECT_RETENTION_DELETED', targetId: 'p1' }));
+    expect(projectPurge.purgeProject).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'PROJECT_RETENTION_DELETED', targetId: 'p1', details: { name: 'Old Project', filesDeleted: 3 } }),
+    );
   });
 
   it('skips audit logging when no admin user exists yet', async () => {
