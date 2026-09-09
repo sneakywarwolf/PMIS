@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FolderKanban, Plus, Search, FileText, Edit, AlertTriangle, X, Loader2, CheckCircle, Eye, LayoutGrid, Table2 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
@@ -62,6 +62,7 @@ export default function ProjectsPage() {
 function ProjectsPageContent() {
   const toast = useToast();
   const { user } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -251,7 +252,8 @@ function ProjectsPageContent() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
-              className="glass-card rounded-xl p-5 hover:border-emerald-500/30 transition-all"
+              onClick={() => router.push(`/dashboard/projects/${project.id}`)}
+              className="glass-card rounded-xl p-5 hover:border-emerald-500/30 transition-all cursor-pointer"
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
@@ -270,7 +272,7 @@ function ProjectsPageContent() {
                 <span>{project._count?.findings || 0} findings</span>
               </div>
 
-              <div className="space-y-2 mb-3">
+              <div className="space-y-2 mb-3" onClick={(e) => e.stopPropagation()}>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => setEditProject(project)}
@@ -346,7 +348,8 @@ function ProjectsPageContent() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: i * 0.02 }}
-                    className="border-b border-gray-700/50 hover:bg-white/5 transition-colors"
+                    onClick={() => router.push(`/dashboard/projects/${project.id}`)}
+                    className="border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer"
                   >
                     <td className="px-4 py-3">
                       <p className="text-sm font-medium text-white">{project.name}</p>
@@ -360,7 +363,7 @@ function ProjectsPageContent() {
                     <td className="px-4 py-3 text-sm text-gray-400">{project.tester?.username}</td>
                     <td className="px-4 py-3 text-sm text-white">{project._count?.findings || 0}</td>
                     <td className="px-4 py-3 text-sm text-gray-400">{new Date(project.startDate).toLocaleDateString()}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => setEditProject(project)}
