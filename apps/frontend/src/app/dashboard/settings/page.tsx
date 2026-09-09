@@ -71,7 +71,7 @@ function SettingsContent() {
   const saveCategory = async (category: string) => {
     setSaving(true);
     try {
-      // The Workflow tab also displays Retention & Archival fields, which are
+      // The Workflow tab also displays Retention & Deletion fields, which are
       // stored under the "system" category — save both together so those
       // edits aren't silently dropped.
       const patch = category === 'workflow'
@@ -327,17 +327,17 @@ function WorkflowTab({ settings, setCategory }: any) {
         </div>
       </div>
       <div className="border-t border-gray-700 pt-6">
-        <h3 className="text-sm font-medium text-white mb-3">Retention &amp; Archival</h3>
+        <h3 className="text-sm font-medium text-white mb-3">Retention &amp; Deletion</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>Attachment Retention Period (days)</label>
             <input type="number" min={1} max={3650} value={sys.attachmentRetentionDays} onChange={(e) => setCategory('system', { attachmentRetentionDays: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Allowed range: 1–3650 days.</p>
+            <p className={hintCls}>Allowed range: 1–3650 days. PoC attachments on findings older than this are automatically deleted.</p>
           </div>
           <div>
-            <label className={labelCls}>Project Archival Period (days)</label>
-            <input type="number" min={1} max={3650} value={sys.projectArchivalDays} onChange={(e) => setCategory('system', { projectArchivalDays: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Allowed range: 1–3650 days. Applies to completed projects, including their generated reports and issue logs.</p>
+            <label className={labelCls}>Project Retention Period (days)</label>
+            <input type="number" min={1} max={3650} value={sys.projectRetentionDays} onChange={(e) => setCategory('system', { projectRetentionDays: parseInt(e.target.value) || 0 })} className={inputCls} />
+            <p className={hintCls}>Allowed range: 1–3650 days. Countdown starts when a project becomes Completed; the project, its generated reports, and issue log are then automatically deleted.</p>
           </div>
         </div>
       </div>

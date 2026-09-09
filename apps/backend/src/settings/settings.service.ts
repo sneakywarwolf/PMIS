@@ -104,9 +104,9 @@ function validatePatch(patch: any) {
     const v = system.attachmentRetentionDays;
     if (typeof v !== 'number' || v < 1 || v > 3650) errors.push('system.attachmentRetentionDays must be a number between 1 and 3650');
   }
-  if (system?.projectArchivalDays !== undefined) {
-    const v = system.projectArchivalDays;
-    if (typeof v !== 'number' || v < 1 || v > 3650) errors.push('system.projectArchivalDays must be a number between 1 and 3650');
+  if (system?.projectRetentionDays !== undefined) {
+    const v = system.projectRetentionDays;
+    if (typeof v !== 'number' || v < 1 || v > 3650) errors.push('system.projectRetentionDays must be a number between 1 and 3650');
   }
 
   return errors;
