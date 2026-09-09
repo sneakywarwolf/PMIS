@@ -40,6 +40,9 @@ export default function QuizScorecardPage() {
         <div><div className="text-2xl text-white">{card.accuracy}%</div><div className="text-xs text-gray-400">Accuracy</div></div>
         <div><div className="text-2xl text-white">{card.currentStreak}</div><div className="text-xs text-gray-400">Current Streak</div></div>
         <div><div className="text-2xl text-white">{card.bestStreak}</div><div className="text-xs text-gray-400">Best Streak</div></div>
+        <div><div className="text-2xl text-white">{card.totalAnswered}</div><div className="text-xs text-gray-400">Answered</div></div>
+        <div><div className="text-2xl text-white">{card.correct}</div><div className="text-xs text-gray-400">Correct</div></div>
+        <div><div className="text-2xl text-white">{card.incorrect}</div><div className="text-xs text-gray-400">Incorrect</div></div>
       </div>
 
       <div className="glass-card p-4 rounded-xl">
