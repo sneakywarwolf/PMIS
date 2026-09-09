@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
@@ -393,10 +393,24 @@ export class ReportsService {
       missing.push({ field: 'findings', label: 'At least one approved finding', source: 'Project findings' });
     }
 
+    let pocGateBlocked = false;
+    for (const finding of project.findings) {
+      const vulnName = finding.vulnerability?.name || finding.id;
+      if (!finding.pocSteps || finding.pocSteps.length === 0) {
+        missing.push({ field: 'pocSteps', label: 'Steps', source: `Finding: ${vulnName}` });
+        pocGateBlocked = true;
+      }
+      if (!finding.proofOfConcept) {
+        missing.push({ field: 'proofOfConcept', label: 'PoC', source: `Finding: ${vulnName}` });
+        pocGateBlocked = true;
+      }
+    }
+
     return {
       ready: missing.length === 0,
       missing,
       approvedFindings,
+      pocGateBlocked,
       templateName: project.template?.name || null,
       suggestedFileName: this.buildReportFileName(project),
     };
@@ -413,6 +427,13 @@ export class ReportsService {
     userAgent: string,
   ) {
     const project = await this.loadProjectForReport(projectId, user);
+
+    const pocGateBlocked = project.findings.some(
+      (f) => !f.pocSteps || f.pocSteps.length === 0 || !f.proofOfConcept,
+    );
+    if (pocGateBlocked) {
+      throw new BadRequestException('Report Generation not allowed until Steps and PoC are added.');
+    }
 
     // Resolve template: project-pinned version, else the active version for its type
     let template = project.template;
@@ -570,7 +591,7 @@ export class ReportsService {
           select: { id: true, name: true, category: true, subType: true },
         },
         generatedBy: {
-          select: { id: true, username: true },
+          select: { id: true, username: true, fullName: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -584,6 +605,37 @@ export class ReportsService {
         docxUrl: h.docxPath ? await this.storage.getPresignedUrl(h.docxPath, 3600) : null,
       })),
     );
+  }
+
+  async removeReport(id: string, user: User, ipAddress: string, userAgent: string) {
+    const report = await this.prisma.reportGeneration.findUnique({
+      where: { id },
+      include: { project: true },
+    });
+
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+
+    const isOwner = user.role === UserRole.TESTER && report.project.testerId === user.id;
+    if (user.role !== UserRole.ADMIN && !isOwner) {
+      throw new ForbiddenException('Only the project owner or an Admin can delete a generated report');
+    }
+
+    if (report.docxPath) await this.storage.deleteFile(report.docxPath);
+    if (report.pdfPath) await this.storage.deleteFile(report.pdfPath);
+
+    await this.prisma.reportGeneration.delete({ where: { id } });
+
+    await this.auditService.log({
+      actorId: user.id,
+      action: 'REPORT_DELETED',
+      targetType: 'PROJECT',
+      targetId: report.projectId,
+      ipAddress,
+      userAgent,
+      details: { reportId: id },
+    });
   }
 
   // ---------------------------------------------------------------------------

@@ -443,7 +443,11 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      <GeneratedReportsSection projectId={project.id} refreshKey={reportResult} />
+      <GeneratedReportsSection
+        projectId={project.id}
+        refreshKey={reportResult}
+        canDelete={user?.role === 'ADMIN' || user?.id === project.tester.id}
+      />
 
       {/* Add/Edit Finding Modal */}
       {showAddModal && (
@@ -1462,16 +1466,37 @@ function CvssCalculator({ initialVector, onApply }: {
   );
 }
 
-function GeneratedReportsSection({ projectId, refreshKey }: { projectId: string; refreshKey: any }) {
+function GeneratedReportsSection({ projectId, refreshKey, canDelete }: { projectId: string; refreshKey: any; canDelete: boolean }) {
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const confirmDialog = useConfirm();
+  const showToast = useToast();
 
-  useEffect(() => {
+  const load = () => {
     api.get(`/reports/history/${projectId}`)
       .then((res) => setReports(res.data))
       .catch(() => setReports([]))
       .finally(() => setLoading(false));
-  }, [projectId, refreshKey]);
+  };
+
+  useEffect(load, [projectId, refreshKey]);
+
+  const handleDelete = async (report: any) => {
+    const name = report.fileName || report.template?.name || 'Report';
+    const ok = await confirmDialog({
+      title: 'Delete report?',
+      message: `Report "${name}" is being deleted`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/reports/${report.id}`);
+      load();
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to delete report', 'error');
+    }
+  };
 
   if (loading || reports.length === 0) return null;
 
@@ -1490,18 +1515,29 @@ function GeneratedReportsSection({ projectId, refreshKey }: { projectId: string;
                 </p>
               </div>
             </div>
-            {r.docxUrl ? (
-              <a
-                href={r.docxUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 text-xs font-medium transition-all shrink-0"
-              >
-                <Download className="w-3.5 h-3.5" /> Download
-              </a>
-            ) : (
-              <span className="text-xs text-gray-600 shrink-0">Unavailable</span>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {r.docxUrl ? (
+                <a
+                  href={r.docxUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 text-xs font-medium transition-all"
+                >
+                  <Download className="w-3.5 h-3.5" /> Download
+                </a>
+              ) : (
+                <span className="text-xs text-gray-600">Unavailable</span>
+              )}
+              {canDelete && reports.length > 1 && (
+                <button
+                  onClick={() => handleDelete(r)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                  title="Delete report"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
