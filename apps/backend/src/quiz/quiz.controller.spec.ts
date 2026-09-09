@@ -38,7 +38,7 @@ describe('QuizController', () => {
   it('answerToday delegates questionId, userId, and selectedOption', async () => {
     (service.submitAnswer as jest.Mock).mockResolvedValue({ id: 'a1' });
 
-    await controller.answerToday('u1', 'q1', { selectedOption: 2 } as any);
+    await controller.answerToday('u1', { questionId: 'q1', selectedOption: 2 } as any);
 
     expect(service.submitAnswer).toHaveBeenCalledWith('u1', 'q1', 2);
   });

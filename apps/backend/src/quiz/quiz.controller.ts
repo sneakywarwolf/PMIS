@@ -17,12 +17,8 @@ export class QuizController {
   }
 
   @Post('today/answer')
-  answerToday(
-    @CurrentUser('id') userId: string,
-    @Body('questionId') questionId: string,
-    @Body() dto: AnswerQuizQuestionDto,
-  ) {
-    return this.quiz.submitAnswer(userId, questionId, dto.selectedOption);
+  answerToday(@CurrentUser('id') userId: string, @Body() dto: AnswerQuizQuestionDto) {
+    return this.quiz.submitAnswer(userId, dto.questionId, dto.selectedOption);
   }
 
   @Get('log')
