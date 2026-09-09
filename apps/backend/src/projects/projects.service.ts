@@ -164,16 +164,14 @@ export class ProjectsService {
   }
 
   async update(id: string, dto: UpdateProjectDto, user: User, ipAddress: string, userAgent: string) {
-    await this.checkProjectAccess(id, user);
+    const existingProject = await this.checkProjectAccess(id, user);
 
-    if (user.role === UserRole.TESTER) {
-      const project = await this.prisma.project.findUnique({ where: { id } });
-      if (!project) {
-        throw new NotFoundException('Project not found');
-      }
-      if (project.status === ProjectStatus.COMPLETED) {
-        throw new ForbiddenException('Cannot edit completed projects');
-      }
+    if (user.role === UserRole.TESTER && existingProject.status === ProjectStatus.COMPLETED) {
+      throw new ForbiddenException('Cannot edit completed projects');
+    }
+
+    if (dto.startDate !== undefined && user.id !== existingProject.testerId) {
+      throw new ForbiddenException('Only the assigned tester can edit the start date');
     }
 
     const detailFields = [
@@ -187,6 +185,9 @@ export class ProjectsService {
       ...(dto.clientName && { clientName: dto.clientName }),
       ...(dto.scope && { scope: dto.scope }),
       ...(dto.startDate && { startDate: new Date(dto.startDate) }),
+      ...(dto.startDate && new Date(dto.startDate).getTime() !== existingProject.startDate.getTime() && {
+        startDateChangedAt: new Date(),
+      }),
       ...(dto.endDate !== undefined && { endDate: dto.endDate ? new Date(dto.endDate) : null }),
       ...(dto.templateId !== undefined && { templateId: dto.templateId || null }),
       ...(dto.complianceStatus !== undefined && { complianceStatus: dto.complianceStatus }),

@@ -98,6 +98,7 @@ interface Project {
   status: string;
   complianceStatus: string | null;
   startDate: string;
+  startDateChangedAt?: string | null;
   endDate?: string;
   category: string;
   subType: string;
@@ -113,8 +114,8 @@ interface Project {
   applicationNature?: string;
   testingLimitation?: string;
   complianceType?: string;
-  tester: { id: string; username: string; email: string };
-  tl: { id: string; username: string; email: string };
+  tester: { id: string; username: string; email: string; fullName?: string | null };
+  tl: { id: string; username: string; email: string; fullName?: string | null };
   template?: { id: string; name: string; projectType: string } | null;
   findings: Finding[];
 }
@@ -330,9 +331,16 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-          <InfoField label="Start Date" value={new Date(project.startDate).toLocaleDateString()} />
+          <div>
+            <p className="text-gray-500 text-xs">Start Date</p>
+            <p className="text-white font-medium flex items-center gap-1.5">
+              {new Date(project.startDate).toLocaleDateString()}
+              {user?.role !== 'TESTER' && project.startDateChangedAt && (
+                <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
+              )}
+            </p>
+          </div>
           <InfoField label="End Date" value={project.endDate ? new Date(project.endDate).toLocaleDateString() : 'Not set'} />
-          <InfoField label="Category" value={project.category} />
           <InfoField label="Sub Type" value={project.subType} />
           <InfoField label="App Version" value={project.appVersion || 'N/A'} />
           <InfoField label="Location" value={project.location || 'N/A'} />
@@ -343,8 +351,8 @@ export default function ProjectDetailPage() {
           <InfoField label="Testing Type" value={project.testingType || 'N/A'} />
           <InfoField label="Login Systems" value={project.loginSystemTypes || 'N/A'} />
           <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} />
-          <InfoField label="Tester" value={project.tester.username} />
-          <InfoField label="Team Lead" value={project.tl.username} />
+          <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
+          <InfoField label="Team Lead" value={project.tl.fullName || project.tl.username} />
           <InfoField label="Template" value={project.template?.name || 'Default'} />
         </div>
 
@@ -1478,7 +1486,7 @@ function GeneratedReportsSection({ projectId, refreshKey }: { projectId: string;
               <div className="min-w-0">
                 <p className="text-sm text-white truncate">{r.fileName || r.template?.name || 'Report'}</p>
                 <p className="text-xs text-gray-500">
-                  Generated {new Date(r.createdAt).toLocaleString()} by {r.generatedBy?.username || 'unknown'}
+                  Generated {new Date(r.createdAt).toLocaleString()} by {r.generatedBy?.fullName || r.generatedBy?.username || 'unknown'}
                 </p>
               </div>
             </div>

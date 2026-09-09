@@ -158,6 +158,7 @@ model Project {
   clientName  String        @map("client_name")
   scope       String
   startDate   DateTime      @map("start_date")
+  startDateChangedAt DateTime? @map("start_date_changed_at")
   endDate     DateTime?     @map("end_date")
   status      ProjectStatus @default(NOT_STARTED)
   complianceStatus String?   @default("In-Progress") @map("compliance_status")

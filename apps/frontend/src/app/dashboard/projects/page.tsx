@@ -45,10 +45,11 @@ interface Project {
   category?: string;
   subType?: string;
   template?: { id: string; name: string } | null;
-  tester?: { id: string; username: string; email: string };
-  tl?: { id: string; username: string; email: string };
+  tester?: { id: string; username: string; email: string; fullName?: string | null };
+  tl?: { id: string; username: string; email: string; fullName?: string | null };
   _count?: { findings: number };
   isDraft?: boolean;
+  startDateChangedAt?: string | null;
 }
 
 export default function ProjectsPage() {
@@ -68,6 +69,7 @@ function ProjectsPageContent() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '');
+  const [tlFilter, setTlFilter] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [generatingReport, setGeneratingReport] = useState<string | null>(null);
@@ -136,12 +138,24 @@ function ProjectsPageContent() {
     }
   };
 
+  const isAdminOrAvp = user?.role === 'ADMIN' || user?.role === 'AVP';
+  const tlOptions = isAdminOrAvp
+    ? Array.from(
+        new Map(
+          projects
+            .filter((p) => p.tl)
+            .map((p) => [p.tl!.id, { id: p.tl!.id, label: p.tl!.fullName || p.tl!.username }]),
+        ).values(),
+      ).sort((a, b) => a.label.localeCompare(b.label))
+    : [];
+
   const filteredProjects = projects.filter(p => {
     const matchesSearch = !search ||
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.clientName.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = !statusFilter || p.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesTl = !tlFilter || p.tl?.id === tlFilter;
+    return matchesSearch && matchesStatus && matchesTl;
   });
 
   if (loading) {
@@ -191,6 +205,18 @@ function ProjectsPageContent() {
           <option value="AWAITING_REVIEW">Awaiting Review</option>
           <option value="COMPLETED">Completed</option>
         </select>
+        {isAdminOrAvp && (
+          <select
+            value={tlFilter}
+            onChange={(e) => setTlFilter(e.target.value)}
+            className="px-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 transition-all"
+          >
+            <option value="">All TLs</option>
+            {tlOptions.map((tl) => (
+              <option key={tl.id} value={tl.id}>{tl.label}</option>
+            ))}
+          </select>
+        )}
         <div className="flex items-center bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
           <button
             onClick={() => setViewMode('grid')}
@@ -268,7 +294,7 @@ function ProjectsPageContent() {
               <p className="text-sm text-gray-400 mb-3">{project.clientName}</p>
               
               <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
-                <span>Tester: {project.tester?.username}</span>
+                <span>Tester: {project.tester?.fullName || project.tester?.username}</span>
                 <span>{project._count?.findings || 0} findings</span>
               </div>
 
@@ -313,8 +339,11 @@ function ProjectsPageContent() {
               </div>
               
               <div className="pt-3 border-t border-gray-700/50 flex items-center justify-between text-xs">
-                <span className="text-gray-400">
+                <span className="text-gray-400 flex items-center gap-1">
                   {new Date(project.startDate).toLocaleDateString()}
+                  {user?.role !== 'TESTER' && project.startDateChangedAt && (
+                    <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
+                  )}
                 </span>
                 {project.isDraft !== false && (
                   <span className="text-amber-400">Draft</span>
@@ -360,9 +389,16 @@ function ProjectsPageContent() {
                         {statusLabels[project.status]}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-400">{project.tester?.username}</td>
+                    <td className="px-4 py-3 text-sm text-gray-400">{project.tester?.fullName || project.tester?.username}</td>
                     <td className="px-4 py-3 text-sm text-white">{project._count?.findings || 0}</td>
-                    <td className="px-4 py-3 text-sm text-gray-400">{new Date(project.startDate).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-sm text-gray-400">
+                      <span className="flex items-center gap-1">
+                        {new Date(project.startDate).toLocaleDateString()}
+                        {user?.role !== 'TESTER' && project.startDateChangedAt && (
+                          <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
+                        )}
+                      </span>
+                    </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1.5">
                         <button
@@ -435,12 +471,15 @@ function ProjectsPageContent() {
 
 function EditProjectModal({ project, onClose, onSaved }: { project: Project; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const canEditStartDate = user?.id === project.tester?.id;
   const [submitting, setSubmitting] = useState(false);
   const [templates, setTemplates] = useState<any[]>([]);
   const [form, setForm] = useState({
     name: project.name,
     clientName: project.clientName,
     scope: project.scope || '',
+    startDate: new Date(project.startDate).toISOString().split('T')[0],
     endDate: project.endDate ? new Date(project.endDate).toISOString().split('T')[0] : '',
     appVersion: project.appVersion || '',
     location: project.location || '',
@@ -477,6 +516,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
     setSubmitting(true);
     try {
       const payload: any = { ...form };
+      if (!canEditStartDate) delete payload.startDate;
       if (!payload.templateId) payload.templateId = undefined;
       await api.put(`/projects/${project.id}`, payload);
       onSaved();
@@ -549,6 +589,12 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
                 ))}
               </select>
             </div>
+            {canEditStartDate && (
+              <div>
+                <label className={labelCls}>Start Date</label>
+                <input type="date" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} className={inputCls} />
+              </div>
+            )}
             <div>
               <label className={labelCls}>End Date</label>
               <input type="date" value={form.endDate} onChange={(e) => set('endDate', e.target.value)} className={inputCls} />
