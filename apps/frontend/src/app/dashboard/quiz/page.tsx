@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/auth-context';
@@ -26,12 +26,57 @@ type RevealedQuestion = {
   participants: number;
   correctCount: number;
   incorrectCount: number;
+  userIsCorrect: boolean | null;
 };
 
 type TodayResponse = ActiveQuestion | RevealedQuestion | null;
 
 function isRevealed(q: TodayResponse): q is RevealedQuestion {
   return !!q && 'correctIndex' in q;
+}
+
+/** "View Explanation" button that dodges 3-6 tap/click attempts before becoming clickable — only used when the viewer answered incorrectly. */
+function EvasiveExplanationButton({ onReveal }: { onReveal: () => void }) {
+  const [maxAttempts] = useState(() => 3 + Math.floor(Math.random() * 4)); // 3-6 inclusive
+  const [attempts, setAttempts] = useState(0);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const arenaRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const done = attempts >= maxAttempts;
+
+  const dodge = () => {
+    const arena = arenaRef.current;
+    const button = buttonRef.current;
+    if (!arena || !button) return;
+    const maxX = Math.max(0, arena.clientWidth - button.offsetWidth);
+    const maxY = Math.max(0, arena.clientHeight - button.offsetHeight);
+    setPos({ x: Math.random() * maxX, y: Math.random() * maxY });
+    setAttempts((a) => a + 1);
+  };
+
+  const handleClick = () => {
+    if (done) onReveal();
+    else dodge();
+  };
+
+  return (
+    <div ref={arenaRef} className="relative h-28 sm:h-24">
+      <motion.button
+        ref={buttonRef}
+        onMouseEnter={!done ? dodge : undefined}
+        onClick={handleClick}
+        animate={
+          done
+            ? { x: pos.x, y: pos.y, scale: 1, rotate: 0 }
+            : { x: pos.x, y: pos.y, scale: [1, 1.1, 0.94, 1], rotate: [0, -6, 6, 0] }
+        }
+        transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+        className="absolute glass px-4 py-2 rounded-lg text-white whitespace-nowrap"
+      >
+        View Explanation
+      </motion.button>
+    </div>
+  );
 }
 
 function useCountdown(scheduledFor: string) {
@@ -56,6 +101,7 @@ export default function QuizPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [explanationRevealed, setExplanationRevealed] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -70,6 +116,10 @@ export default function QuizPage() {
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    setExplanationRevealed(false);
+  }, [isRevealed(data) ? data.id : null]);
 
   const countdown = useCountdown(!isRevealed(data) && data ? data.scheduledFor : new Date().toISOString());
 
@@ -148,7 +198,20 @@ export default function QuizPage() {
           <motion.div key="revealed" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-6 rounded-xl space-y-3">
             <p className="text-lg text-white">{data.question}</p>
             <p className="text-cyan-400 font-medium">Correct answer: {data.options[data.correctIndex]}</p>
-            <p className="text-gray-300 text-sm">{data.explanation}</p>
+
+            {explanationRevealed ? (
+              <p className="text-gray-300 text-sm">{data.explanation}</p>
+            ) : data.userIsCorrect === false ? (
+              <EvasiveExplanationButton onReveal={() => setExplanationRevealed(true)} />
+            ) : (
+              <button
+                onClick={() => setExplanationRevealed(true)}
+                className="glass px-4 py-2 rounded-lg text-white w-fit"
+              >
+                View Explanation
+              </button>
+            )}
+
             <div className="flex gap-4 text-sm text-gray-400">
               <span>{data.participants} participants</span>
               <span>{data.correctCount} correct</span>

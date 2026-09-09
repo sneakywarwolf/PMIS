@@ -139,12 +139,16 @@ export class QuizService {
     });
     if (!recentlyRevealed) return null;
 
-    return this.buildRevealedSummary(recentlyRevealed);
+    return this.buildRevealedSummary(recentlyRevealed, userId);
   }
 
-  private async buildRevealedSummary(question: { id: string; question: string; options: string[]; correctIndex: number; explanation: string; revealedAt: Date | null }) {
+  private async buildRevealedSummary(
+    question: { id: string; question: string; options: string[]; correctIndex: number; explanation: string; revealedAt: Date | null },
+    userId?: string,
+  ) {
     const attempts = await this.prisma.quizAttempt.findMany({ where: { questionId: question.id } });
     const correctCount = attempts.filter((a) => a.isCorrect).length;
+    const userIsCorrect = userId ? attempts.find((a) => a.userId === userId)?.isCorrect ?? null : null;
     return {
       id: question.id,
       question: question.question,
@@ -155,6 +159,7 @@ export class QuizService {
       participants: attempts.length,
       correctCount,
       incorrectCount: attempts.length - correctCount,
+      userIsCorrect,
     };
   }
 
