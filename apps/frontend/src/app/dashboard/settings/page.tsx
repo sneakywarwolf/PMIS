@@ -302,7 +302,6 @@ function TagListEditor({ label, values, onChange, hint }: { label: string; value
 
 function WorkflowTab({ settings, setCategory }: any) {
   const w = settings.workflow;
-  const defaults = settings.workflow.defaults;
   const sys = settings.system;
   return (
     <div className="space-y-6">
@@ -327,45 +326,6 @@ function WorkflowTab({ settings, setCategory }: any) {
           ))}
         </div>
       </div>
-      <div className="border-t border-gray-700 pt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <TagListEditor
-          label="Vulnerability Statuses"
-          values={w.vulnerabilityStatuses}
-          onChange={(v) => setCategory('workflow', { vulnerabilityStatuses: v })}
-        />
-        <TagListEditor
-          label="Project Statuses"
-          values={w.projectStatuses}
-          onChange={(v) => setCategory('workflow', { projectStatuses: v })}
-        />
-      </div>
-      <p className={hintCls}>Note: these lists are stored for reference; existing status enums in the database are fixed at the schema level and aren't dynamically driven by this list yet.</p>
-
-      <div className="border-t border-gray-700 pt-6">
-        <h3 className="text-sm font-medium text-white mb-3">Workflow Defaults</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className={labelCls}>Status on Creation</label>
-            <select value={defaults.creationStatus} onChange={(e) => setCategory('workflow', { defaults: { ...defaults, creationStatus: e.target.value } })} className={inputCls}>
-              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Working Status</label>
-            <select value={defaults.workingStatus} onChange={(e) => setCategory('workflow', { defaults: { ...defaults, workingStatus: e.target.value } })} className={inputCls}>
-              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Completion Status</label>
-            <select value={defaults.completionStatus} onChange={(e) => setCategory('workflow', { defaults: { ...defaults, completionStatus: e.target.value } })} className={inputCls}>
-              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
-          </div>
-        </div>
-        <p className={hintCls}>Controls which status a new project starts in, which status marks it "in progress" once a finding is added, and which status a generated report moves it to.</p>
-      </div>
-
       <div className="border-t border-gray-700 pt-6">
         <h3 className="text-sm font-medium text-white mb-3">Retention &amp; Archival</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -497,8 +457,6 @@ function FormattingTab({ settings, setCategory }: any) {
     </div>
   );
 }
-
-const PROJECT_STATUS_OPTIONS = ['NOT_STARTED', 'IN_PROGRESS', 'AWAITING_REVIEW', 'COMPLETED'];
 
 function SystemTab({}: any) {
   const [health, setHealth] = useState<any>(null);

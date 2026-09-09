@@ -22,13 +22,6 @@ export const DEFAULT_SETTINGS = {
   workflow: {
     severityLabels: { Critical: 'Critical', High: 'High', Medium: 'Medium', Low: 'Low', Info: 'Info' },
     severityColors: { Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#3b82f6', Info: '#6b7280' },
-    vulnerabilityStatuses: ['PENDING', 'APPROVED', 'REJECTED'],
-    projectStatuses: ['NOT_STARTED', 'IN_PROGRESS', 'AWAITING_REVIEW', 'COMPLETED'],
-    defaults: {
-      creationStatus: 'NOT_STARTED',
-      workingStatus: 'IN_PROGRESS',
-      completionStatus: 'COMPLETED',
-    },
   },
   // ponytail: retention/archival periods are stored and validated here but not
   // yet enforced by a scheduled job — there's no cron/worker infra in this repo

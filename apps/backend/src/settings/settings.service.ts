@@ -11,7 +11,6 @@ const THEME_OPTIONS = ['light', 'dark', 'auto'];
 const DENSITY_OPTIONS = ['compact', 'comfortable', 'spacious'];
 const INACTIVITY_OPTIONS = ['logout', 'warn'];
 const TIME_FORMAT_OPTIONS = ['12h', '24h'];
-const PROJECT_STATUS_OPTIONS = ['NOT_STARTED', 'IN_PROGRESS', 'AWAITING_REVIEW', 'COMPLETED'];
 
 function isPlainObject(v: any) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -98,16 +97,6 @@ function validatePatch(patch: any) {
   const formatting = patch.formatting;
   if (formatting?.timeFormat !== undefined && !TIME_FORMAT_OPTIONS.includes(formatting.timeFormat)) {
     errors.push(`formatting.timeFormat must be one of ${TIME_FORMAT_OPTIONS.join(', ')}`);
-  }
-
-  const workflowDefaults = patch.workflow?.defaults;
-  if (workflowDefaults) {
-    for (const key of ['creationStatus', 'workingStatus', 'completionStatus']) {
-      const v = workflowDefaults[key];
-      if (v !== undefined && !PROJECT_STATUS_OPTIONS.includes(v)) {
-        errors.push(`workflow.defaults.${key} must be one of ${PROJECT_STATUS_OPTIONS.join(', ')}`);
-      }
-    }
   }
 
   const system = patch.system;
