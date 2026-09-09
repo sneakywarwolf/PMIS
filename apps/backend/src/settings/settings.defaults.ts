@@ -26,6 +26,8 @@ export const DEFAULT_SETTINGS = {
   system: {
     attachmentRetentionDays: 90,
     projectRetentionDays: 365,
+    totalStorageQuotaMb: 10240,
+    totalDatabaseQuotaMb: 10240,
   },
   security: {
     sessionTimeoutMinutes: 15,

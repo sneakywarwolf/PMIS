@@ -68,4 +68,17 @@ export class StorageService {
   getPresignedUrl(objectName: string, expirySeconds: number = 3600): Promise<string> {
     return this.minioClient.presignedGetObject(this.bucket, objectName, expirySeconds);
   }
+
+  /** Live sum of every object's size in the bucket, in bytes. */
+  async getUsedBytes(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      let total = 0;
+      const stream = this.minioClient.listObjectsV2(this.bucket, '', true);
+      stream.on('data', (obj) => {
+        total += obj.size || 0;
+      });
+      stream.on('end', () => resolve(total));
+      stream.on('error', reject);
+    });
+  }
 }

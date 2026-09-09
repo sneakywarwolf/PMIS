@@ -458,7 +458,8 @@ function FormattingTab({ settings, setCategory }: any) {
   );
 }
 
-function SystemTab({}: any) {
+function SystemTab({ settings, setCategory }: any) {
+  const sys = settings.system;
   const [health, setHealth] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(true);
 
@@ -473,6 +474,24 @@ function SystemTab({}: any) {
       {status === 'up' ? 'Online' : 'Offline'}
     </span>
   );
+
+  const UsageBar = ({ usedMb, totalMb }: { usedMb: number | null; totalMb: number }) => {
+    if (usedMb == null) return <p className="text-xs text-gray-600 mt-2">Usage unavailable</p>;
+    const pct = Math.min(100, Math.round((usedMb / totalMb) * 100));
+    const level = pct >= 90 ? 'critical' : pct >= 70 ? 'warning' : 'healthy';
+    const barColor = level === 'critical' ? 'bg-red-500' : level === 'warning' ? 'bg-amber-500' : 'bg-emerald-500';
+    const textColor = level === 'critical' ? 'text-red-400' : level === 'warning' ? 'text-amber-400' : 'text-emerald-400';
+    return (
+      <div className="mt-2">
+        <div className="h-1.5 rounded-full bg-gray-700 overflow-hidden">
+          <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+        </div>
+        <p className={`text-xs mt-1 ${textColor}`}>
+          {(usedMb / 1024).toFixed(1)} GB / {(totalMb / 1024).toFixed(1)} GB used ({pct}%)
+        </p>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-8">
@@ -491,10 +510,11 @@ function SystemTab({}: any) {
             </div>
             <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-white">PostgreSQL</span>
+                <span className="text-sm text-white">PostgreSQL (DB Storage)</span>
                 <StatusBadge status={health.database.status} />
               </div>
-              <p className="text-xs text-gray-500">Port {health.database.port} · {health.database.sizeMb != null ? `${health.database.sizeMb} MB used` : 'size unavailable'}</p>
+              <p className="text-xs text-gray-500">Port {health.database.port}</p>
+              <UsageBar usedMb={health.database.usedMb} totalMb={health.database.totalMb} />
             </div>
             <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
               <div className="flex items-center justify-between mb-1">
@@ -505,15 +525,31 @@ function SystemTab({}: any) {
             </div>
             <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-white">MinIO Storage</span>
+                <span className="text-sm text-white">MinIO Storage (Reports &amp; PoCs)</span>
                 <StatusBadge status={health.storage.status} />
               </div>
               <p className="text-xs text-gray-500">{health.storage.endpoint}:{health.storage.port} · bucket "{health.storage.bucket}"</p>
+              <UsageBar usedMb={health.storage.usedMb} totalMb={health.storage.totalMb} />
             </div>
           </div>
         ) : (
           <p className={hintCls}>Could not load system health.</p>
         )}
+      </div>
+      <div className="border-t border-gray-700 pt-6">
+        <h3 className="text-sm font-medium text-white mb-3">Storage Quotas</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Total Storage Quota (MB)</label>
+            <input type="number" min={1} value={sys.totalStorageQuotaMb} onChange={(e) => setCategory('system', { totalStorageQuotaMb: parseInt(e.target.value) || 0 })} className={inputCls} />
+            <p className={hintCls}>Used against the MinIO bucket storing reports and PoC attachments.</p>
+          </div>
+          <div>
+            <label className={labelCls}>Total Database Quota (MB)</label>
+            <input type="number" min={1} value={sys.totalDatabaseQuotaMb} onChange={(e) => setCategory('system', { totalDatabaseQuotaMb: parseInt(e.target.value) || 0 })} className={inputCls} />
+            <p className={hintCls}>Used against live PostgreSQL database size.</p>
+          </div>
+        </div>
       </div>
     </div>
   );
