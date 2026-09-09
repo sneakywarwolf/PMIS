@@ -1,5 +1,6 @@
 import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateQuizQuestionDto } from './dto/create-quiz-question.dto';
@@ -56,14 +57,24 @@ export class QuizService {
         badges: [] as string[],
       };
 
-      const nextStreak = isCorrect ? stats.currentStreak + 1 : 0;
+      const previousDay = new Date(question.scheduledFor.getTime() - TWENTY_FOUR_HOURS_MS).toDateString();
+      const noGap = stats.lastAnsweredOn !== null && stats.lastAnsweredOn.toDateString() === previousDay;
+      const nextStreak = isCorrect ? (noGap ? stats.currentStreak + 1 : 1) : 0;
       const streakBonus = isCorrect ? Math.min(nextStreak - 1, MAX_STREAK_BONUS) : 0;
       const pointsAwarded = isCorrect ? BASE_POINTS + streakBonus : 0;
       const nextBestStreak = Math.max(stats.bestStreak, nextStreak);
 
-      const attempt = await tx.quizAttempt.create({
-        data: { questionId, userId, selectedOption, isCorrect, pointsAwarded },
-      });
+      let attempt;
+      try {
+        attempt = await tx.quizAttempt.create({
+          data: { questionId, userId, selectedOption, isCorrect, pointsAwarded },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new ConflictException('You have already answered this question.');
+        }
+        throw error;
+      }
 
       const totalAnswered = await tx.quizAttempt.count({ where: { userId } });
       const badges = new Set(stats.badges);
@@ -107,7 +118,7 @@ export class QuizService {
   }
 
   async getTodayQuestion(userId: string) {
-    const active = await this.prisma.quizQuestion.findFirst({ where: { status: 'ACTIVE' } });
+    const active = await this.prisma.quizQuestion.findFirst({ where: { status: 'ACTIVE' }, orderBy: { scheduledFor: 'desc' } });
     if (active) {
       const alreadyAnswered = await this.prisma.quizAttempt.findUnique({
         where: { questionId_userId: { questionId: active.id, userId } },
@@ -197,7 +208,7 @@ export class QuizService {
         const accuracy = attempts.length ? correct / attempts.length : 0;
         return {
           userId: s.userId,
-          name: s.user.fullName,
+          fullName: s.user.fullName,
           totalPoints: s.totalPoints,
           currentStreak: s.currentStreak,
           bestStreak: s.bestStreak,

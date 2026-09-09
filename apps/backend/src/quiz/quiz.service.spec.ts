@@ -3,6 +3,7 @@ import { QuizService } from './quiz.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 function makePrismaMock(): any {
   return {
@@ -93,21 +94,23 @@ describe('QuizService.submitAnswer', () => {
   });
 
   it('rejects a second submission for the same question by the same user', async () => {
-    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 0 });
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 0, scheduledFor: new Date('2026-09-09T00:00:00.000Z') });
     prisma.quizAttempt.findUnique.mockResolvedValue({ id: 'existing-attempt' });
 
     await expect(service.submitAnswer('u1', 'q1', 0)).rejects.toThrow(ConflictException);
   });
 
-  it('awards base points and increments streak on a correct answer', async () => {
-    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 2 });
+  it('awards base points and increments streak on a correct answer with no gap since last answer', async () => {
+    const scheduledFor = new Date('2026-09-09T00:00:00.000Z');
+    const previousDay = new Date('2026-09-08T12:00:00.000Z'); // same calendar day as scheduledFor - 24h
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 2, scheduledFor });
     prisma.quizAttempt.findUnique.mockResolvedValue(null);
     prisma.quizUserStats.findUnique.mockResolvedValue({
       userId: 'u1',
       totalPoints: 0,
       currentStreak: 0,
       bestStreak: 0,
-      lastAnsweredOn: null,
+      lastAnsweredOn: previousDay,
       badges: [],
     });
     prisma.quizAttempt.create.mockResolvedValue({ id: 'a1', isCorrect: true, pointsAwarded: 10 });
@@ -125,14 +128,16 @@ describe('QuizService.submitAnswer', () => {
   });
 
   it('awards zero points on an incorrect answer and resets streak', async () => {
-    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 2 });
+    const scheduledFor = new Date('2026-09-09T00:00:00.000Z');
+    const previousDay = new Date('2026-09-08T12:00:00.000Z');
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 2, scheduledFor });
     prisma.quizAttempt.findUnique.mockResolvedValue(null);
     prisma.quizUserStats.findUnique.mockResolvedValue({
       userId: 'u1',
       totalPoints: 20,
       currentStreak: 3,
       bestStreak: 3,
-      lastAnsweredOn: new Date(),
+      lastAnsweredOn: previousDay,
       badges: [],
     });
     prisma.quizAttempt.create.mockResolvedValue({ id: 'a1', isCorrect: false, pointsAwarded: 0 });
@@ -144,6 +149,49 @@ describe('QuizService.submitAnswer', () => {
     const upsertArg = prisma.quizUserStats.upsert.mock.calls[0][0];
     expect(upsertArg.update.currentStreak).toBe(0);
     expect(upsertArg.update.totalPoints).toBe(20);
+  });
+
+  it('restarts the streak at 1 when a question was skipped since the last answer', async () => {
+    // last answered two days before this question's scheduledFor (one question skipped in between)
+    const scheduledFor = new Date('2026-09-09T00:00:00.000Z');
+    const lastAnsweredOn = new Date('2026-09-07T12:00:00.000Z');
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 2, scheduledFor });
+    prisma.quizAttempt.findUnique.mockResolvedValue(null);
+    prisma.quizUserStats.findUnique.mockResolvedValue({
+      userId: 'u1',
+      totalPoints: 50,
+      currentStreak: 5,
+      bestStreak: 5,
+      lastAnsweredOn,
+      badges: [],
+    });
+    prisma.quizAttempt.create.mockResolvedValue({ id: 'a1', isCorrect: true, pointsAwarded: 10 });
+    prisma.quizAttempt.count.mockResolvedValue(10);
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+
+    await service.submitAnswer('u1', 'q1', 2);
+
+    const upsertArg = prisma.quizUserStats.upsert.mock.calls[0][0];
+    expect(upsertArg.update.currentStreak).toBe(1);
+  });
+
+  it('maps a unique-constraint violation on create to a 409 Conflict', async () => {
+    const scheduledFor = new Date('2026-09-09T00:00:00.000Z');
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 0, scheduledFor });
+    prisma.quizAttempt.findUnique.mockResolvedValue(null);
+    prisma.quizUserStats.findUnique.mockResolvedValue({
+      userId: 'u1',
+      totalPoints: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+      lastAnsweredOn: null,
+      badges: [],
+    });
+    const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+    Object.setPrototypeOf(p2002, Prisma.PrismaClientKnownRequestError.prototype);
+    prisma.quizAttempt.create.mockRejectedValue(p2002);
+
+    await expect(service.submitAnswer('u1', 'q1', 0)).rejects.toThrow(ConflictException);
   });
 });
 
