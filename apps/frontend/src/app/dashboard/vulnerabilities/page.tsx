@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useState, useRef } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw, Clock } from 'lucide-react';
@@ -47,6 +47,39 @@ export default function VulnerabilitiesPage() {
   const confirmDialog = useConfirm();
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'changeTracker'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Where the row was clicked (viewport coords — fixed positioning ignores
+  // page scroll, so this never shifts the scroll position) and the
+  // clamped, fully-on-screen position the dialog settles into.
+  const [clickOrigin, setClickOrigin] = useState<{ x: number; y: number } | null>(null);
+  const [modalPos, setModalPos] = useState<{ left: number; top: number } | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  const openVulnDetail = (id: string, e: { clientX: number; clientY: number }) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setClickOrigin({ x: e.clientX, y: e.clientY });
+    setModalPos(null);
+    setExpandedId(id);
+  };
+
+  useLayoutEffect(() => {
+    if (!expandedId || !clickOrigin || !modalRef.current) return;
+    // offsetWidth/Height (not getBoundingClientRect) — the entrance animation's
+    // initial scale is already applied to the element at this point, and
+    // getBoundingClientRect reports the post-transform (shrunk) box.
+    const width = modalRef.current.offsetWidth;
+    const height = modalRef.current.offsetHeight;
+    const margin = 16;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = clickOrigin.x - width / 2;
+    let top = clickOrigin.y - height / 2;
+    left = Math.min(Math.max(left, margin), Math.max(margin, vw - width - margin));
+    top = Math.min(Math.max(top, margin), Math.max(margin, vh - height - margin));
+    setModalPos({ left, top });
+  }, [expandedId, clickOrigin]);
   const [severityColors, setSeverityColors] = useState<Record<string, string>>(DEFAULT_SEVERITY_COLORS);
 
   // Bulk upload state
@@ -385,7 +418,7 @@ export default function VulnerabilitiesPage() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.02 }}
-                  onClick={() => setExpandedId(expandedId === vuln.id ? null : vuln.id)}
+                  onClick={(e: React.MouseEvent) => openVulnDetail(vuln.id, e)}
                   className={`border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer ${
                     expandedId === vuln.id ? 'bg-emerald-500/5' : ''
                   }`}
@@ -480,27 +513,49 @@ export default function VulnerabilitiesPage() {
       )}
 
       {/* Detail modal — overlays the page without navigating away, so
-          table filters/sort/scroll position stay exactly as they were. */}
+          table filters/sort/scroll position stay exactly as they were.
+          Portaled to document.body: the dashboard layout's page-transition
+          wrapper animates a transform, which makes it the containing block
+          for any position:fixed descendant and would break the click-anchored
+          positioning below. */}
+      {typeof document !== 'undefined' && createPortal(
       <AnimatePresence>
         {expandedId && (() => {
           const vuln = displayVulns.find((v) => v.id === expandedId);
           if (!vuln) return null;
+          // Scale in from wherever the click landed inside the (clamped) dialog
+          // box, so the dialog visibly grows out of the clicked row.
+          const origin = clickOrigin && modalPos
+            ? `${clickOrigin.x - modalPos.left}px ${clickOrigin.y - modalPos.top}px`
+            : '50% 50%';
           return (
             <Fragment key="drawer">
+              {/* Sibling of the dialog, not an ancestor: backdrop-blur establishes a
+                  new containing block for fixed-position descendants, which would
+                  make the dialog's top/left resolve relative to this div instead
+                  of the viewport. */}
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 flex items-center justify-center p-4"
+                className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
                 onClick={() => setExpandedId(null)}
-              >
+              />
               <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
+                ref={modalRef}
+                initial={{ opacity: 0, scale: 0.4 }}
+                animate={{ opacity: modalPos ? 1 : 0, scale: modalPos ? 1 : 0.4 }}
+                exit={{ opacity: 0, scale: 0.4 }}
                 transition={{ type: 'spring', stiffness: 320, damping: 34 }}
                 onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                className="bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl z-50 w-full max-w-lg max-h-[85vh] overflow-y-auto"
+                style={{
+                  position: 'fixed',
+                  left: modalPos ? modalPos.left : (clickOrigin?.x ?? 0),
+                  top: modalPos ? modalPos.top : (clickOrigin?.y ?? 0),
+                  transformOrigin: origin,
+                  visibility: modalPos ? 'visible' : 'hidden',
+                }}
+                className="bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl z-50 w-[calc(100vw-2rem)] max-w-lg max-h-[85vh] overflow-y-auto"
               >
                 <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-gray-700 rounded-t-2xl px-6 py-4 flex items-center justify-between">
                   <div>
@@ -579,11 +634,12 @@ export default function VulnerabilitiesPage() {
                   <VulnHistoryTimeline vulnId={vuln.id} />
                 </div>
               </motion.div>
-              </motion.div>
             </Fragment>
           );
         })()}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body
+      )}
 
       {/* Add Modal */}
       {showAddModal && (
