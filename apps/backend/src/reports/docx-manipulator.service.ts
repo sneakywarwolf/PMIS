@@ -456,7 +456,7 @@ export class DocxManipulatorService {
 
   /** Widens a table's first column (grid + every row's first cell) by ~3px. */
   private widenFirstColumn(table: Element): void {
-    const deltaTwips = 45; // 3px at 96 DPI (1px = 15 twips)
+    const deltaTwips = 120; // 8px (3px + a further 5px) at 96 DPI (1px = 15 twips)
 
     const grid = this.getFirstChildByTagName(table, 'tblGrid');
     const firstCol = grid?.getElementsByTagNameNS(this.W_NS, 'gridCol').item(0);
@@ -926,11 +926,23 @@ export class DocxManipulatorService {
 
     const makeRun = (text: string, bold: boolean) => {
       const run = doc.createElementNS(this.W_NS, 'w:r');
+      const rPr = doc.createElementNS(this.W_NS, 'w:rPr');
       if (bold) {
-        const rPr = doc.createElementNS(this.W_NS, 'w:rPr');
         rPr.appendChild(doc.createElementNS(this.W_NS, 'w:b'));
-        run.appendChild(rPr);
       }
+      const rFonts = doc.createElementNS(this.W_NS, 'w:rFonts');
+      rFonts.setAttributeNS(this.W_NS, 'w:ascii', 'Calibri');
+      rFonts.setAttributeNS(this.W_NS, 'w:hAnsi', 'Calibri');
+      rFonts.setAttributeNS(this.W_NS, 'w:cs', 'Calibri');
+      rPr.appendChild(rFonts);
+      const sz = doc.createElementNS(this.W_NS, 'w:sz');
+      sz.setAttributeNS(this.W_NS, 'w:val', '24'); // 12pt, in half-points
+      rPr.appendChild(sz);
+      const szCs = doc.createElementNS(this.W_NS, 'w:szCs');
+      szCs.setAttributeNS(this.W_NS, 'w:val', '24');
+      rPr.appendChild(szCs);
+      run.appendChild(rPr);
+
       const t = doc.createElementNS(this.W_NS, 'w:t');
       t.setAttribute('xml:space', 'preserve');
       t.textContent = text;
