@@ -116,10 +116,24 @@ export class AuthService {
         throw new UnauthorizedException('User not found or inactive');
       }
 
+      // A refresh token from a session that's been superseded by a newer
+      // login must not be allowed to resurrect itself — otherwise it could
+      // ping-pong the active-session pointer back and boot out the
+      // legitimate, newer session on its next request.
+      if (payload.sessionId) {
+        const activeSessionId = await this.redisService.getActiveSession(payload.sub);
+        if (activeSessionId !== payload.sessionId) {
+          throw new UnauthorizedException('Session has been signed in elsewhere');
+        }
+      }
+
       // Revoke old refresh token
       await this.redisService.revokeRefreshToken(payload.jti);
 
-      return this.generateTokens(user);
+      // Renewing an access token is still the same logical session — reuse
+      // its sessionId rather than minting a new one (which would look like
+      // a fresh login and immediately invalidate itself on the next check).
+      return this.generateTokens(user, payload.sessionId);
     } catch (error) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -134,6 +148,8 @@ export class AuthService {
     } catch (error) {
       // Token might already be expired, that's okay
     }
+
+    await this.redisService.clearActiveSession(userId);
 
     await this.auditService.log({
       actorId: userId,
@@ -188,12 +204,19 @@ export class AuthService {
     });
   }
 
-  private async generateTokens(user: User) {
+  private async generateTokens(user: User, existingSessionId?: string) {
+    // A login (no existingSessionId) mints a fresh one and overwrites the
+    // user's active-session pointer, which immediately invalidates any
+    // other session on its next request — only one session per user.
+    // A token refresh reuses the caller's sessionId: it's the same session.
+    const sessionId = existingSessionId || uuidv4();
+
     const payload = {
       sub: user.id,
       username: user.username,
       role: user.role,
       assignedTlId: user.assignedTlId,
+      sessionId,
     };
 
     // Access-token lifetime follows the admin-configured
@@ -220,6 +243,7 @@ export class AuthService {
 
     // Store refresh token in Redis
     await this.redisService.storeRefreshToken(jti, user.id, refreshExpirySeconds);
+    await this.redisService.setActiveSession(user.id, sessionId, refreshExpirySeconds);
 
     return {
       access_token: accessToken,

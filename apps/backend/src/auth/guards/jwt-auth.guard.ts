@@ -37,6 +37,17 @@ export class JwtAuthGuard implements CanActivate {
         secret: process.env.JWT_ACCESS_SECRET,
       });
 
+      // Single-session enforcement: this token's session must still be the
+      // user's current one. A newer login elsewhere overwrites the pointer,
+      // which logs this session out on its very next request rather than
+      // waiting for the access token to naturally expire.
+      if (payload.sessionId) {
+        const activeSessionId = await this.redisService.getActiveSession(payload.sub);
+        if (activeSessionId !== payload.sessionId) {
+          throw new UnauthorizedException('Session has been signed in elsewhere');
+        }
+      }
+
       // Check if user is still active
       const user = await this.prismaService.user.findUnique({
         where: { id: payload.sub },
