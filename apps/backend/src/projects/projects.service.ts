@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { User, UserRole, ProjectStatus } from '@prisma/client';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto, ReviewProjectDto } from './dto/project.dto';
+import { isFindingReportReady } from '../common/poc-validation.util';
 
 @Injectable()
 export class ProjectsService {
@@ -70,7 +71,7 @@ export class ProjectsService {
 
   async findOne(id: string, user: User) {
     const project = await this.checkProjectAccess(id, user);
-    return this.prisma.project.findUnique({
+    const result = await this.prisma.project.findUnique({
       where: { id },
       include: {
         tester: {
@@ -94,6 +95,11 @@ export class ProjectsService {
         },
       },
     });
+    if (!result) return result;
+    return {
+      ...result,
+      findings: result.findings.map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps) })),
+    };
   }
 
   async create(dto: CreateProjectDto, testerId: string, tlId: string, ipAddress: string, userAgent: string) {
