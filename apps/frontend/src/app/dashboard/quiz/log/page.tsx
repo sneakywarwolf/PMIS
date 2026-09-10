@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/contexts/auth-context';
 
+// Same turquoise-glass hover treatment used app-wide (e.g. the sidebar nav) —
+// keep every Quiz control consistent with it rather than inventing a new one.
+const QUIZ_HOVER = 'hover:bg-teal-400/5 hover:border-teal-400/20 hover:shadow-lg hover:shadow-teal-500/10 hover:text-white transition-all';
+
 type LogItem = { id: string; question: string; revealedAt: string };
 type LogDetail = {
   id: string;
@@ -43,7 +47,7 @@ export default function QuizLogPage() {
           <button
             key={item.id}
             onClick={() => openDetail(item.id)}
-            className="glass-card w-full text-left p-4 rounded-lg text-gray-200 hover:text-white"
+            className={`glass-card w-full text-left p-4 rounded-lg text-gray-200 ${QUIZ_HOVER}`}
           >
             <div>{item.question}</div>
             <div className="text-xs text-gray-500">{new Date(item.revealedAt).toLocaleDateString()}</div>
@@ -63,7 +67,7 @@ export default function QuizLogPage() {
               <span>{detail.correctCount} correct</span>
               <span>{detail.incorrectCount} incorrect</span>
             </div>
-            <button onClick={() => setDetail(null)} className="glass px-3 py-1.5 rounded-lg text-sm text-gray-300">
+            <button onClick={() => setDetail(null)} className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-300 ${QUIZ_HOVER}`}>
               Close
             </button>
           </div>

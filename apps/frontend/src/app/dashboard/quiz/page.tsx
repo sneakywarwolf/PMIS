@@ -7,6 +7,10 @@ import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
 import { api } from '@/contexts/auth-context';
 
+// Same turquoise-glass hover treatment used app-wide (e.g. the sidebar nav) —
+// keep every Quiz control consistent with it rather than inventing a new one.
+const QUIZ_HOVER = 'hover:bg-teal-400/5 hover:border-teal-400/20 hover:shadow-lg hover:shadow-teal-500/10 hover:text-white transition-all';
+
 type ActiveQuestion = {
   id: string;
   question: string;
@@ -144,14 +148,14 @@ export default function QuizPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-white">Question of the Day</h1>
         <div className="flex items-center gap-2">
-          <Link href="/dashboard/quiz/log" className="glass px-3 py-1.5 rounded-lg text-sm text-gray-200 hover:text-white">
+          <Link href="/dashboard/quiz/log" className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-200 ${QUIZ_HOVER}`}>
             Question Log
           </Link>
-          <Link href="/dashboard/quiz/scorecard" className="glass px-3 py-1.5 rounded-lg text-sm text-gray-200 hover:text-white">
+          <Link href="/dashboard/quiz/scorecard" className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-200 ${QUIZ_HOVER}`}>
             Scorecard
           </Link>
           {user?.role === 'ADMIN' && (
-            <Link href="/dashboard/quiz/manage" className="glass px-3 py-1.5 rounded-lg text-sm text-gray-200 hover:text-white">
+            <Link href="/dashboard/quiz/manage" className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-200 ${QUIZ_HOVER}`}>
               Manage Quiz
             </Link>
           )}
@@ -176,7 +180,7 @@ export default function QuizPage() {
                     <button
                       key={i}
                       onClick={() => setSelected(i)}
-                      className={`glass text-left px-4 py-2.5 rounded-lg text-gray-200 transition-colors ${selected === i ? 'border-cyan-400 text-white' : 'hover:text-white'}`}
+                      className={`glass text-left px-4 py-2.5 rounded-lg text-gray-200 ${selected === i ? 'border-cyan-400 text-white transition-all' : QUIZ_HOVER}`}
                     >
                       {opt}
                     </button>
@@ -185,7 +189,7 @@ export default function QuizPage() {
                 <button
                   onClick={submit}
                   disabled={selected === null || submitting}
-                  className="glass px-4 py-2 rounded-lg text-white disabled:opacity-40"
+                  className={`glass px-4 py-2 rounded-lg text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:shadow-none ${QUIZ_HOVER}`}
                 >
                   {submitting ? 'Submitting…' : 'Submit Answer'}
                 </button>
@@ -206,7 +210,7 @@ export default function QuizPage() {
             ) : (
               <button
                 onClick={() => setExplanationRevealed(true)}
-                className="glass px-4 py-2 rounded-lg text-white w-fit"
+                className={`glass px-4 py-2 rounded-lg text-white w-fit ${QUIZ_HOVER}`}
               >
                 View Explanation
               </button>

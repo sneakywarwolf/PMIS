@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
 
+// Same turquoise-glass hover treatment used app-wide (e.g. the sidebar nav) —
+// keep every Quiz control consistent with it rather than inventing a new one.
+const QUIZ_HOVER = 'hover:bg-teal-400/5 hover:border-teal-400/20 hover:shadow-lg hover:shadow-teal-500/10 hover:text-white transition-all';
+
 type Question = {
   id: string;
   question: string;
@@ -130,11 +134,11 @@ export default function QuizManagePage() {
           onChange={(e) => setForm({ ...form, scheduledFor: e.target.value })}
         />
         <div className="flex gap-2">
-          <button onClick={save} disabled={saving} className="glass px-4 py-2 rounded-lg text-white disabled:opacity-40">
+          <button onClick={save} disabled={saving} className={`glass px-4 py-2 rounded-lg text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:shadow-none ${QUIZ_HOVER}`}>
             {saving ? 'Saving…' : editingId ? 'Update' : 'Schedule'}
           </button>
           {editingId && (
-            <button onClick={resetForm} className="glass px-4 py-2 rounded-lg text-gray-300">
+            <button onClick={resetForm} className={`glass px-4 py-2 rounded-lg text-gray-300 ${QUIZ_HOVER}`}>
               Cancel
             </button>
           )}
@@ -152,15 +156,15 @@ export default function QuizManagePage() {
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => openResponses(q.id)} className="glass px-3 py-1.5 rounded-lg text-sm text-gray-300">
+              <button onClick={() => openResponses(q.id)} className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-300 ${QUIZ_HOVER}`}>
                 Responses
               </button>
               {q.status === 'SCHEDULED' && (
-                <button onClick={() => startEdit(q)} className="glass px-3 py-1.5 rounded-lg text-sm text-gray-300">
+                <button onClick={() => startEdit(q)} className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-300 ${QUIZ_HOVER}`}>
                   Edit
                 </button>
               )}
-              <button onClick={() => handleDelete(q.id)} className="glass px-3 py-1.5 rounded-lg text-sm text-red-400">
+              <button onClick={() => handleDelete(q.id)} className="glass px-3 py-1.5 rounded-lg text-sm text-red-400 hover:bg-red-400/5 hover:border-red-400/20 hover:shadow-lg hover:shadow-red-500/10 transition-all">
                 Delete
               </button>
             </div>
@@ -187,7 +191,7 @@ export default function QuizManagePage() {
               ))}
               {responses.attempts.length === 0 && <div className="text-gray-500 text-sm">No responses yet.</div>}
             </div>
-            <button onClick={() => setResponses(null)} className="glass px-3 py-1.5 rounded-lg text-sm text-gray-300">
+            <button onClick={() => setResponses(null)} className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-300 ${QUIZ_HOVER}`}>
               Close
             </button>
           </div>
