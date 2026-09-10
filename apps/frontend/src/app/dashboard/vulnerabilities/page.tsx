@@ -260,7 +260,10 @@ export default function VulnerabilitiesPage() {
     return sort.order === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-400" /> : <ArrowDown className="w-3 h-3 text-emerald-400" />;
   };
 
-  const displayVulns = activeTab === 'pending' ? pendingVulns : vulnerabilities;
+  // Admin/AVP/TL fetch every vulnerability including soft-deleted ones (isActive:
+  // false) — needed elsewhere (e.g. history), but the Total list/count must only
+  // ever show live vulnerabilities.
+  const displayVulns = activeTab === 'pending' ? pendingVulns : vulnerabilities.filter((v) => v.isActive);
 
   if (loading && displayVulns.length === 0) {
     return (
