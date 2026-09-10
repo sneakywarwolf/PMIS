@@ -80,4 +80,19 @@ export class RedisService extends Redis implements OnModuleDestroy {
     }
     return current;
   }
+
+  // Single-session enforcement: only one active session per user. A new
+  // login overwrites the pointer, so the previous session's requests fail
+  // their sessionId check on JwtAuthGuard and are logged out immediately.
+  async setActiveSession(userId: string, sessionId: string, ttlSeconds: number): Promise<void> {
+    await this.setex(`active_session:${userId}`, ttlSeconds, sessionId);
+  }
+
+  async getActiveSession(userId: string): Promise<string | null> {
+    return this.get(`active_session:${userId}`);
+  }
+
+  async clearActiveSession(userId: string): Promise<void> {
+    await this.del(`active_session:${userId}`);
+  }
 }

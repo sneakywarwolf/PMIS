@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useConfirm } from '@/components/confirm-provider';
+import { useToast } from '@/components/toast-provider';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
 
 const severityColors: Record<string, string> = {
@@ -61,6 +62,7 @@ interface Vulnerability {
   references: string;
   cveId: string | null;
   cweId: string | null;
+  category?: 'APPLICATION_API' | 'NETWORK';
 }
 
 interface PocStep {
@@ -97,6 +99,7 @@ interface Project {
   status: string;
   complianceStatus: string | null;
   startDate: string;
+  startDateChangedAt?: string | null;
   endDate?: string;
   category: string;
   subType: string;
@@ -112,8 +115,8 @@ interface Project {
   applicationNature?: string;
   testingLimitation?: string;
   complianceType?: string;
-  tester: { id: string; username: string; email: string };
-  tl: { id: string; username: string; email: string };
+  tester: { id: string; username: string; email: string; fullName?: string | null };
+  tl: { id: string; username: string; email: string; fullName?: string | null };
   template?: { id: string; name: string; projectType: string } | null;
   findings: Finding[];
 }
@@ -123,6 +126,7 @@ export default function ProjectDetailPage() {
   const router = useRouter();
   const { user } = useAuth();
   const confirmDialog = useConfirm();
+  const showToast = useToast();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -138,10 +142,11 @@ export default function ProjectDetailPage() {
       setProject(response.data);
     } catch (error) {
       console.error('Failed to fetch project:', error);
+      showToast('Could not refresh project data — showing may be out of date', 'error');
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, showToast]);
 
   useEffect(() => {
     fetchProject();
@@ -205,8 +210,22 @@ export default function ProjectDetailPage() {
     if (!project) return;
     setGeneratingReport(true);
     try {
-      const response = await api.post('/reports/generate', { projectId: project.id });
-      setReportResult(response.data);
+      // Generation runs in a background queue so it doesn't block other
+      // users generating reports at the same time — poll until it's done.
+      const queued = await api.post('/reports/generate', { projectId: project.id });
+      const reportId = queued.data.reportId;
+
+      let status = queued.data.status;
+      while (status === 'PENDING') {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const poll = await api.get(`/reports/generate/${reportId}/status`);
+        status = poll.data.status;
+        if (status === 'COMPLETED') {
+          setReportResult(poll.data);
+        } else if (status === 'FAILED') {
+          alert(poll.data.error || 'Report generation failed');
+        }
+      }
     } catch (error: any) {
       alert(error.response?.data?.message || 'Report generation failed');
     } finally {
@@ -267,7 +286,7 @@ export default function ProjectDetailPage() {
               <CheckCircle className="w-5 h-5 text-emerald-400" />
               <div className="flex-1">
                 <p className="text-sm text-white font-medium">Report Generated!</p>
-                <p className="text-xs text-gray-400">{reportResult.findingsCount} findings included • {reportResult.fileName}</p>
+                <p className="text-xs text-gray-400">{reportResult.fileName} (v{reportResult.version})</p>
               </div>
               <a
                 href={reportResult.docxUrl}
@@ -327,9 +346,16 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-          <InfoField label="Start Date" value={new Date(project.startDate).toLocaleDateString()} />
+          <div>
+            <p className="text-gray-500 text-xs">Start Date</p>
+            <p className="text-white font-medium flex items-center gap-1.5">
+              {new Date(project.startDate).toLocaleDateString()}
+              {user?.role !== 'TESTER' && project.startDateChangedAt && (
+                <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
+              )}
+            </p>
+          </div>
           <InfoField label="End Date" value={project.endDate ? new Date(project.endDate).toLocaleDateString() : 'Not set'} />
-          <InfoField label="Category" value={project.category} />
           <InfoField label="Sub Type" value={project.subType} />
           <InfoField label="App Version" value={project.appVersion || 'N/A'} />
           <InfoField label="Location" value={project.location || 'N/A'} />
@@ -340,8 +366,8 @@ export default function ProjectDetailPage() {
           <InfoField label="Testing Type" value={project.testingType || 'N/A'} />
           <InfoField label="Login Systems" value={project.loginSystemTypes || 'N/A'} />
           <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} />
-          <InfoField label="Tester" value={project.tester.username} />
-          <InfoField label="Team Lead" value={project.tl.username} />
+          <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
+          <InfoField label="Team Lead" value={project.tl.fullName || project.tl.username} />
           <InfoField label="Template" value={project.template?.name || 'Default'} />
         </div>
 
@@ -432,7 +458,11 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      <GeneratedReportsSection projectId={project.id} refreshKey={reportResult} />
+      <GeneratedReportsSection
+        projectId={project.id}
+        refreshKey={reportResult}
+        canDelete={user?.role === 'ADMIN' || user?.id === project.tester.id}
+      />
 
       {/* Add/Edit Finding Modal */}
       {showAddModal && (
@@ -440,7 +470,7 @@ export default function ProjectDetailPage() {
           projectId={project.id}
           finding={editingFinding}
           onClose={() => { setShowAddModal(false); setEditingFinding(null); }}
-          onSaved={() => { fetchProject(); setShowAddModal(false); setEditingFinding(null); }}
+          onSaved={async () => { await fetchProject(); setShowAddModal(false); setEditingFinding(null); }}
         />
       )}
 
@@ -772,7 +802,7 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
                   <p className="text-white">{finding.authenticationType || 'N/A'}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500 text-xs">Report Status</p>
+                  <p className="text-gray-500 text-xs">Status</p>
                   <p className="text-white">{finding.reportStatus}</p>
                 </div>
               </div>
@@ -840,6 +870,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchCategory, setSearchCategory] = useState<'BOTH' | 'APPLICATION_API' | 'NETWORK'>('BOTH');
   const [searchResults, setSearchResults] = useState<Vulnerability[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedVuln, setSelectedVuln] = useState<Vulnerability | null>(finding?.vulnerability || null);
@@ -903,7 +934,9 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
     }
     const timer = setTimeout(async () => {
       try {
-        const response = await api.get(`/vulnerabilities?search=${encodeURIComponent(searchQuery)}`);
+        const params = new URLSearchParams({ search: searchQuery });
+        if (searchCategory !== 'BOTH') params.set('category', searchCategory);
+        const response = await api.get(`/vulnerabilities?${params.toString()}`);
         setSearchResults(response.data);
         setShowDropdown(true);
       } catch (error) {
@@ -911,7 +944,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, searchCategory]);
 
   const selectVulnerability = (vuln: Vulnerability) => {
     setSelectedVuln(vuln);
@@ -1034,7 +1067,25 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                 className="space-y-4"
               >
                 <div className="relative" ref={searchRef}>
-                  <label className="block text-sm text-gray-300 mb-1">Search Vulnerability Database *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm text-gray-300">Search Vulnerability Database *</label>
+                    <div className="flex items-center gap-1 text-xs">
+                      {(['BOTH', 'APPLICATION_API', 'NETWORK'] as const).map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setSearchCategory(c)}
+                          className={`px-2 py-1 rounded-md transition-all ${
+                            searchCategory === c
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-gray-800/50 text-gray-400 border border-gray-700 hover:text-white'
+                          }`}
+                        >
+                          {c === 'BOTH' ? 'Both' : c === 'APPLICATION_API' ? 'Application/API' : 'Network'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                     <input
@@ -1056,9 +1107,14 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-white">{vuln.name}</span>
-                            <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
-                              {vuln.severity}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-1.5 py-0.5 rounded text-xs border border-gray-600 text-gray-400">
+                                {vuln.category === 'NETWORK' ? 'Network' : 'App/API'}
+                              </span>
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
+                                {vuln.severity}
+                              </span>
+                            </div>
                           </div>
                           <p className="text-xs text-gray-500 truncate">CVSS: {vuln.cvssScore ?? '-'} {vuln.cveId}</p>
                         </button>
@@ -1207,7 +1263,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Report Status</label>
+              <label className="block text-xs text-gray-400 mb-1">Status</label>
               <select
                 value={form.reportStatus}
                 onChange={(e) => setForm({ ...form, reportStatus: e.target.value })}
@@ -1451,16 +1507,37 @@ function CvssCalculator({ initialVector, onApply }: {
   );
 }
 
-function GeneratedReportsSection({ projectId, refreshKey }: { projectId: string; refreshKey: any }) {
+function GeneratedReportsSection({ projectId, refreshKey, canDelete }: { projectId: string; refreshKey: any; canDelete: boolean }) {
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const confirmDialog = useConfirm();
+  const showToast = useToast();
 
-  useEffect(() => {
+  const load = () => {
     api.get(`/reports/history/${projectId}`)
       .then((res) => setReports(res.data))
       .catch(() => setReports([]))
       .finally(() => setLoading(false));
-  }, [projectId, refreshKey]);
+  };
+
+  useEffect(load, [projectId, refreshKey]);
+
+  const handleDelete = async (report: any) => {
+    const name = report.fileName || report.template?.name || 'Report';
+    const ok = await confirmDialog({
+      title: 'Delete report?',
+      message: `Report "${name}" is being deleted`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/reports/${report.id}`);
+      load();
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to delete report', 'error');
+    }
+  };
 
   if (loading || reports.length === 0) return null;
 
@@ -1475,22 +1552,33 @@ function GeneratedReportsSection({ projectId, refreshKey }: { projectId: string;
               <div className="min-w-0">
                 <p className="text-sm text-white truncate">{r.fileName || r.template?.name || 'Report'}</p>
                 <p className="text-xs text-gray-500">
-                  Generated {new Date(r.createdAt).toLocaleString()} by {r.generatedBy?.username || 'unknown'}
+                  Generated {new Date(r.createdAt).toLocaleString()} by {r.generatedBy?.fullName || r.generatedBy?.username || 'unknown'}
                 </p>
               </div>
             </div>
-            {r.docxUrl ? (
-              <a
-                href={r.docxUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 text-xs font-medium transition-all shrink-0"
-              >
-                <Download className="w-3.5 h-3.5" /> Download
-              </a>
-            ) : (
-              <span className="text-xs text-gray-600 shrink-0">Unavailable</span>
-            )}
+            <div className="flex items-center gap-2 shrink-0">
+              {r.docxUrl ? (
+                <a
+                  href={r.docxUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 text-xs font-medium transition-all"
+                >
+                  <Download className="w-3.5 h-3.5" /> Download
+                </a>
+              ) : (
+                <span className="text-xs text-gray-600">Unavailable</span>
+              )}
+              {canDelete && reports.length > 1 && (
+                <button
+                  onClick={() => handleDelete(r)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                  title="Delete report"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

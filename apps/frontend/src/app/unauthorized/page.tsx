@@ -28,10 +28,17 @@ function UnauthorizedContent() {
   const searchParams = useSearchParams();
   const from = searchParams.get('from');
 
-  const [stage, setStage] = useState<'idle' | 'requesting' | 'revealed'>('idle');
+  const [stage, setStage] = useState<'idle' | 'input' | 'requesting' | 'revealed'>('idle');
   const [stageIndex, setStageIndex] = useState(0);
+  const [attempt, setAttempt] = useState('');
 
-  const requestAccess = () => {
+  const showInput = () => setStage('input');
+
+  // The entered text is never read, evaluated, or sent anywhere — every
+  // submission (empty, garbage, or "clever") leads to the exact same
+  // animation. This is deliberate: input here is purely decorative.
+  const tryYourLuck = (e: React.FormEvent) => {
+    e.preventDefault();
     setStage('requesting');
     setStageIndex(0);
     REQUEST_STAGES.forEach((_, i) => {
@@ -66,14 +73,40 @@ function UnauthorizedContent() {
             </p>
             <p className="text-gray-500 text-xs mb-8">Your role doesn't include this feature. Contact an administrator if you believe this is a mistake.</p>
 
-            {stage === 'idle' ? (
+            {stage === 'idle' && (
               <button
-                onClick={requestAccess}
+                onClick={showInput}
                 className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
               >
-                Request Access
+                Bypass Access
               </button>
-            ) : (
+            )}
+
+            {stage === 'input' && (
+              <motion.form
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                onSubmit={tryYourLuck}
+                className="flex flex-col items-center gap-3"
+              >
+                <input
+                  autoFocus
+                  type="text"
+                  value={attempt}
+                  onChange={(e) => setAttempt(e.target.value)}
+                  placeholder="Try your luck"
+                  className="w-full px-4 py-2.5 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white text-center placeholder:text-gray-500 outline-none transition-colors"
+                />
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
+                >
+                  Submit
+                </button>
+              </motion.form>
+            )}
+
+            {(stage === 'requesting') && (
               <div className="h-10 flex items-center justify-center">
                 <AnimatePresence mode="wait">
                   <motion.p

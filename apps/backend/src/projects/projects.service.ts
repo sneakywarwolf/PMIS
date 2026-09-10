@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { SettingsService } from '../settings/settings.service';
 import { User, UserRole, ProjectStatus } from '@prisma/client';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto, ReviewProjectDto } from './dto/project.dto';
 
@@ -10,7 +9,6 @@ export class ProjectsService {
   constructor(
     private prisma: PrismaService,
     private auditService: AuditService,
-    private settingsService: SettingsService,
   ) {}
 
   private async checkProjectAccess(projectId: string, user: User) {
@@ -114,9 +112,6 @@ export class ProjectsService {
       }
     }
 
-    const { settings } = await this.settingsService.get();
-    const creationStatus = settings.workflow.defaults.creationStatus as ProjectStatus;
-
     const project = await this.prisma.project.create({
       data: {
         name: dto.name,
@@ -130,7 +125,7 @@ export class ProjectsService {
         complianceType: dto.complianceType,
         category: dto.category,
         subType: dto.subType,
-        status: creationStatus,
+        status: ProjectStatus.NOT_STARTED,
         appVersion: dto.appVersion,
         location: dto.location,
         documentVersion: dto.documentVersion,
@@ -164,16 +159,14 @@ export class ProjectsService {
   }
 
   async update(id: string, dto: UpdateProjectDto, user: User, ipAddress: string, userAgent: string) {
-    await this.checkProjectAccess(id, user);
+    const existingProject = await this.checkProjectAccess(id, user);
 
-    if (user.role === UserRole.TESTER) {
-      const project = await this.prisma.project.findUnique({ where: { id } });
-      if (!project) {
-        throw new NotFoundException('Project not found');
-      }
-      if (project.status === ProjectStatus.COMPLETED) {
-        throw new ForbiddenException('Cannot edit completed projects');
-      }
+    if (user.role === UserRole.TESTER && existingProject.status === ProjectStatus.COMPLETED) {
+      throw new ForbiddenException('Cannot edit completed projects');
+    }
+
+    if (dto.startDate !== undefined && user.id !== existingProject.testerId) {
+      throw new ForbiddenException('Only the assigned tester can edit the start date');
     }
 
     const detailFields = [
@@ -187,6 +180,9 @@ export class ProjectsService {
       ...(dto.clientName && { clientName: dto.clientName }),
       ...(dto.scope && { scope: dto.scope }),
       ...(dto.startDate && { startDate: new Date(dto.startDate) }),
+      ...(dto.startDate && new Date(dto.startDate).getTime() !== existingProject.startDate.getTime() && {
+        startDateChangedAt: new Date(),
+      }),
       ...(dto.endDate !== undefined && { endDate: dto.endDate ? new Date(dto.endDate) : null }),
       ...(dto.templateId !== undefined && { templateId: dto.templateId || null }),
       ...(dto.complianceStatus !== undefined && { complianceStatus: dto.complianceStatus }),
@@ -214,30 +210,6 @@ export class ProjectsService {
     });
 
     return project;
-  }
-
-  /** Auto-update project status based on events */
-  async autoUpdateStatus(projectId: string, event: 'FINDING_ADDED' | 'REPORT_GENERATED') {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) return;
-
-    const { settings } = await this.settingsService.get();
-    const { creationStatus, workingStatus, completionStatus } = settings.workflow.defaults;
-
-    let newStatus = project.status;
-
-    if (event === 'FINDING_ADDED' && project.status === creationStatus) {
-      newStatus = workingStatus as ProjectStatus;
-    } else if (event === 'REPORT_GENERATED' && project.status !== completionStatus) {
-      newStatus = completionStatus as ProjectStatus;
-    }
-
-    if (newStatus !== project.status) {
-      await this.prisma.project.update({
-        where: { id: projectId },
-        data: { status: newStatus },
-      });
-    }
   }
 
   async reassign(id: string, dto: ReassignProjectDto, tlId: string, ipAddress: string, userAgent: string) {

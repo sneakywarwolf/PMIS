@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Req, UseInterceptors, UploadedFile, Query, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseInterceptors, UploadedFile, Query, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
@@ -137,6 +137,12 @@ export class ReportsController {
     );
   }
 
+  @Get('generate/:id/status')
+  @ApiOperation({ summary: 'Poll a queued/in-progress report generation for completion' })
+  async getGenerationStatus(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.reportsService.getReportGenerationStatus(id, user);
+  }
+
   @Get('preflight/:projectId')
   @ApiOperation({ summary: 'Pre-generation completeness check (missing data report)' })
   async preflight(
@@ -153,5 +159,18 @@ export class ReportsController {
     @CurrentUser() user: User,
   ) {
     return this.reportsService.getReportHistory(projectId, user);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a generated report (project owner or Admin only)' })
+  async removeReport(
+    @Param('id') id: string,
+    @CurrentUser() user: User,
+    @Req() request: any,
+  ) {
+    const ipAddress = request.ip || 'unknown';
+    const userAgent = request.headers['user-agent'] || 'unknown';
+    await this.reportsService.removeReport(id, user, ipAddress, userAgent);
+    return { success: true };
   }
 }

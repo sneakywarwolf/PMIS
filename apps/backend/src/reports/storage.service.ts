@@ -65,7 +65,29 @@ export class StorageService {
     await this.minioClient.removeObject(this.bucket, objectName);
   }
 
-  getPresignedUrl(objectName: string, expirySeconds: number = 3600): Promise<string> {
-    return this.minioClient.presignedGetObject(this.bucket, objectName, expirySeconds);
+  /**
+   * `downloadFileName`, when given, overrides the filename the browser saves
+   * the download as (via response-content-disposition) — independent of the
+   * object's storage key, which carries a uniqueness prefix (timestamp) that
+   * should never leak into the user-facing filename.
+   */
+  getPresignedUrl(objectName: string, expirySeconds: number = 3600, downloadFileName?: string): Promise<string> {
+    const reqParams = downloadFileName
+      ? { 'response-content-disposition': `attachment; filename="${downloadFileName}"` }
+      : undefined;
+    return this.minioClient.presignedGetObject(this.bucket, objectName, expirySeconds, reqParams);
+  }
+
+  /** Live sum of every object's size in the bucket, in bytes. */
+  async getUsedBytes(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      let total = 0;
+      const stream = this.minioClient.listObjectsV2(this.bucket, '', true);
+      stream.on('data', (obj) => {
+        total += obj.size || 0;
+      });
+      stream.on('end', () => resolve(total));
+      stream.on('error', reject);
+    });
   }
 }

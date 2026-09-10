@@ -71,7 +71,7 @@ function SettingsContent() {
   const saveCategory = async (category: string) => {
     setSaving(true);
     try {
-      // The Workflow tab also displays Retention & Archival fields, which are
+      // The Workflow tab also displays Retention & Deletion fields, which are
       // stored under the "system" category — save both together so those
       // edits aren't silently dropped.
       const patch = category === 'workflow'
@@ -302,7 +302,6 @@ function TagListEditor({ label, values, onChange, hint }: { label: string; value
 
 function WorkflowTab({ settings, setCategory }: any) {
   const w = settings.workflow;
-  const defaults = settings.workflow.defaults;
   const sys = settings.system;
   return (
     <div className="space-y-6">
@@ -327,57 +326,18 @@ function WorkflowTab({ settings, setCategory }: any) {
           ))}
         </div>
       </div>
-      <div className="border-t border-gray-700 pt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <TagListEditor
-          label="Vulnerability Statuses"
-          values={w.vulnerabilityStatuses}
-          onChange={(v) => setCategory('workflow', { vulnerabilityStatuses: v })}
-        />
-        <TagListEditor
-          label="Project Statuses"
-          values={w.projectStatuses}
-          onChange={(v) => setCategory('workflow', { projectStatuses: v })}
-        />
-      </div>
-      <p className={hintCls}>Note: these lists are stored for reference; existing status enums in the database are fixed at the schema level and aren't dynamically driven by this list yet.</p>
-
       <div className="border-t border-gray-700 pt-6">
-        <h3 className="text-sm font-medium text-white mb-3">Workflow Defaults</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className={labelCls}>Status on Creation</label>
-            <select value={defaults.creationStatus} onChange={(e) => setCategory('workflow', { defaults: { ...defaults, creationStatus: e.target.value } })} className={inputCls}>
-              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Working Status</label>
-            <select value={defaults.workingStatus} onChange={(e) => setCategory('workflow', { defaults: { ...defaults, workingStatus: e.target.value } })} className={inputCls}>
-              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Completion Status</label>
-            <select value={defaults.completionStatus} onChange={(e) => setCategory('workflow', { defaults: { ...defaults, completionStatus: e.target.value } })} className={inputCls}>
-              {PROJECT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-            </select>
-          </div>
-        </div>
-        <p className={hintCls}>Controls which status a new project starts in, which status marks it "in progress" once a finding is added, and which status a generated report moves it to.</p>
-      </div>
-
-      <div className="border-t border-gray-700 pt-6">
-        <h3 className="text-sm font-medium text-white mb-3">Retention &amp; Archival</h3>
+        <h3 className="text-sm font-medium text-white mb-3">Retention &amp; Deletion</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className={labelCls}>Attachment Retention Period (days)</label>
             <input type="number" min={1} max={3650} value={sys.attachmentRetentionDays} onChange={(e) => setCategory('system', { attachmentRetentionDays: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Allowed range: 1–3650 days.</p>
+            <p className={hintCls}>Allowed range: 1–3650 days. PoC attachments on findings older than this are automatically deleted.</p>
           </div>
           <div>
-            <label className={labelCls}>Project Archival Period (days)</label>
-            <input type="number" min={1} max={3650} value={sys.projectArchivalDays} onChange={(e) => setCategory('system', { projectArchivalDays: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Allowed range: 1–3650 days. Applies to completed projects, including their generated reports and issue logs.</p>
+            <label className={labelCls}>Project Retention Period (days)</label>
+            <input type="number" min={1} max={3650} value={sys.projectRetentionDays} onChange={(e) => setCategory('system', { projectRetentionDays: parseInt(e.target.value) || 0 })} className={inputCls} />
+            <p className={hintCls}>Allowed range: 1–3650 days. Countdown starts when a project becomes Completed; the project, its generated reports, and issue log are then automatically deleted.</p>
           </div>
         </div>
       </div>
@@ -498,9 +458,8 @@ function FormattingTab({ settings, setCategory }: any) {
   );
 }
 
-const PROJECT_STATUS_OPTIONS = ['NOT_STARTED', 'IN_PROGRESS', 'AWAITING_REVIEW', 'COMPLETED'];
-
-function SystemTab({}: any) {
+function SystemTab({ settings, setCategory }: any) {
+  const sys = settings.system;
   const [health, setHealth] = useState<any>(null);
   const [healthLoading, setHealthLoading] = useState(true);
 
@@ -515,6 +474,24 @@ function SystemTab({}: any) {
       {status === 'up' ? 'Online' : 'Offline'}
     </span>
   );
+
+  const UsageBar = ({ usedMb, totalMb }: { usedMb: number | null; totalMb: number }) => {
+    if (usedMb == null) return <p className="text-xs text-gray-600 mt-2">Usage unavailable</p>;
+    const pct = Math.min(100, Math.round((usedMb / totalMb) * 100));
+    const level = pct >= 90 ? 'critical' : pct >= 70 ? 'warning' : 'healthy';
+    const barColor = level === 'critical' ? 'bg-red-500' : level === 'warning' ? 'bg-amber-500' : 'bg-emerald-500';
+    const textColor = level === 'critical' ? 'text-red-400' : level === 'warning' ? 'text-amber-400' : 'text-emerald-400';
+    return (
+      <div className="mt-2">
+        <div className="h-1.5 rounded-full bg-gray-700 overflow-hidden">
+          <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+        </div>
+        <p className={`text-xs mt-1 ${textColor}`}>
+          {(usedMb / 1024).toFixed(1)} GB / {(totalMb / 1024).toFixed(1)} GB used ({pct}%)
+        </p>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-8">
@@ -533,10 +510,11 @@ function SystemTab({}: any) {
             </div>
             <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-white">PostgreSQL</span>
+                <span className="text-sm text-white">PostgreSQL (DB Storage)</span>
                 <StatusBadge status={health.database.status} />
               </div>
-              <p className="text-xs text-gray-500">Port {health.database.port} · {health.database.sizeMb != null ? `${health.database.sizeMb} MB used` : 'size unavailable'}</p>
+              <p className="text-xs text-gray-500">Port {health.database.port}</p>
+              <UsageBar usedMb={health.database.usedMb} totalMb={health.database.totalMb} />
             </div>
             <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
               <div className="flex items-center justify-between mb-1">
@@ -547,15 +525,31 @@ function SystemTab({}: any) {
             </div>
             <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-white">MinIO Storage</span>
+                <span className="text-sm text-white">MinIO Storage (Reports &amp; PoCs)</span>
                 <StatusBadge status={health.storage.status} />
               </div>
               <p className="text-xs text-gray-500">{health.storage.endpoint}:{health.storage.port} · bucket "{health.storage.bucket}"</p>
+              <UsageBar usedMb={health.storage.usedMb} totalMb={health.storage.totalMb} />
             </div>
           </div>
         ) : (
           <p className={hintCls}>Could not load system health.</p>
         )}
+      </div>
+      <div className="border-t border-gray-700 pt-6">
+        <h3 className="text-sm font-medium text-white mb-3">Storage Quotas</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Total Storage Quota (MB)</label>
+            <input type="number" min={1} value={sys.totalStorageQuotaMb} onChange={(e) => setCategory('system', { totalStorageQuotaMb: parseInt(e.target.value) || 0 })} className={inputCls} />
+            <p className={hintCls}>Used against the MinIO bucket storing reports and PoC attachments.</p>
+          </div>
+          <div>
+            <label className={labelCls}>Total Database Quota (MB)</label>
+            <input type="number" min={1} value={sys.totalDatabaseQuotaMb} onChange={(e) => setCategory('system', { totalDatabaseQuotaMb: parseInt(e.target.value) || 0 })} className={inputCls} />
+            <p className={hintCls}>Used against live PostgreSQL database size.</p>
+          </div>
+        </div>
       </div>
     </div>
   );

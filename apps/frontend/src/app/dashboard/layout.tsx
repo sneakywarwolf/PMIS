@@ -19,6 +19,8 @@ import {
   Bell,
   UserCircle,
   ChevronDown,
+  HelpCircle,
+  Clock,
 } from 'lucide-react';
 import { useAuth, api } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
@@ -48,6 +50,8 @@ const navItems: NavItem[] = [
   { label: 'Projects', href: '/dashboard/projects', icon: FolderKanban, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
   { label: 'Reports', href: '/dashboard/reports', icon: FileText, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
   { label: 'Vulnerabilities', href: '/dashboard/vulnerabilities', icon: ShieldAlert, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
+  { label: 'Quiz', href: '/dashboard/quiz', icon: HelpCircle, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
+  { label: 'Retention', href: '/dashboard/retention', icon: Clock, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
   { label: 'Users', href: '/dashboard/users', icon: Users, roles: ['ADMIN'] },
   { label: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['ADMIN'] },
 ];
@@ -143,7 +147,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     className={`flex items-center px-3 py-2.5 rounded-lg transition-all duration-200 group border ${
                       isActive
                         ? 'border-transparent'
-                        : 'border-transparent text-gray-400 hover:text-white hover:bg-white/5 hover:backdrop-blur-md hover:border-white/10 hover:shadow-lg'
+                        : 'border-transparent text-gray-400 hover:text-teal-300 hover:bg-teal-400/5 hover:backdrop-blur-md hover:border-teal-400/20 hover:shadow-lg hover:shadow-teal-500/10'
                     }`}
                     style={isActive ? {
                       backgroundColor: `${primaryColor}1a`,

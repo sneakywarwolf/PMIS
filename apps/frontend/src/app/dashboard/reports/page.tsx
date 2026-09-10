@@ -155,10 +155,25 @@ function ReportGenerator() {
     if (!selectedProject) return;
     setGenerating(true);
     try {
-      const response = await api.post('/reports/generate', { projectId: selectedProject.id });
-      setResult(response.data);
-      setStep(3);
-      toast('Report generated successfully');
+      // Generation runs in a background queue (so it doesn't block other
+      // users generating reports at the same time) — this just enqueues
+      // the job; we poll for completion below.
+      const queued = await api.post('/reports/generate', { projectId: selectedProject.id });
+      const reportId = queued.data.reportId;
+
+      let status = queued.data.status;
+      while (status === 'PENDING') {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const poll = await api.get(`/reports/generate/${reportId}/status`);
+        status = poll.data.status;
+        if (status === 'COMPLETED') {
+          setResult({ ...poll.data, findingsCount: preflight?.approvedFindings ?? 0 });
+          setStep(3);
+          toast('Report generated successfully');
+        } else if (status === 'FAILED') {
+          toast(poll.data.error || 'Report generation failed', 'error');
+        }
+      }
     } catch (error: any) {
       toast(error.response?.data?.message || 'Report generation failed', 'error');
     } finally {
@@ -246,10 +261,12 @@ function ReportGenerator() {
               </div>
 
               {preflight.missing.length > 0 ? (
-                <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-4">
-                  <p className="text-sm text-amber-400 font-medium flex items-center gap-2 mb-2">
+                <div className={`rounded-lg p-4 border ${preflight.pocGateBlocked ? 'bg-red-500/10 border-red-500/20' : 'bg-amber-500/10 border-amber-500/20'}`}>
+                  <p className={`text-sm font-medium flex items-center gap-2 mb-2 ${preflight.pocGateBlocked ? 'text-red-400' : 'text-amber-400'}`}>
                     <AlertTriangle className="w-4 h-4" />
-                    {preflight.missing.length} item(s) missing — the report will contain blanks for these
+                    {preflight.pocGateBlocked
+                      ? 'Report Generation not allowed until Steps and PoC are added.'
+                      : `${preflight.missing.length} item(s) missing — the report will contain blanks for these`}
                   </p>
                   <ul className="space-y-1">
                     {preflight.missing.map((m: any) => (
@@ -279,7 +296,7 @@ function ReportGenerator() {
                 </button>
                 <button
                   onClick={handleGenerate}
-                  disabled={generating || preflight.approvedFindings === 0}
+                  disabled={generating || preflight.approvedFindings === 0 || preflight.pocGateBlocked}
                   className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm flex items-center gap-2 disabled:opacity-50"
                 >
                   {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}

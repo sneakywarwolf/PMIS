@@ -1,11 +1,14 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
 import { DocxManipulatorService, FieldRule, FindingData, PocImage } from './docx-manipulator.service';
 import { AuditService } from '../audit/audit.service';
-import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus } from '@prisma/client';
+import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, ReportGenerationStatus } from '@prisma/client';
 import * as crypto from 'crypto';
+import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 
 const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   WEB: 'Web',
@@ -24,6 +27,7 @@ export class ReportsService {
     private docxManipulator: DocxManipulatorService,
     private configService: ConfigService,
     private auditService: AuditService,
+    @InjectQueue(REPORT_GENERATION_QUEUE) private reportQueue: Queue<ReportGenerationJobData>,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -393,12 +397,29 @@ export class ReportsService {
       missing.push({ field: 'findings', label: 'At least one approved finding', source: 'Project findings' });
     }
 
+    let pocGateBlocked = false;
+    for (const finding of project.findings) {
+      const vulnName = finding.vulnerability?.name || finding.id;
+      if (!finding.pocSteps || finding.pocSteps.length === 0) {
+        missing.push({ field: 'pocSteps', label: 'Steps', source: `Finding: ${vulnName}` });
+        pocGateBlocked = true;
+      }
+      if (!finding.proofOfConcept) {
+        missing.push({ field: 'proofOfConcept', label: 'PoC', source: `Finding: ${vulnName}` });
+        pocGateBlocked = true;
+      }
+    }
+
+    const nextVersion = await this.getNextReportVersion(projectId);
+
     return {
       ready: missing.length === 0,
       missing,
       approvedFindings,
+      pocGateBlocked,
       templateName: project.template?.name || null,
-      suggestedFileName: this.buildReportFileName(project),
+      nextVersion,
+      suggestedFileName: this.buildReportFileName(project, nextVersion),
     };
   }
 
@@ -406,6 +427,13 @@ export class ReportsService {
   // Report Generation
   // ---------------------------------------------------------------------------
 
+  /**
+   * Fast path, runs on the HTTP request: validation + template resolution
+   * only (cheap DB reads). Creates a PENDING ReportGeneration row and hands
+   * the CPU-heavy work (docx build, image collection, upload) to a
+   * background queue via processReportGeneration(), so one user's report
+   * doesn't block the event loop for everyone else generating concurrently.
+   */
   async generateReport(
     projectId: string,
     user: User,
@@ -414,7 +442,13 @@ export class ReportsService {
   ) {
     const project = await this.loadProjectForReport(projectId, user);
 
-    // Resolve template: project-pinned version, else the active version for its type
+    const pocGateBlocked = project.findings.some(
+      (f) => !f.pocSteps || f.pocSteps.length === 0 || !f.proofOfConcept,
+    );
+    if (pocGateBlocked) {
+      throw new BadRequestException('Report Generation not allowed until Steps and PoC are added.');
+    }
+
     let template = project.template;
     if (!template) {
       template = await this.prisma.reportTemplate.findFirst({
@@ -428,126 +462,196 @@ export class ReportsService {
       );
     }
 
-    const templateBuffer = await this.storage.getFile(template.filePath);
-
-    // Build field rules automatically from project + profiles (no manual form)
     const rules = this.buildFieldRules(project);
     rules.push(...this.buildCustomFieldRules(project));
+    const fieldDataSnapshot = Object.fromEntries(rules.map((r) => [r.match[0], r.value]));
 
-    // Findings: approved only, sorted by effective CVSS descending
-    const sortedFindings = project.findings
-      .map((f) => ({
-        ...f,
-        effectiveScore: f.cvssScoreOverride ?? f.vulnerability.cvssScore ?? 0,
-      }))
-      .sort((a, b) => b.effectiveScore - a.effectiveScore);
+    // Version auto-increments per project: first generation is 1.0, every
+    // subsequent generation is 1.1, 1.2, ... and never resets.
+    const version = await this.getNextReportVersion(projectId);
 
-    // Collect POC images from storage
-    const images: PocImage[] = [];
-    const findingsData: FindingData[] = [];
-    for (let index = 0; index < sortedFindings.length; index++) {
-      const f = sortedFindings[index];
-      const effectiveScore = f.cvssScoreOverride ?? f.vulnerability.cvssScore;
-
-      const pocSteps = [] as FindingData['pocSteps'];
-      for (const step of f.pocSteps || []) {
-        let imageKey: string | null = null;
-        if (step.imagePath) {
-          try {
-            const buffer = await this.storage.getFile(step.imagePath);
-            imageKey = `finding_${f.id}_step_${step.stepNo}`;
-            const ext = (step.imagePath.split('.').pop() || 'png').toLowerCase();
-            images.push({ key: imageKey, buffer, extension: ext === 'jpeg' ? 'jpg' : ext });
-          } catch (error) {
-            this.logger.warn(`POC image not found in storage: ${step.imagePath}`);
-          }
-        }
-        pocSteps.push({ stepNo: step.stepNo, description: step.description, imageKey });
-      }
-
-      findingsData.push({
-        no: index + 1,
-        title: f.vulnerability.name,
-        severity: f.cvssScoreOverride != null
-          ? this.severityFromScore(f.cvssScoreOverride)
-          : f.vulnerability.severity,
-        cvssScore: effectiveScore,
-        cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
-        description: f.vulnerability.description,
-        impact: f.vulnerability.impact,
-        remediation: f.vulnerability.remediation,
-        references: f.vulnerability.references,
-        cveId: f.vulnerability.cveId,
-        cweId: f.vulnerability.cweId,
-        affectedInstances: (f.affectedInstances || []).join('\n'),
-        authenticationType: f.authenticationType,
-        vulnerabilityDependency: f.vulnerabilityDependency,
-        reportStatus: f.reportStatus,
-        pocSteps,
-      });
-    }
-
-    this.logger.log(`Generating report for project ${projectId} using template ${template.name}`);
-    const reportBuffer = await this.docxManipulator.generateReport(
-      templateBuffer,
-      rules,
-      findingsData,
-      images,
-      this.buildContacts(project),
-    );
-
-    // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{DocVersion}_{YYYY-MM-DD}_Non-Compliant.docx
-    const fileName = this.buildReportFileName(project, template);
-    const docxName = `reports/${projectId}/${Date.now()}_${fileName}`;
-    await this.storage.uploadFile(
-      docxName,
-      reportBuffer,
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    );
-
-    // Snapshot of the auto-filled data, for audit
-    const fieldDataSnapshot = Object.fromEntries(
-      rules.map((r) => [r.match[0], r.value]),
-    );
-
-    await this.prisma.reportGeneration.create({
+    const reportGeneration = await this.prisma.reportGeneration.create({
       data: {
         projectId,
         templateId: template.id,
         generatedById: user.id,
         fieldData: fieldDataSnapshot,
-        docxPath: docxName,
-        pdfPath: null,
+        version,
+        status: ReportGenerationStatus.PENDING,
         isDraft: true,
       },
     });
 
-    await this.prisma.project.update({
-      where: { id: projectId },
-      data: {
-        reportDocxPath: docxName,
-        reportPdfPath: null,
-        generatedAt: new Date(),
-        status: ProjectStatus.COMPLETED,
-      },
-    });
-
-    await this.auditService.log({
+    await this.reportQueue.add('generate', {
+      reportGenerationId: reportGeneration.id,
       actorId: user.id,
-      action: 'REPORT_GENERATED',
-      targetType: 'PROJECT',
-      targetId: projectId,
       ipAddress,
       userAgent,
-      details: { templateId: template.id, format: 'docx', fileName },
     });
 
+    this.logger.log(`Queued report generation ${reportGeneration.id} for project ${projectId}`);
+
     return {
-      fileName,
-      docxUrl: await this.storage.getPresignedUrl(docxName, 3600),
-      isDraft: true,
-      findingsCount: findingsData.length,
+      reportId: reportGeneration.id,
+      status: ReportGenerationStatus.PENDING,
+      version,
     };
+  }
+
+  /** Poll target for the frontend while a queued generation is in progress. */
+  async getReportGenerationStatus(reportGenerationId: string, user: User) {
+    const report = await this.prisma.reportGeneration.findUnique({
+      where: { id: reportGenerationId },
+      include: { project: { select: { testerId: true } } },
+    });
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+    if (user.role === UserRole.TESTER && report.project.testerId !== user.id) {
+      throw new NotFoundException('Report not found');
+    }
+    const fileName = report.docxPath ? report.docxPath.split('/').pop()?.replace(/^\d+_/, '') : null;
+    return {
+      status: report.status,
+      version: report.version,
+      error: report.error,
+      fileName,
+      docxUrl: report.status === 'COMPLETED' && report.docxPath
+        ? await this.storage.getPresignedUrl(report.docxPath, 3600, fileName || undefined)
+        : null,
+    };
+  }
+
+  /**
+   * Heavy path, runs in the background worker: builds and uploads the actual
+   * document, then flips the ReportGeneration row to COMPLETED (or FAILED).
+   */
+  async processReportGeneration(
+    reportGenerationId: string,
+    actorId: string,
+    ipAddress: string,
+    userAgent: string,
+  ): Promise<void> {
+    const reportGeneration = await this.prisma.reportGeneration.findUnique({
+      where: { id: reportGenerationId },
+      include: { template: true },
+    });
+    if (!reportGeneration) {
+      this.logger.error(`processReportGeneration: report ${reportGenerationId} not found`);
+      return;
+    }
+
+    try {
+      // Access was already validated when this job was enqueued; ADMIN here
+      // just bypasses loadProjectForReport's per-tester ownership check.
+      const project = await this.loadProjectForReport(
+        reportGeneration.projectId,
+        { id: actorId, role: UserRole.ADMIN } as User,
+      );
+      const template = reportGeneration.template;
+
+      const templateBuffer = await this.storage.getFile(template.filePath);
+
+      const sortedFindings = project.findings
+        .map((f) => ({
+          ...f,
+          effectiveScore: f.cvssScoreOverride ?? f.vulnerability.cvssScore ?? 0,
+        }))
+        .sort((a, b) => b.effectiveScore - a.effectiveScore);
+
+      const images: PocImage[] = [];
+      const findingsData: FindingData[] = [];
+      for (let index = 0; index < sortedFindings.length; index++) {
+        const f = sortedFindings[index];
+        const effectiveScore = f.cvssScoreOverride ?? f.vulnerability.cvssScore;
+
+        const pocSteps = [] as FindingData['pocSteps'];
+        for (const step of f.pocSteps || []) {
+          let imageKey: string | null = null;
+          if (step.imagePath) {
+            try {
+              const buffer = await this.storage.getFile(step.imagePath);
+              imageKey = `finding_${f.id}_step_${step.stepNo}`;
+              const ext = (step.imagePath.split('.').pop() || 'png').toLowerCase();
+              images.push({ key: imageKey, buffer, extension: ext === 'jpeg' ? 'jpg' : ext });
+            } catch (error) {
+              this.logger.warn(`POC image not found in storage: ${step.imagePath}`);
+            }
+          }
+          pocSteps.push({ stepNo: step.stepNo, description: step.description, imageKey });
+        }
+
+        findingsData.push({
+          no: index + 1,
+          title: f.vulnerability.name,
+          severity: f.cvssScoreOverride != null
+            ? this.severityFromScore(f.cvssScoreOverride)
+            : f.vulnerability.severity,
+          cvssScore: effectiveScore,
+          cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
+          description: f.vulnerability.description,
+          impact: f.vulnerability.impact,
+          remediation: f.vulnerability.remediation,
+          references: f.vulnerability.references,
+          cveId: f.vulnerability.cveId,
+          cweId: f.vulnerability.cweId,
+          affectedInstances: (f.affectedInstances || []).join('\n'),
+          authenticationType: f.authenticationType,
+          vulnerabilityDependency: f.vulnerabilityDependency,
+          reportStatus: f.reportStatus,
+          pocSteps,
+        });
+      }
+
+      this.logger.log(`Generating report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
+      const reportBuffer = await this.docxManipulator.generateReport(
+        templateBuffer,
+        this.buildFieldRules(project).concat(this.buildCustomFieldRules(project)),
+        findingsData,
+        images,
+        this.buildContacts(project),
+      );
+
+      // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{YYYY-MM-DD}_Non-Compliant.docx
+      const fileName = this.buildReportFileName(project, reportGeneration.version, template);
+      const docxName = `reports/${project.id}/${Date.now()}_${fileName}`;
+      await this.storage.uploadFile(
+        docxName,
+        reportBuffer,
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+
+      await this.prisma.reportGeneration.update({
+        where: { id: reportGenerationId },
+        data: { status: ReportGenerationStatus.COMPLETED, docxPath: docxName },
+      });
+
+      await this.prisma.project.update({
+        where: { id: project.id },
+        data: {
+          reportDocxPath: docxName,
+          reportPdfPath: null,
+          generatedAt: new Date(),
+          status: ProjectStatus.COMPLETED,
+        },
+      });
+
+      await this.auditService.log({
+        actorId,
+        action: 'REPORT_GENERATED',
+        targetType: 'PROJECT',
+        targetId: project.id,
+        ipAddress,
+        userAgent,
+        details: { templateId: template.id, format: 'docx', fileName, version: reportGeneration.version },
+      });
+    } catch (error: any) {
+      this.logger.error(`Report generation ${reportGenerationId} failed`, error);
+      await this.prisma.reportGeneration.update({
+        where: { id: reportGenerationId },
+        data: { status: ReportGenerationStatus.FAILED, error: error?.message || 'Unknown error' },
+      });
+    }
   }
 
   async getReportHistory(projectId: string, user: User) {
@@ -570,7 +674,7 @@ export class ReportsService {
           select: { id: true, name: true, category: true, subType: true },
         },
         generatedBy: {
-          select: { id: true, username: true },
+          select: { id: true, username: true, fullName: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -578,12 +682,46 @@ export class ReportsService {
 
     // Attach presigned download URLs
     return Promise.all(
-      history.map(async (h) => ({
-        ...h,
-        fileName: h.docxPath ? h.docxPath.split('/').pop()?.replace(/^\d+_/, '') : null,
-        docxUrl: h.docxPath ? await this.storage.getPresignedUrl(h.docxPath, 3600) : null,
-      })),
+      history.map(async (h) => {
+        const fileName = h.docxPath ? h.docxPath.split('/').pop()?.replace(/^\d+_/, '') : null;
+        return {
+          ...h,
+          fileName,
+          docxUrl: h.docxPath ? await this.storage.getPresignedUrl(h.docxPath, 3600, fileName || undefined) : null,
+        };
+      }),
     );
+  }
+
+  async removeReport(id: string, user: User, ipAddress: string, userAgent: string) {
+    const report = await this.prisma.reportGeneration.findUnique({
+      where: { id },
+      include: { project: true },
+    });
+
+    if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+
+    const isOwner = user.role === UserRole.TESTER && report.project.testerId === user.id;
+    if (user.role !== UserRole.ADMIN && !isOwner) {
+      throw new ForbiddenException('Only the project owner or an Admin can delete a generated report');
+    }
+
+    if (report.docxPath) await this.storage.deleteFile(report.docxPath);
+    if (report.pdfPath) await this.storage.deleteFile(report.pdfPath);
+
+    await this.prisma.reportGeneration.delete({ where: { id } });
+
+    await this.auditService.log({
+      actorId: user.id,
+      action: 'REPORT_DELETED',
+      targetType: 'PROJECT',
+      targetId: report.projectId,
+      ipAddress,
+      userAgent,
+      details: { reportId: id },
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -682,7 +820,7 @@ export class ReportsService {
     ];
   }
 
-  private buildReportFileName(project: any, template?: any): string {
+  private buildReportFileName(project: any, version: string, template?: any): string {
     const subTypeLabel = SUB_TYPE_FILE_LABELS[(template?.subType ?? project.subType) as TemplateSubType] || 'Web';
     const safe = (s: string) =>
       (s || '')
@@ -690,8 +828,23 @@ export class ReportsService {
         .replace(/[^a-zA-Z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '') || 'NA';
     const date = new Date().toISOString().split('T')[0];
-    const docVersion = safe(project.documentVersion || '1.0');
-    return `App-Security-Test_${safe(project.clientName)}-${safe(project.name)}_${subTypeLabel}_v${docVersion}_${date}_Non-Compliant.docx`;
+    return `App-Security-Test_${safe(project.clientName)}-${safe(project.name)}_${subTypeLabel}_v${version}_${date}_Non-Compliant.docx`;
+  }
+
+  /**
+   * First generation for a project is v1.0; every subsequent generation
+   * increments the minor version (v1.1, v1.2, ...) and never resets.
+   *
+   * ponytail: count-then-create isn't atomic under truly concurrent
+   * generation for the same project — two simultaneous requests could
+   * compute the same version. Acceptable for now since report generation
+   * for one project is a rare, human-triggered action; if concurrent
+   * generation of the SAME project becomes common, wrap this in the same
+   * transaction as the ReportGeneration insert.
+   */
+  private async getNextReportVersion(projectId: string): Promise<string> {
+    const count = await this.prisma.reportGeneration.count({ where: { projectId } });
+    return `1.${count}`;
   }
 
   private formatReportDate(date: Date | string | null | undefined): string {

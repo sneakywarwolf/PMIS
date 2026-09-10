@@ -11,7 +11,6 @@ const THEME_OPTIONS = ['light', 'dark', 'auto'];
 const DENSITY_OPTIONS = ['compact', 'comfortable', 'spacious'];
 const INACTIVITY_OPTIONS = ['logout', 'warn'];
 const TIME_FORMAT_OPTIONS = ['12h', '24h'];
-const PROJECT_STATUS_OPTIONS = ['NOT_STARTED', 'IN_PROGRESS', 'AWAITING_REVIEW', 'COMPLETED'];
 
 function isPlainObject(v: any) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -100,24 +99,22 @@ function validatePatch(patch: any) {
     errors.push(`formatting.timeFormat must be one of ${TIME_FORMAT_OPTIONS.join(', ')}`);
   }
 
-  const workflowDefaults = patch.workflow?.defaults;
-  if (workflowDefaults) {
-    for (const key of ['creationStatus', 'workingStatus', 'completionStatus']) {
-      const v = workflowDefaults[key];
-      if (v !== undefined && !PROJECT_STATUS_OPTIONS.includes(v)) {
-        errors.push(`workflow.defaults.${key} must be one of ${PROJECT_STATUS_OPTIONS.join(', ')}`);
-      }
-    }
-  }
-
   const system = patch.system;
   if (system?.attachmentRetentionDays !== undefined) {
     const v = system.attachmentRetentionDays;
     if (typeof v !== 'number' || v < 1 || v > 3650) errors.push('system.attachmentRetentionDays must be a number between 1 and 3650');
   }
-  if (system?.projectArchivalDays !== undefined) {
-    const v = system.projectArchivalDays;
-    if (typeof v !== 'number' || v < 1 || v > 3650) errors.push('system.projectArchivalDays must be a number between 1 and 3650');
+  if (system?.projectRetentionDays !== undefined) {
+    const v = system.projectRetentionDays;
+    if (typeof v !== 'number' || v < 1 || v > 3650) errors.push('system.projectRetentionDays must be a number between 1 and 3650');
+  }
+  if (system?.totalStorageQuotaMb !== undefined) {
+    const v = system.totalStorageQuotaMb;
+    if (typeof v !== 'number' || v < 1) errors.push('system.totalStorageQuotaMb must be a positive number');
+  }
+  if (system?.totalDatabaseQuotaMb !== undefined) {
+    const v = system.totalDatabaseQuotaMb;
+    if (typeof v !== 'number' || v < 1) errors.push('system.totalDatabaseQuotaMb must be a positive number');
   }
 
   return errors;
@@ -190,12 +187,16 @@ export class SettingsService {
   }
 
   async getSystemHealth() {
+    const { settings } = await this.get();
+    const storageQuotaMb = settings.system.totalStorageQuotaMb;
+    const dbQuotaMb = settings.system.totalDatabaseQuotaMb;
+
     let dbStatus: 'up' | 'down' = 'down';
-    let dbSizeMb: number | null = null;
+    let dbUsedMb: number | null = null;
     try {
       const [{ size }] = await this.prisma.$queryRaw<{ size: bigint }[]>`SELECT pg_database_size(current_database()) as size`;
       dbStatus = 'up';
-      dbSizeMb = Math.round(Number(size) / (1024 * 1024));
+      dbUsedMb = Math.round(Number(size) / (1024 * 1024));
     } catch {
       dbStatus = 'down';
     }
@@ -208,6 +209,14 @@ export class SettingsService {
     }
 
     const storage = await this.storageService.healthCheck();
+    let storageUsedMb: number | null = null;
+    if (storage.reachable) {
+      try {
+        storageUsedMb = Math.round((await this.storageService.getUsedBytes()) / (1024 * 1024));
+      } catch {
+        storageUsedMb = null;
+      }
+    }
 
     return {
       backend: {
@@ -219,7 +228,9 @@ export class SettingsService {
       database: {
         status: dbStatus,
         port: 5432,
-        sizeMb: dbSizeMb,
+        totalMb: dbQuotaMb,
+        usedMb: dbUsedMb,
+        availableMb: dbUsedMb != null ? Math.max(0, dbQuotaMb - dbUsedMb) : null,
       },
       redis: {
         status: redisStatus,
@@ -230,6 +241,9 @@ export class SettingsService {
         bucket: storage.bucket,
         endpoint: storage.endpoint,
         port: storage.port,
+        totalMb: storageQuotaMb,
+        usedMb: storageUsedMb,
+        availableMb: storageUsedMb != null ? Math.max(0, storageQuotaMb - storageUsedMb) : null,
       },
     };
   }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FolderKanban, Plus, Search, FileText, Edit, AlertTriangle, X, Loader2, CheckCircle, Eye, LayoutGrid, Table2 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
@@ -45,10 +45,11 @@ interface Project {
   category?: string;
   subType?: string;
   template?: { id: string; name: string } | null;
-  tester?: { id: string; username: string; email: string };
-  tl?: { id: string; username: string; email: string };
+  tester?: { id: string; username: string; email: string; fullName?: string | null };
+  tl?: { id: string; username: string; email: string; fullName?: string | null };
   _count?: { findings: number };
   isDraft?: boolean;
+  startDateChangedAt?: string | null;
 }
 
 export default function ProjectsPage() {
@@ -62,11 +63,13 @@ export default function ProjectsPage() {
 function ProjectsPageContent() {
   const toast = useToast();
   const { user } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '');
+  const [tlFilter, setTlFilter] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [editProject, setEditProject] = useState<Project | null>(null);
   const [generatingReport, setGeneratingReport] = useState<string | null>(null);
@@ -90,9 +93,23 @@ function ProjectsPageContent() {
   const handleGenerateReport = async (projectId: string) => {
     setGeneratingReport(projectId);
     try {
-      const response = await api.post('/reports/generate', { projectId });
-      setReportResult(response.data);
-      toast('Report generated successfully');
+      // Generation runs in a background queue so it doesn't block other
+      // users generating reports at the same time — poll until it's done.
+      const queued = await api.post('/reports/generate', { projectId });
+      const reportId = queued.data.reportId;
+
+      let status = queued.data.status;
+      while (status === 'PENDING') {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const poll = await api.get(`/reports/generate/${reportId}/status`);
+        status = poll.data.status;
+        if (status === 'COMPLETED') {
+          setReportResult(poll.data);
+          toast('Report generated successfully');
+        } else if (status === 'FAILED') {
+          toast(poll.data.error || 'Report generation failed', 'error');
+        }
+      }
     } catch (error: any) {
       toast(error.response?.data?.message || 'Report generation failed', 'error');
     } finally {
@@ -135,12 +152,24 @@ function ProjectsPageContent() {
     }
   };
 
+  const isAdminOrAvp = user?.role === 'ADMIN' || user?.role === 'AVP';
+  const tlOptions = isAdminOrAvp
+    ? Array.from(
+        new Map(
+          projects
+            .filter((p) => p.tl)
+            .map((p) => [p.tl!.id, { id: p.tl!.id, label: p.tl!.fullName || p.tl!.username }]),
+        ).values(),
+      ).sort((a, b) => a.label.localeCompare(b.label))
+    : [];
+
   const filteredProjects = projects.filter(p => {
     const matchesSearch = !search ||
       p.name.toLowerCase().includes(search.toLowerCase()) ||
       p.clientName.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = !statusFilter || p.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesTl = !tlFilter || p.tl?.id === tlFilter;
+    return matchesSearch && matchesStatus && matchesTl;
   });
 
   if (loading) {
@@ -190,6 +219,18 @@ function ProjectsPageContent() {
           <option value="AWAITING_REVIEW">Awaiting Review</option>
           <option value="COMPLETED">Completed</option>
         </select>
+        {isAdminOrAvp && (
+          <select
+            value={tlFilter}
+            onChange={(e) => setTlFilter(e.target.value)}
+            className="px-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 transition-all"
+          >
+            <option value="">All TLs</option>
+            {tlOptions.map((tl) => (
+              <option key={tl.id} value={tl.id}>{tl.label}</option>
+            ))}
+          </select>
+        )}
         <div className="flex items-center bg-gray-800/50 border border-gray-700 rounded-lg overflow-hidden">
           <button
             onClick={() => setViewMode('grid')}
@@ -221,7 +262,7 @@ function ProjectsPageContent() {
               <CheckCircle className="w-5 h-5 text-emerald-400" />
               <div className="flex-1">
                 <p className="text-sm text-white font-medium">Report Generated!</p>
-                <p className="text-xs text-gray-400">{reportResult.findingsCount} findings included • {reportResult.fileName}</p>
+                <p className="text-xs text-gray-400">{reportResult.fileName} (v{reportResult.version})</p>
               </div>
               <a
                 href={reportResult.docxUrl}
@@ -251,7 +292,8 @@ function ProjectsPageContent() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
-              className="glass-card rounded-xl p-5 hover:border-emerald-500/30 transition-all"
+              onClick={() => router.push(`/dashboard/projects/${project.id}`)}
+              className="glass-card rounded-xl p-5 hover:border-emerald-500/30 transition-all cursor-pointer"
             >
               <div className="flex items-start justify-between mb-3">
                 <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
@@ -266,11 +308,11 @@ function ProjectsPageContent() {
               <p className="text-sm text-gray-400 mb-3">{project.clientName}</p>
               
               <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
-                <span>Tester: {project.tester?.username}</span>
+                <span>Tester: {project.tester?.fullName || project.tester?.username}</span>
                 <span>{project._count?.findings || 0} findings</span>
               </div>
 
-              <div className="space-y-2 mb-3">
+              <div className="space-y-2 mb-3" onClick={(e) => e.stopPropagation()}>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => setEditProject(project)}
@@ -311,8 +353,11 @@ function ProjectsPageContent() {
               </div>
               
               <div className="pt-3 border-t border-gray-700/50 flex items-center justify-between text-xs">
-                <span className="text-gray-400">
+                <span className="text-gray-400 flex items-center gap-1">
                   {new Date(project.startDate).toLocaleDateString()}
+                  {user?.role !== 'TESTER' && project.startDateChangedAt && (
+                    <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
+                  )}
                 </span>
                 {project.isDraft !== false && (
                   <span className="text-amber-400">Draft</span>
@@ -346,7 +391,8 @@ function ProjectsPageContent() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: i * 0.02 }}
-                    className="border-b border-gray-700/50 hover:bg-white/5 transition-colors"
+                    onClick={() => router.push(`/dashboard/projects/${project.id}`)}
+                    className="border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer"
                   >
                     <td className="px-4 py-3">
                       <p className="text-sm font-medium text-white">{project.name}</p>
@@ -357,10 +403,17 @@ function ProjectsPageContent() {
                         {statusLabels[project.status]}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-400">{project.tester?.username}</td>
+                    <td className="px-4 py-3 text-sm text-gray-400">{project.tester?.fullName || project.tester?.username}</td>
                     <td className="px-4 py-3 text-sm text-white">{project._count?.findings || 0}</td>
-                    <td className="px-4 py-3 text-sm text-gray-400">{new Date(project.startDate).toLocaleDateString()}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-sm text-gray-400">
+                      <span className="flex items-center gap-1">
+                        {new Date(project.startDate).toLocaleDateString()}
+                        {user?.role !== 'TESTER' && project.startDateChangedAt && (
+                          <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => setEditProject(project)}
@@ -432,12 +485,15 @@ function ProjectsPageContent() {
 
 function EditProjectModal({ project, onClose, onSaved }: { project: Project; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const canEditStartDate = user?.id === project.tester?.id;
   const [submitting, setSubmitting] = useState(false);
   const [templates, setTemplates] = useState<any[]>([]);
   const [form, setForm] = useState({
     name: project.name,
     clientName: project.clientName,
     scope: project.scope || '',
+    startDate: new Date(project.startDate).toISOString().split('T')[0],
     endDate: project.endDate ? new Date(project.endDate).toISOString().split('T')[0] : '',
     appVersion: project.appVersion || '',
     location: project.location || '',
@@ -474,6 +530,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
     setSubmitting(true);
     try {
       const payload: any = { ...form };
+      if (!canEditStartDate) delete payload.startDate;
       if (!payload.templateId) payload.templateId = undefined;
       await api.put(`/projects/${project.id}`, payload);
       onSaved();
@@ -546,6 +603,12 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
                 ))}
               </select>
             </div>
+            {canEditStartDate && (
+              <div>
+                <label className={labelCls}>Start Date</label>
+                <input type="date" value={form.startDate} onChange={(e) => set('startDate', e.target.value)} className={inputCls} />
+              </div>
+            )}
             <div>
               <label className={labelCls}>End Date</label>
               <input type="date" value={form.endDate} onChange={(e) => set('endDate', e.target.value)} className={inputCls} />

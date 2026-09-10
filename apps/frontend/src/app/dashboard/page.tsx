@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
   Activity, FolderOpen, ShieldCheck, Users, TrendingUp,
-  Clock, AlertCircle, CheckCircle, FileText, ShieldAlert,
+  Clock, AlertCircle, CheckCircle, FileText, ShieldAlert, HelpCircle,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
@@ -32,6 +32,12 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<any>(null);
   const [vulnTrends, setVulnTrends] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [quizToday, setQuizToday] = useState<any>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    api.get('/quiz/today').then((res) => setQuizToday(res.data)).catch(() => setQuizToday(null));
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -119,6 +125,22 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <DashboardGreetingHero name={user?.fullName || user?.username || 'there'} pageTitle={pageTitle} />
+
+      {quizToday && (
+        <Link
+          href="/dashboard/quiz"
+          className="glass-card flex items-center gap-3 px-4 py-3 rounded-xl hover:border-cyan-500/30 transition-all"
+        >
+          <HelpCircle className="w-5 h-5 text-cyan-400 shrink-0" />
+          <p className="text-sm text-gray-200">
+            {'correctIndex' in quizToday
+              ? "Today's Quiz answer has been revealed — see how you did."
+              : quizToday.alreadyAnswered
+              ? "You've answered today's Quiz — check back after the reveal."
+              : 'New Question of the Day is live — answer it now.'}
+          </p>
+        </Link>
+      )}
 
       <div className="flex items-center justify-between">
         <p className="text-gray-400 text-sm">Overview of your VAPT operations</p>

@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useState, useRef } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw, Clock } from 'lucide-react';
@@ -37,6 +37,7 @@ export default function VulnerabilitiesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [severity, setSeverity] = useState('');
+  const [category, setCategory] = useState('');
   const [sort, setSort] = useState<SortConfig>({ field: 'cvssScore', order: 'desc' });
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -46,6 +47,39 @@ export default function VulnerabilitiesPage() {
   const confirmDialog = useConfirm();
   const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'changeTracker'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Where the row was clicked (viewport coords — fixed positioning ignores
+  // page scroll, so this never shifts the scroll position) and the
+  // clamped, fully-on-screen position the dialog settles into.
+  const [clickOrigin, setClickOrigin] = useState<{ x: number; y: number } | null>(null);
+  const [modalPos, setModalPos] = useState<{ left: number; top: number } | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  const openVulnDetail = (id: string, e: { clientX: number; clientY: number }) => {
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setClickOrigin({ x: e.clientX, y: e.clientY });
+    setModalPos(null);
+    setExpandedId(id);
+  };
+
+  useLayoutEffect(() => {
+    if (!expandedId || !clickOrigin || !modalRef.current) return;
+    // offsetWidth/Height (not getBoundingClientRect) — the entrance animation's
+    // initial scale is already applied to the element at this point, and
+    // getBoundingClientRect reports the post-transform (shrunk) box.
+    const width = modalRef.current.offsetWidth;
+    const height = modalRef.current.offsetHeight;
+    const margin = 16;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = clickOrigin.x - width / 2;
+    let top = clickOrigin.y - height / 2;
+    left = Math.min(Math.max(left, margin), Math.max(margin, vw - width - margin));
+    top = Math.min(Math.max(top, margin), Math.max(margin, vh - height - margin));
+    setModalPos({ left, top });
+  }, [expandedId, clickOrigin]);
   const [severityColors, setSeverityColors] = useState<Record<string, string>>(DEFAULT_SEVERITY_COLORS);
 
   // Bulk upload state
@@ -53,6 +87,7 @@ export default function VulnerabilitiesPage() {
   const [showBulkError, setShowBulkError] = useState(false);
   const [bulkErrorMsg, setBulkErrorMsg] = useState('');
   const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkCategory, setBulkCategory] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingFileRef = useRef<string | null>(null);
 
@@ -62,7 +97,7 @@ export default function VulnerabilitiesPage() {
   useEffect(() => {
     fetchVulnerabilities();
     if (isAdminOrTL) fetchPending();
-  }, [search, severity, sort, activeTab]);
+  }, [search, severity, category, sort, activeTab]);
 
   useEffect(() => {
     api.get('/settings').then((res) => {
@@ -77,6 +112,7 @@ export default function VulnerabilitiesPage() {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (severity) params.set('severity', severity);
+      if (category) params.set('category', category);
       params.set('sortBy', sort.field);
       params.set('sortOrder', sort.order);
       const response = await api.get(`/vulnerabilities?${params.toString()}`);
@@ -191,13 +227,14 @@ export default function VulnerabilitiesPage() {
   };
 
   const confirmBulkUpload = async () => {
-    if (!pendingFileRef.current) return;
+    if (!pendingFileRef.current || !bulkCategory) return;
     setBulkUploading(true);
     try {
-      const response = await api.post('/vulnerabilities/bulk-upload', { csv: pendingFileRef.current });
+      const response = await api.post('/vulnerabilities/bulk-upload', { csv: pendingFileRef.current, category: bulkCategory });
       toast(response.data.message || `Successfully uploaded ${response.data.count} vulnerabilities.`);
       setShowBulkConfirm(false);
       pendingFileRef.current = null;
+      setBulkCategory('');
       fetchVulnerabilities();
     } catch (error: any) {
       const msg = error.response?.data?.message || 'Upload failed';
@@ -223,7 +260,10 @@ export default function VulnerabilitiesPage() {
     return sort.order === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-400" /> : <ArrowDown className="w-3 h-3 text-emerald-400" />;
   };
 
-  const displayVulns = activeTab === 'pending' ? pendingVulns : vulnerabilities;
+  // Admin/AVP/TL fetch every vulnerability including soft-deleted ones (isActive:
+  // false) — needed elsewhere (e.g. history), but the Total list/count must only
+  // ever show live vulnerabilities.
+  const displayVulns = activeTab === 'pending' ? pendingVulns : vulnerabilities.filter((v) => v.isActive);
 
   if (loading && displayVulns.length === 0) {
     return (
@@ -292,7 +332,7 @@ export default function VulnerabilitiesPage() {
               activeTab === 'all' ? 'bg-emerald-600 text-white' : 'bg-gray-800/50 text-gray-400 hover:text-white'
             }`}
           >
-            All ({vulnerabilities.length})
+            Total ({vulnerabilities.filter((v) => v.isActive).length})
           </button>
           <button
             onClick={() => setActiveTab('pending')}
@@ -343,6 +383,12 @@ export default function VulnerabilitiesPage() {
           <option value="Low">Low</option>
           <option value="Info">Info</option>
         </select>
+        <select value={category} onChange={(e) => setCategory(e.target.value)}
+          className="px-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 transition-all">
+          <option value="">All Categories</option>
+          <option value="APPLICATION_API">Application/API</option>
+          <option value="NETWORK">Network</option>
+        </select>
       </div>
 
       {/* Table */}
@@ -360,6 +406,7 @@ export default function VulnerabilitiesPage() {
                 <th className="px-4 py-3 text-sm font-medium text-gray-400 cursor-pointer hover:text-white" onClick={() => handleSort('cvssScore')}>
                   <div className="flex items-center gap-1">CVSS <SortIcon field="cvssScore" /></div>
                 </th>
+                <th className="px-4 py-3 text-sm font-medium text-gray-400">Category</th>
                 <th className="px-4 py-3 text-sm font-medium text-gray-400">CVE / CWE</th>
                 {activeTab === 'pending' && (
                   <th className="px-4 py-3 text-sm font-medium text-gray-400">Requested By</th>
@@ -374,7 +421,7 @@ export default function VulnerabilitiesPage() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.02 }}
-                  onClick={() => setExpandedId(expandedId === vuln.id ? null : vuln.id)}
+                  onClick={(e: React.MouseEvent) => openVulnDetail(vuln.id, e)}
                   className={`border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer ${
                     expandedId === vuln.id ? 'bg-emerald-500/5' : ''
                   }`}
@@ -391,6 +438,11 @@ export default function VulnerabilitiesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-white">{vuln.cvssScore ?? '-'}</td>
+                  <td className="px-4 py-3">
+                    <span className="px-2 py-0.5 rounded-full text-xs font-medium border border-gray-600 text-gray-300">
+                      {vuln.category === 'NETWORK' ? 'Network' : 'Application/API'}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-xs text-gray-400">
                     {vuln.cveId && <span className="text-cyan-400">{vuln.cveId}</span>}
                     {vuln.cweId && <span className="text-violet-400 ml-2">{vuln.cweId}</span>}
@@ -463,29 +515,52 @@ export default function VulnerabilitiesPage() {
       </>
       )}
 
-      {/* Detail side drawer — overlays the page without navigating away, so
-          table filters/sort/scroll position stay exactly as they were. */}
+      {/* Detail modal — overlays the page without navigating away, so
+          table filters/sort/scroll position stay exactly as they were.
+          Portaled to document.body: the dashboard layout's page-transition
+          wrapper animates a transform, which makes it the containing block
+          for any position:fixed descendant and would break the click-anchored
+          positioning below. */}
+      {typeof document !== 'undefined' && createPortal(
       <AnimatePresence>
         {expandedId && (() => {
           const vuln = displayVulns.find((v) => v.id === expandedId);
           if (!vuln) return null;
+          // Scale in from wherever the click landed inside the (clamped) dialog
+          // box, so the dialog visibly grows out of the clicked row.
+          const origin = clickOrigin && modalPos
+            ? `${clickOrigin.x - modalPos.left}px ${clickOrigin.y - modalPos.top}px`
+            : '50% 50%';
           return (
             <Fragment key="drawer">
+              {/* Sibling of the dialog, not an ancestor: backdrop-blur establishes a
+                  new containing block for fixed-position descendants, which would
+                  make the dialog's top/left resolve relative to this div instead
+                  of the viewport. */}
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/60 z-40"
+                className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
                 onClick={() => setExpandedId(null)}
               />
               <motion.div
-                initial={{ x: '100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '100%' }}
+                ref={modalRef}
+                initial={{ opacity: 0, scale: 0.4 }}
+                animate={{ opacity: modalPos ? 1 : 0, scale: modalPos ? 1 : 0.4 }}
+                exit={{ opacity: 0, scale: 0.4 }}
                 transition={{ type: 'spring', stiffness: 320, damping: 34 }}
-                className="fixed right-0 top-0 h-full w-full max-w-lg bg-gray-900 border-l border-gray-700 shadow-2xl z-50 overflow-y-auto"
+                onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                style={{
+                  position: 'fixed',
+                  left: modalPos ? modalPos.left : (clickOrigin?.x ?? 0),
+                  top: modalPos ? modalPos.top : (clickOrigin?.y ?? 0),
+                  transformOrigin: origin,
+                  visibility: modalPos ? 'visible' : 'hidden',
+                }}
+                className="bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl z-50 w-[calc(100vw-2rem)] max-w-[585px] max-h-[85vh] overflow-y-auto"
               >
-                <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-gray-700 px-6 py-4 flex items-center justify-between">
+                <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-gray-700 rounded-t-2xl px-6 py-4 flex items-center justify-between">
                   <div>
                     <p className="text-xs text-gray-500">Vulnerability Details</p>
                     <h3 className="text-lg font-semibold text-white">{vuln.name}</h3>
@@ -541,6 +616,10 @@ export default function VulnerabilitiesPage() {
                       </div>
                     )}
                     <div>
+                      <p className="text-xs text-gray-500 mb-1">Category</p>
+                      <p className="text-gray-300">{vuln.category === 'NETWORK' ? 'Network' : 'Application/API'}</p>
+                    </div>
+                    <div>
                       <p className="text-xs text-gray-500 mb-1">Source</p>
                       <p className="text-gray-300">{vuln.source || 'internal'}</p>
                     </div>
@@ -561,7 +640,9 @@ export default function VulnerabilitiesPage() {
             </Fragment>
           );
         })()}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body
+      )}
 
       {/* Add Modal */}
       {showAddModal && (
@@ -597,19 +678,31 @@ export default function VulnerabilitiesPage() {
                 </div>
                 <h2 className="text-lg font-semibold text-white">Replace Vulnerability Database?</h2>
               </div>
-              <p className="text-gray-400 text-sm mb-6">
-                This action will <span className="text-red-400 font-medium">permanently replace</span> the entire vulnerability database with the uploaded CSV file. All existing vulnerabilities will be deactivated and the new data will take their place. This action cannot be undone.
+              <p className="text-gray-400 text-sm mb-4">
+                This action will <span className="text-red-400 font-medium">permanently replace</span> the existing vulnerabilities in the category you select below with the uploaded CSV file. Vulnerabilities in the other category are not affected. This action cannot be undone.
               </p>
+              <div className="mb-6">
+                <label className="block text-xs text-gray-400 mb-1">Category *</label>
+                <select
+                  value={bulkCategory}
+                  onChange={(e) => setBulkCategory(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white"
+                >
+                  <option value="">Select category…</option>
+                  <option value="APPLICATION_API">Application/API</option>
+                  <option value="NETWORK">Network</option>
+                </select>
+              </div>
               <div className="flex justify-end gap-3">
                 <button
-                  onClick={() => { setShowBulkConfirm(false); pendingFileRef.current = null; }}
+                  onClick={() => { setShowBulkConfirm(false); pendingFileRef.current = null; setBulkCategory(''); }}
                   className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmBulkUpload}
-                  disabled={bulkUploading}
+                  disabled={bulkUploading || !bulkCategory}
                   className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm disabled:opacity-50"
                 >
                   {bulkUploading ? 'Uploading...' : 'Yes, Replace Database'}
@@ -746,6 +839,7 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
     impact: vuln?.impact || '',
     remediation: vuln?.remediation || '',
     references: vuln?.references || '',
+    category: vuln?.category || 'APPLICATION_API',
   });
 
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
@@ -817,6 +911,13 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
             <div>
               <label className={labelCls}>Name *</label>
               <input type="text" required value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Category *</label>
+              <select value={form.category} onChange={(e) => set('category', e.target.value)} className={inputCls}>
+                <option value="APPLICATION_API">Application/API</option>
+                <option value="NETWORK">Network</option>
+              </select>
             </div>
             <div>
               <label className={labelCls}>Severity *</label>

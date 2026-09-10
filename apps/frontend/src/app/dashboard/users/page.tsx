@@ -6,6 +6,7 @@ import { Users, Plus, Search, UserPlus, Key, Pencil, Trash2, RefreshCw, X, Arrow
 import { api, useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { useConfirm } from '@/components/confirm-provider';
+import { useToast } from '@/components/toast-provider';
 
 interface TeamLead {
   id: string;
@@ -17,6 +18,7 @@ export default function UsersPage() {
   const { user } = useAuth();
   const { roleAccentColors } = useBranding();
   const confirmDialog = useConfirm();
+  const showToast = useToast();
   const [users, setUsers] = useState<any[]>([]);
   const [teamLeads, setTeamLeads] = useState<TeamLead[]>([]);
   const [managers, setManagers] = useState<TeamLead[]>([]);
@@ -108,13 +110,20 @@ export default function UsersPage() {
   };
 
   const handleDeactivate = async (userId: string) => {
-    const ok = await confirmDialog({ title: 'Deactivate user?', message: 'They will no longer be able to log in.', confirmLabel: 'Deactivate', danger: true });
+    const ok = await confirmDialog({
+      title: 'Deactivate user?',
+      message: 'They will no longer be able to log in. This will also permanently delete all of their projects, along with the generated reports, issue logs, and PoC attachments for those projects.',
+      confirmLabel: 'Deactivate',
+      danger: true,
+    });
     if (!ok) return;
     try {
-      await api.delete(`/users/${userId}`);
+      const res = await api.delete(`/users/${userId}`);
+      const count = res.data?.projectsDeleted ?? 0;
+      showToast(count > 0 ? `User deactivated. ${count} project(s) permanently deleted.` : 'User deactivated.', 'success');
       fetchUsers();
-    } catch (error) {
-      console.error('Failed to deactivate user:', error);
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to deactivate user', 'error');
     }
   };
 

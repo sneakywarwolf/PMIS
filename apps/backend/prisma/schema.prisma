@@ -28,6 +28,17 @@ enum FindingStatus {
   REJECTED
 }
 
+enum ReportGenerationStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum VulnerabilityCategory {
+  APPLICATION_API
+  NETWORK
+}
+
 enum VulnerabilityStatus {
   PENDING
   APPROVED
@@ -50,6 +61,9 @@ enum AuditAction {
   PROJECT_APPROVED
   PROJECT_REJECTED
   REPORT_GENERATED
+  REPORT_DELETED
+  PROJECT_RETENTION_DELETED
+  ATTACHMENT_RETENTION_DELETED
   TEMPLATE_UPLOADED
   TEMPLATE_ACTIVATED
   TEMPLATE_DEACTIVATED
@@ -61,6 +75,9 @@ enum AuditAction {
   VULNERABILITY_DELETED
   SETTINGS_UPDATED
   ADMIN_OVERRIDE
+  QUIZ_QUESTION_CREATED
+  QUIZ_QUESTION_UPDATED
+  QUIZ_QUESTION_DELETED
 }
 
 enum ComplianceType {
@@ -99,6 +116,8 @@ enum NotificationType {
   VULNERABILITY_APPROVED
   VULNERABILITY_REJECTED
   VULNERABILITY_EDITED
+  QUIZ_QUESTION_LIVE
+  QUIZ_ANSWER_REVEALED
 }
 
 model User {
@@ -140,6 +159,9 @@ model User {
   vulnRequests     Vulnerability[] @relation("VulnRequester")
   vulnReviews      Vulnerability[] @relation("VulnReviewer")
   notifications    Notification[]
+  quizQuestions    QuizQuestion[]
+  quizAttempts     QuizAttempt[]
+  quizStats        QuizUserStats?
 
   @@index([assignedTlId])
   @@index([role])
@@ -153,6 +175,7 @@ model Project {
   clientName  String        @map("client_name")
   scope       String
   startDate   DateTime      @map("start_date")
+  startDateChangedAt DateTime? @map("start_date_changed_at")
   endDate     DateTime?     @map("end_date")
   status      ProjectStatus @default(NOT_STARTED)
   complianceStatus String?   @default("In-Progress") @map("compliance_status")
@@ -268,6 +291,9 @@ model ReportGeneration {
   generatedBy   User      @relation(fields: [generatedById], references: [id])
 
   fieldData     Json      @map("field_data")
+  version       String    @default("1.0")
+  status        ReportGenerationStatus @default(PENDING)
+  error         String?
 
   docxPath      String?   @map("docx_path")
   pdfPath       String?   @map("pdf_path")
@@ -295,6 +321,7 @@ model Vulnerability {
   cveId       String?  @map("cve_id")
   cweId       String?  @map("cwe_id")
   source      String   @default("internal")
+  category    VulnerabilityCategory @default(APPLICATION_API)
 
   status      VulnerabilityStatus @default(APPROVED) @map("status")
   isActive    Boolean  @default(true) @map("is_active")
@@ -423,4 +450,64 @@ model AppSettings {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("app_settings")
+}
+
+enum QuizStatus {
+  SCHEDULED
+  ACTIVE
+  REVEALED
+}
+
+enum QuizBadge {
+  FIRST_CORRECT
+  STREAK_5
+  STREAK_10
+  STREAK_30
+  ANSWERED_50
+  ANSWERED_100
+  PERFECT_WEEK
+}
+
+model QuizQuestion {
+  id           String        @id @default(cuid())
+  question     String
+  options      String[]
+  correctIndex Int
+  explanation  String
+  scheduledFor DateTime
+  status       QuizStatus    @default(SCHEDULED)
+  revealedAt   DateTime?
+  createdById  String        @map("created_by_id")
+  createdBy    User          @relation(fields: [createdById], references: [id])
+  attempts     QuizAttempt[]
+  createdAt    DateTime      @default(now())
+
+  @@map("quiz_questions")
+}
+
+model QuizAttempt {
+  id             String       @id @default(cuid())
+  questionId     String       @map("question_id")
+  question       QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userId         String       @map("user_id")
+  user           User         @relation(fields: [userId], references: [id])
+  selectedOption Int
+  isCorrect      Boolean
+  pointsAwarded  Int          @default(0)
+  answeredAt     DateTime     @default(now())
+
+  @@unique([questionId, userId])
+  @@map("quiz_attempts")
+}
+
+model QuizUserStats {
+  userId         String      @id @map("user_id")
+  user           User        @relation(fields: [userId], references: [id])
+  totalPoints    Int         @default(0)
+  currentStreak  Int         @default(0)
+  bestStreak     Int         @default(0)
+  lastAnsweredOn DateTime?
+  badges         QuizBadge[]
+
+  @@map("quiz_user_stats")
 }
