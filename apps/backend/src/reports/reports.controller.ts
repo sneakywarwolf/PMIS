@@ -76,12 +76,19 @@ export class ReportsController {
 
   @Put('templates/fields/:fieldId')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Edit a template field label/category/description' })
+  @ApiOperation({ summary: 'Edit a template field label/category/description/parameter mapping' })
   async updateTemplateField(
     @Param('fieldId') fieldId: string,
-    @Body() body: { name?: string; category?: string; description?: string },
+    @Body() body: { name?: string; category?: string; description?: string; mappedParameter?: string | null },
   ) {
     return this.reportsService.updateTemplateField(fieldId, body);
+  }
+
+  @Get('templates/parameters')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'List canonical application parameters a template field can be mapped to' })
+  getTemplateParameters() {
+    return this.reportsService.getTemplateParameters();
   }
 
   @Get('templates/:id/fields')

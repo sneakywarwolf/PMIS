@@ -619,7 +619,7 @@ export class DocxManipulatorService {
     if (!valueCell) return;
 
     const cvssText = finding.cvssScore != null
-      ? `${finding.cvssScore}${finding.cvssVector ? ` / ${finding.cvssVector}` : ''}`
+      ? `${finding.cvssScore}${finding.cvssVector ? ` | ${finding.cvssVector}` : ''}`
       : 'N/A';
     const cveCwe = [finding.cveId, finding.cweId].filter(Boolean).join(' / ') || 'N/A';
 

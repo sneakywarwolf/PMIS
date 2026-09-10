@@ -270,6 +270,9 @@ model TemplateField {
   isRepeatable  Boolean   @default(false) @map("is_repeatable")
   isCustom      Boolean   @default(false) @map("is_custom")
   sortOrder     Int       @default(0) @map("sort_order")
+  /// Admin-selected canonical application parameter key this field maps to
+  /// (e.g. "project.startDate"). Null = fall back to automatic fuzzy matching.
+  mappedParameter String? @map("mapped_parameter")
 
   createdAt     DateTime  @default(now()) @map("created_at")
 

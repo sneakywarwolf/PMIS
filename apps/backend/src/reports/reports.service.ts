@@ -11,6 +11,7 @@ import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, Repor
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
+import { CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, resolveTemplateParameter } from './template-parameters';
 
 const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   WEB: 'Web',
@@ -281,11 +282,14 @@ export class ReportsService {
 
   async updateTemplateField(
     fieldId: string,
-    data: { name?: string; category?: string; description?: string },
+    data: { name?: string; category?: string; description?: string; mappedParameter?: string | null },
   ) {
     const field = await this.prisma.templateField.findUnique({ where: { id: fieldId } });
     if (!field) {
       throw new NotFoundException('Field not found');
+    }
+    if (data.mappedParameter && !CANONICAL_PARAMETER_KEYS.has(data.mappedParameter)) {
+      throw new BadRequestException(`Unknown application parameter: ${data.mappedParameter}`);
     }
 
     return this.prisma.templateField.update({
@@ -294,8 +298,14 @@ export class ReportsService {
         ...(data.name ? { name: data.name } : {}),
         ...(data.category ? { category: data.category as any } : {}),
         ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.mappedParameter !== undefined ? { mappedParameter: data.mappedParameter } : {}),
       },
     });
+  }
+
+  /** Canonical application parameters the admin can map a template field to. */
+  getTemplateParameters() {
+    return CANONICAL_TEMPLATE_PARAMETERS;
   }
 
   async activateTemplate(id: string, adminId: string, ipAddress: string, userAgent: string) {
@@ -535,7 +545,7 @@ export class ReportsService {
   ): Promise<void> {
     const reportGeneration = await this.prisma.reportGeneration.findUnique({
       where: { id: reportGenerationId },
-      include: { template: true },
+      include: { template: { include: { fields: true } } },
     });
     if (!reportGeneration) {
       this.logger.error(`processReportGeneration: report ${reportGenerationId} not found`);
@@ -609,7 +619,9 @@ export class ReportsService {
       this.logger.log(`Generating report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
       const reportBuffer = await this.docxManipulator.generateReport(
         templateBuffer,
-        this.buildFieldRules(project).concat(this.buildCustomFieldRules(project)),
+        this.buildMappedFieldRules(template, project)
+          .concat(this.buildFieldRules(project))
+          .concat(this.buildCustomFieldRules(project)),
         findingsData,
         images,
         this.buildContacts(project),
@@ -785,6 +797,23 @@ export class ReportsService {
     return Object.entries(values)
       .filter(([, value]) => value != null)
       .map(([match, value]) => ({ match: [match], value: String(value) }));
+  }
+
+  /**
+   * Admin-set per-field mappings take priority over the generic fuzzy
+   * matching in buildFieldRules() — each ties one specific template
+   * placeholder to one specific application value, so two placeholders that
+   * happen to fuzzy-match the same generic rule can still resolve
+   * independently once an admin has mapped them.
+   */
+  private buildMappedFieldRules(template: any, project: any): FieldRule[] {
+    const fields = (template?.fields || []) as { normalizedName: string; mappedParameter: string | null }[];
+    return fields
+      .filter((f) => !!f.mappedParameter)
+      .map((f) => ({
+        match: [f.normalizedName],
+        value: resolveTemplateParameter(f.mappedParameter as string, project, (d) => this.formatReportDate(d)),
+      }));
   }
 
   private buildFieldRules(project: any): FieldRule[] {

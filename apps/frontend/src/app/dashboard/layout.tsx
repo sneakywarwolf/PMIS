@@ -21,6 +21,7 @@ import {
   ChevronDown,
   HelpCircle,
   Clock,
+  FileCog,
 } from 'lucide-react';
 import { useAuth, api } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
@@ -52,6 +53,7 @@ const navItems: NavItem[] = [
   { label: 'Vulnerabilities', href: '/dashboard/vulnerabilities', icon: ShieldAlert, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
   { label: 'Quiz', href: '/dashboard/quiz', icon: HelpCircle, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
   { label: 'Retention', href: '/dashboard/retention', icon: Clock, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
+  { label: 'Report Templates', href: '/dashboard/reports/templates', icon: FileCog, roles: ['ADMIN'] },
   { label: 'Users', href: '/dashboard/users', icon: Users, roles: ['ADMIN'] },
   { label: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['ADMIN'] },
 ];
