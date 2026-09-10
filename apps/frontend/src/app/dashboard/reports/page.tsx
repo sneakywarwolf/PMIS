@@ -11,6 +11,7 @@ import {
 import { api, useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
+import { toDateInputValue } from '@/lib/datetime';
 
 const subTypeIcons: any = {
   WEB: Monitor,
@@ -717,7 +718,7 @@ function TemplateUploader() {
     name: '',
     category: 'VAPT',
     subType: 'WEB',
-    effectiveFrom: new Date().toISOString().split('T')[0],
+    effectiveFrom: toDateInputValue(new Date()),
   });
 
   const handleUpload = async (e: React.FormEvent) => {

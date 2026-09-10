@@ -27,6 +27,7 @@ import {
 import { api, useAuth } from '@/contexts/auth-context';
 import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
+import { toDateInputValue } from '@/lib/datetime';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
 
 const severityColors: Record<string, string> = {
@@ -497,7 +498,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     name: project.name,
     clientName: project.clientName,
     scope: project.scope || '',
-    endDate: project.endDate ? new Date(project.endDate).toISOString().split('T')[0] : '',
+    endDate: project.endDate ? toDateInputValue(project.endDate) : '',
     appVersion: project.appVersion || '',
     location: project.location || '',
     documentVersion: project.documentVersion || '',

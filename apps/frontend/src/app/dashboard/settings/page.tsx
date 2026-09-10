@@ -446,10 +446,6 @@ function FormattingTab({ settings, setCategory }: any) {
         </select>
       </div>
       <div>
-        <label className={labelCls}>Timezone</label>
-        <input value={f.timezone} onChange={(e) => setCategory('formatting', { timezone: e.target.value })} className={inputCls} placeholder="e.g. Asia/Kolkata" />
-      </div>
-      <div>
         <label className={labelCls}>Number Format Locale</label>
         <input value={f.numberFormat} onChange={(e) => setCategory('formatting', { numberFormat: e.target.value })} className={inputCls} placeholder="e.g. en-IN" />
       </div>
