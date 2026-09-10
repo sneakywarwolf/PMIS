@@ -260,6 +260,22 @@ export class QuizService {
     return updated;
   }
 
+  async deleteQuestion(id: string, actorId: string, ipAddress: string, userAgent: string) {
+    const question = await this.prisma.quizQuestion.findUnique({ where: { id } });
+    if (!question) {
+      throw new BadRequestException('Question not found.');
+    }
+    await this.prisma.quizQuestion.delete({ where: { id } });
+    await this.audit.log({
+      action: 'QUIZ_QUESTION_DELETED',
+      actorId,
+      targetType: 'QUIZ_QUESTION',
+      targetId: id,
+      ipAddress,
+      userAgent,
+    });
+  }
+
   async listQuestions() {
     return this.prisma.quizQuestion.findMany({ orderBy: { scheduledFor: 'desc' } });
   }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, Req } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { QuizService } from './quiz.service';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -61,6 +61,15 @@ export class QuizController {
   @Get('questions')
   listQuestions() {
     return this.quiz.listQuestions();
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Delete('questions/:id')
+  async deleteQuestion(@Param('id') id: string, @CurrentUser('id') userId: string, @Req() req: any) {
+    const ipAddress = req.ip || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    await this.quiz.deleteQuestion(id, userId, ipAddress, userAgent);
+    return { success: true };
   }
 
   @Roles(UserRole.ADMIN)

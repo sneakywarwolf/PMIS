@@ -14,6 +14,7 @@ function makePrismaMock(): any {
       updateMany: jest.fn(),
       update: jest.fn(),
       create: jest.fn(),
+      delete: jest.fn(),
       count: jest.fn(),
     },
     quizAttempt: {
@@ -298,6 +299,25 @@ describe('QuizService admin/read methods', () => {
       service.updateQuestion('q1', { question: 'x' } as any, 'admin1', '1.2.3.4', 'jest-agent'),
     ).rejects.toThrow(BadRequestException);
     expect(audit.log).not.toHaveBeenCalled();
+  });
+
+  it('deleteQuestion deletes the question regardless of status and logs an audit entry', async () => {
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE' });
+    prisma.quizQuestion.delete.mockResolvedValue({ id: 'q1' });
+
+    await service.deleteQuestion('q1', 'admin1', '1.2.3.4', 'jest-agent');
+
+    expect(prisma.quizQuestion.delete).toHaveBeenCalledWith({ where: { id: 'q1' } });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'QUIZ_QUESTION_DELETED', targetId: 'q1', actorId: 'admin1' }),
+    );
+  });
+
+  it('deleteQuestion throws when the question does not exist', async () => {
+    prisma.quizQuestion.findUnique.mockResolvedValue(null);
+
+    await expect(service.deleteQuestion('missing', 'admin1', '1.2.3.4', 'jest-agent')).rejects.toThrow(BadRequestException);
+    expect(prisma.quizQuestion.delete).not.toHaveBeenCalled();
   });
 
   it('getScorecard returns computed accuracy and stats defaults', async () => {

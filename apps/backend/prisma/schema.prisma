@@ -66,6 +66,7 @@ enum AuditAction {
   ADMIN_OVERRIDE
   QUIZ_QUESTION_CREATED
   QUIZ_QUESTION_UPDATED
+  QUIZ_QUESTION_DELETED
 }
 
 enum ComplianceType {
@@ -470,7 +471,7 @@ model QuizQuestion {
 model QuizAttempt {
   id             String       @id @default(cuid())
   questionId     String       @map("question_id")
-  question       QuizQuestion @relation(fields: [questionId], references: [id])
+  question       QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
   userId         String       @map("user_id")
   user           User         @relation(fields: [userId], references: [id])
   selectedOption Int

@@ -38,6 +38,16 @@ export default function QuizManagePage() {
     load();
   }, []);
 
+  const handleDelete = async (id: string) => {
+    try {
+      await api.delete(`/quiz/questions/${id}`);
+      showToast('Question deleted', 'success');
+      await load();
+    } catch (err: any) {
+      showToast(err?.response?.data?.message ?? 'Could not delete question', 'error');
+    }
+  };
+
   const startEdit = (q: Question) => {
     setEditingId(q.id);
     const d = new Date(q.scheduledFor);
@@ -150,6 +160,9 @@ export default function QuizManagePage() {
                   Edit
                 </button>
               )}
+              <button onClick={() => handleDelete(q.id)} className="glass px-3 py-1.5 rounded-lg text-sm text-red-400">
+                Delete
+              </button>
             </div>
           </div>
         ))}
