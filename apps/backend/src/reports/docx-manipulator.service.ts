@@ -401,6 +401,7 @@ export class DocxManipulatorService {
 
     const summaryTable = tables.find(isSummary);
     if (summaryTable) {
+      this.widenFirstColumn(summaryTable);
       this.fillSummaryTable(doc, summaryTable, findings, severityColors);
     }
 
@@ -410,6 +411,9 @@ export class DocxManipulatorService {
     const detailedTables = tables.filter(isDetailed);
     if (detailedTables.length === 0) return;
 
+    // Widen before cloning the pristine copy, so every finding's table —
+    // original template slots and clones alike — gets the wider column.
+    detailedTables.forEach((t) => this.widenFirstColumn(t));
     const pristine = detailedTables[0].cloneNode(true) as Element;
 
     // `anchor` tracks the node after which the next NEW table must be
@@ -448,6 +452,31 @@ export class DocxManipulatorService {
     run.appendChild(br);
     p.appendChild(run);
     return p;
+  }
+
+  /** Widens a table's first column (grid + every row's first cell) by ~3px. */
+  private widenFirstColumn(table: Element): void {
+    const deltaTwips = 45; // 3px at 96 DPI (1px = 15 twips)
+
+    const grid = this.getFirstChildByTagName(table, 'tblGrid');
+    const firstCol = grid?.getElementsByTagNameNS(this.W_NS, 'gridCol').item(0);
+    if (firstCol) {
+      const w = parseInt(firstCol.getAttributeNS(this.W_NS, 'w') || '0', 10);
+      firstCol.setAttributeNS(this.W_NS, 'w:w', String(w + deltaTwips));
+    }
+
+    const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
+    for (const row of rows) {
+      const firstCell = row.getElementsByTagNameNS(this.W_NS, 'tc').item(0);
+      if (!firstCell) continue;
+      const tcPr = this.getFirstChildByTagName(firstCell, 'tcPr');
+      const tcW = tcPr && this.getFirstChildByTagName(tcPr, 'tcW');
+      if (!tcW) continue;
+      const type = tcW.getAttributeNS(this.W_NS, 'type');
+      if (type && type !== 'dxa') continue; // only widen fixed-width columns
+      const w = parseInt(tcW.getAttributeNS(this.W_NS, 'w') || '0', 10);
+      tcW.setAttributeNS(this.W_NS, 'w:w', String(w + deltaTwips));
+    }
   }
 
   /** Summary of Findings: S.No | Findings | CVSS Base Score | Severity | Status */
@@ -529,7 +558,7 @@ export class DocxManipulatorService {
       for (const step of pocSteps) {
         const clone = row.cloneNode(true) as Element;
         const cells = Array.from(clone.getElementsByTagNameNS(this.W_NS, 'tc'));
-        if (cells[0]) this.replaceCellValue(cells[0], `STEP ${step.stepNo}: ${step.description}`);
+        if (cells[0]) this.setStepCellText(cells[0], step.stepNo, step.description);
         if (cells[1]) {
           const img = step.imageKey ? imageRegistry.get(step.imageKey) : undefined;
           if (img) {
@@ -883,6 +912,34 @@ export class DocxManipulatorService {
       t.textContent = text;
       run.appendChild(t);
     }
+  }
+
+  /** Renders "STEP n: description" with only the "STEP n:" label bold. */
+  private setStepCellText(cell: Element, stepNo: number, description: string): void {
+    const doc = cell.ownerDocument;
+    const para = cell.getElementsByTagNameNS(this.W_NS, 'p').item(0);
+    if (!para) return;
+
+    for (const run of Array.from(para.getElementsByTagNameNS(this.W_NS, 'r'))) {
+      para.removeChild(run);
+    }
+
+    const makeRun = (text: string, bold: boolean) => {
+      const run = doc.createElementNS(this.W_NS, 'w:r');
+      if (bold) {
+        const rPr = doc.createElementNS(this.W_NS, 'w:rPr');
+        rPr.appendChild(doc.createElementNS(this.W_NS, 'w:b'));
+        run.appendChild(rPr);
+      }
+      const t = doc.createElementNS(this.W_NS, 'w:t');
+      t.setAttribute('xml:space', 'preserve');
+      t.textContent = text;
+      run.appendChild(t);
+      return run;
+    };
+
+    para.appendChild(makeRun(`STEP ${stepNo}: `, true));
+    para.appendChild(makeRun(description, false));
   }
 
   private replaceCellValue(cell: Element, value: string): void {
