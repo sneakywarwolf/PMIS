@@ -62,6 +62,7 @@ interface Vulnerability {
   references: string;
   cveId: string | null;
   cweId: string | null;
+  category?: 'APPLICATION_API' | 'NETWORK';
 }
 
 interface PocStep {
@@ -869,6 +870,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchCategory, setSearchCategory] = useState<'BOTH' | 'APPLICATION_API' | 'NETWORK'>('BOTH');
   const [searchResults, setSearchResults] = useState<Vulnerability[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedVuln, setSelectedVuln] = useState<Vulnerability | null>(finding?.vulnerability || null);
@@ -932,7 +934,9 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
     }
     const timer = setTimeout(async () => {
       try {
-        const response = await api.get(`/vulnerabilities?search=${encodeURIComponent(searchQuery)}`);
+        const params = new URLSearchParams({ search: searchQuery });
+        if (searchCategory !== 'BOTH') params.set('category', searchCategory);
+        const response = await api.get(`/vulnerabilities?${params.toString()}`);
         setSearchResults(response.data);
         setShowDropdown(true);
       } catch (error) {
@@ -940,7 +944,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, searchCategory]);
 
   const selectVulnerability = (vuln: Vulnerability) => {
     setSelectedVuln(vuln);
@@ -1063,7 +1067,25 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                 className="space-y-4"
               >
                 <div className="relative" ref={searchRef}>
-                  <label className="block text-sm text-gray-300 mb-1">Search Vulnerability Database *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm text-gray-300">Search Vulnerability Database *</label>
+                    <div className="flex items-center gap-1 text-xs">
+                      {(['BOTH', 'APPLICATION_API', 'NETWORK'] as const).map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setSearchCategory(c)}
+                          className={`px-2 py-1 rounded-md transition-all ${
+                            searchCategory === c
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-gray-800/50 text-gray-400 border border-gray-700 hover:text-white'
+                          }`}
+                        >
+                          {c === 'BOTH' ? 'Both' : c === 'APPLICATION_API' ? 'Application/API' : 'Network'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                     <input
@@ -1085,9 +1107,14 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-white">{vuln.name}</span>
-                            <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
-                              {vuln.severity}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-1.5 py-0.5 rounded text-xs border border-gray-600 text-gray-400">
+                                {vuln.category === 'NETWORK' ? 'Network' : 'App/API'}
+                              </span>
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
+                                {vuln.severity}
+                              </span>
+                            </div>
                           </div>
                           <p className="text-xs text-gray-500 truncate">CVSS: {vuln.cvssScore ?? '-'} {vuln.cveId}</p>
                         </button>

@@ -12,7 +12,7 @@ export class VulnerabilitiesService {
     private auditService: AuditService,
   ) {}
 
-  async findAll(search?: string, severity?: string, userRole?: UserRole, sortBy?: string, sortOrder?: string) {
+  async findAll(search?: string, severity?: string, category?: string, userRole?: UserRole, sortBy?: string, sortOrder?: string) {
     const where: any = {};
 
     if (userRole !== UserRole.ADMIN && userRole !== UserRole.AVP && userRole !== UserRole.TEAM_LEAD) {
@@ -30,6 +30,12 @@ export class VulnerabilitiesService {
 
     if (severity) {
       where.severity = severity;
+    }
+
+    // Omitted (or "BOTH") searches across both categories — matches the
+    // finding-add Category filter's "Both" option.
+    if (category && category !== 'BOTH') {
+      where.category = category;
     }
 
     const orderBy: any = {};
@@ -79,8 +85,9 @@ export class VulnerabilitiesService {
     references: string;
     cveId?: string;
     cweId?: string;
+    category?: string;
   }, actorId?: string) {
-    const created = await this.prisma.vulnerability.create({ data });
+    const created = await this.prisma.vulnerability.create({ data: data as any });
     if (actorId) {
       await this.auditService.log({
         actorId,
@@ -202,13 +209,14 @@ export class VulnerabilitiesService {
     references: string;
     cveId?: string;
     cweId?: string;
+    category?: string;
   }, requestedById: string) {
     const vuln = await this.prisma.vulnerability.create({
       data: {
         ...data,
         status: VulnerabilityStatus.PENDING,
         requestedById,
-      },
+      } as any,
     });
 
     // Notify admins/TLs about the new request
@@ -373,7 +381,11 @@ export class VulnerabilitiesService {
     return `${headers}\n${sampleRow}\n`;
   }
 
-  async bulkUpload(csvContent: string, adminId: string, ipAddress: string, userAgent: string) {
+  async bulkUpload(csvContent: string, category: string, adminId: string, ipAddress: string, userAgent: string) {
+    if (category !== 'APPLICATION_API' && category !== 'NETWORK') {
+      throw new BadRequestException('category must be APPLICATION_API or NETWORK.');
+    }
+
     const lines = csvContent.trim().split(/\r?\n/);
     if (lines.length < 2) {
       throw new BadRequestException('CSV file is empty or missing data rows.');
@@ -433,6 +445,7 @@ export class VulnerabilitiesService {
         cweId: get('CWE ID') || null,
         status: VulnerabilityStatus.APPROVED,
         isActive: true,
+        category,
       });
     }
 
@@ -440,10 +453,12 @@ export class VulnerabilitiesService {
       throw new BadRequestException('No valid data rows found in CSV.');
     }
 
-    // Transaction: soft-delete all existing, insert new ones
+    // Transaction: soft-delete existing entries IN THIS CATEGORY ONLY, then
+    // insert the new ones — scoping this to `category` is what keeps an
+    // upload of one category from wiping out the other's data.
     await this.prisma.$transaction(async (tx) => {
       await tx.vulnerability.updateMany({
-        where: {},
+        where: { category: category as any },
         data: { isActive: false },
       });
       await tx.vulnerability.createMany({
@@ -458,10 +473,10 @@ export class VulnerabilitiesService {
       targetType: 'VULNERABILITY',
       ipAddress,
       userAgent,
-      details: { action: 'bulk_upload', count: rows.length },
+      details: { action: 'bulk_upload', count: rows.length, category },
     });
 
-    return { message: `Successfully uploaded ${rows.length} vulnerabilities. Old database has been replaced.`, count: rows.length };
+    return { message: `Successfully uploaded ${rows.length} vulnerabilities. The existing ${category.replace('_', '/')} database has been replaced.`, count: rows.length };
   }
 
   // Simple CSV line parser handling quoted values

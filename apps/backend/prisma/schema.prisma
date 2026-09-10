@@ -34,6 +34,11 @@ enum ReportGenerationStatus {
   FAILED
 }
 
+enum VulnerabilityCategory {
+  APPLICATION_API
+  NETWORK
+}
+
 enum VulnerabilityStatus {
   PENDING
   APPROVED
@@ -316,6 +321,7 @@ model Vulnerability {
   cveId       String?  @map("cve_id")
   cweId       String?  @map("cwe_id")
   source      String   @default("internal")
+  category    VulnerabilityCategory @default(APPLICATION_API)
 
   status      VulnerabilityStatus @default(APPROVED) @map("status")
   isActive    Boolean  @default(true) @map("is_active")

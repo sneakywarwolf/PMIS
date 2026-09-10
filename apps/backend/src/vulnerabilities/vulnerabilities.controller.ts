@@ -16,11 +16,12 @@ export class VulnerabilitiesController {
   async findAll(
     @Query('search') search?: string,
     @Query('severity') severity?: string,
+    @Query('category') category?: string,
     @Query('sortBy') sortBy?: string,
     @Query('sortOrder') sortOrder?: string,
     @CurrentUser() user?: User,
   ) {
-    return this.vulnerabilitiesService.findAll(search, severity, user?.role, sortBy, sortOrder);
+    return this.vulnerabilitiesService.findAll(search, severity, category, user?.role, sortBy, sortOrder);
   }
 
   @Get('pending')
@@ -100,12 +101,13 @@ export class VulnerabilitiesController {
   @ApiOperation({ summary: 'Bulk upload vulnerabilities from CSV (Admin only)' })
   async bulkUpload(
     @Body('csv') csv: string,
+    @Body('category') category: string,
     @CurrentUser() user: User,
     @Req() req: any,
   ) {
     const ipAddress = req.ip || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
-    return this.vulnerabilitiesService.bulkUpload(csv, user.id, ipAddress, userAgent);
+    return this.vulnerabilitiesService.bulkUpload(csv, category, user.id, ipAddress, userAgent);
   }
 
   @Put(':id')
