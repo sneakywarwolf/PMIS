@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FolderKanban, Plus, Search, FileText, Edit, AlertTriangle, X, Loader2, CheckCircle, Eye, LayoutGrid, Table2 } from 'lucide-react';
-import { toDateInputValue } from '@/lib/datetime';
+import { toDateInputValue, formatDate } from '@/lib/datetime';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
 
@@ -355,7 +355,7 @@ function ProjectsPageContent() {
               
               <div className="pt-3 border-t border-gray-700/50 flex items-center justify-between text-xs">
                 <span className="text-gray-400 flex items-center gap-1">
-                  {new Date(project.startDate).toLocaleDateString()}
+                  {formatDate(project.startDate)}
                   {user?.role !== 'TESTER' && project.startDateChangedAt && (
                     <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
                   )}
@@ -408,7 +408,7 @@ function ProjectsPageContent() {
                     <td className="px-4 py-3 text-sm text-white">{project._count?.findings || 0}</td>
                     <td className="px-4 py-3 text-sm text-gray-400">
                       <span className="flex items-center gap-1">
-                        {new Date(project.startDate).toLocaleDateString()}
+                        {formatDate(project.startDate)}
                         {user?.role !== 'TESTER' && project.startDateChangedAt && (
                           <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
                         )}

@@ -27,7 +27,7 @@ import {
 import { api, useAuth } from '@/contexts/auth-context';
 import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
-import { toDateInputValue } from '@/lib/datetime';
+import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
 
 const severityColors: Record<string, string> = {
@@ -352,13 +352,13 @@ export default function ProjectDetailPage() {
           <div>
             <p className="text-gray-500 text-xs">Start Date</p>
             <p className="text-white font-medium flex items-center gap-1.5">
-              {new Date(project.startDate).toLocaleDateString()}
+              {formatDate(project.startDate)}
               {user?.role !== 'TESTER' && project.startDateChangedAt && (
                 <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
               )}
             </p>
           </div>
-          <InfoField label="End Date" value={project.endDate ? new Date(project.endDate).toLocaleDateString() : 'Not set'} />
+          <InfoField label="End Date" value={project.endDate ? formatDate(project.endDate) : 'Not set'} />
           <InfoField label="Sub Type" value={project.subType} />
           <InfoField label="App Version" value={project.appVersion || 'N/A'} />
           <InfoField label="Location" value={project.location || 'N/A'} />
@@ -1560,7 +1560,7 @@ function GeneratedReportsSection({ projectId, refreshKey, canDelete }: { project
               <div className="min-w-0">
                 <p className="text-sm text-white truncate">{r.fileName || r.template?.name || 'Report'}</p>
                 <p className="text-xs text-gray-500">
-                  Generated {new Date(r.createdAt).toLocaleString()} by {r.generatedBy?.fullName || r.generatedBy?.username || 'unknown'}
+                  Generated {formatDateTime(r.createdAt)} by {r.generatedBy?.fullName || r.generatedBy?.username || 'unknown'}
                 </p>
               </div>
             </div>

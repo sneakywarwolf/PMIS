@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/contexts/auth-context';
+import { formatDate } from '@/lib/datetime';
 
 type TrackerEntry = {
   projectId: string;
@@ -51,12 +52,12 @@ export default function RetentionTrackerPage() {
               {entries.map((e) => (
                 <tr key={e.projectId} className="border-t border-gray-800">
                   <td className="p-3 text-white">{e.projectName}</td>
-                  <td className="p-3 text-gray-300">{new Date(e.completionDate).toLocaleDateString()}</td>
+                  <td className="p-3 text-gray-300">{formatDate(e.completionDate)}</td>
                   <td className="p-3 text-gray-300">{e.retentionPeriodDays} days</td>
                   <td className={`p-3 font-medium ${e.daysRemaining <= 30 ? 'text-amber-400' : 'text-cyan-400'}`}>
                     {e.daysRemaining} days
                   </td>
-                  <td className="p-3 text-gray-300">{new Date(e.scheduledDeletionDate).toLocaleDateString()}</td>
+                  <td className="p-3 text-gray-300">{formatDate(e.scheduledDeletionDate)}</td>
                 </tr>
               ))}
             </tbody>

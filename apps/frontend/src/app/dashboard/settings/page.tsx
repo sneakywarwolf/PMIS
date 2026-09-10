@@ -6,6 +6,7 @@ import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, 
 import { useAuth } from '@/contexts/auth-context';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
+import { formatDateTime } from '@/lib/datetime';
 
 const TABS = [
   { id: 'general', label: 'General & Branding', icon: Palette },
@@ -102,7 +103,7 @@ function SettingsContent() {
         <h1 className="text-2xl font-bold text-white">Application Settings</h1>
         <p className="text-gray-400 text-sm mt-1">Configure platform-wide behavior, branding, and policies</p>
         {meta.updatedAt && (
-          <p className="text-xs text-gray-500 mt-1">Last updated {new Date(meta.updatedAt).toLocaleString()}</p>
+          <p className="text-xs text-gray-500 mt-1">Last updated {formatDateTime(meta.updatedAt)}</p>
         )}
       </div>
 
@@ -158,7 +159,7 @@ function SettingsContent() {
                     <p className="text-gray-500 mt-0.5">{Object.keys(log.details.changed).join(', ')}</p>
                   )}
                 </div>
-                <span className="text-gray-500 shrink-0 ml-3">{new Date(log.timestamp).toLocaleString()}</span>
+                <span className="text-gray-500 shrink-0 ml-3">{formatDateTime(log.timestamp)}</span>
               </div>
             ))}
           </div>

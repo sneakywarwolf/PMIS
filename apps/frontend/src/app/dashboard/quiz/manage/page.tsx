@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
+import { formatDateTime } from '@/lib/datetime';
 
 // Same turquoise-glass hover treatment used app-wide (e.g. the sidebar nav) —
 // keep every Quiz control consistent with it rather than inventing a new one.
@@ -152,7 +153,7 @@ export default function QuizManagePage() {
             <div>
               <div className="text-gray-200">{q.question}</div>
               <div className="text-xs text-gray-500">
-                {q.status} · {new Date(q.scheduledFor).toLocaleString()}
+                {q.status} · {formatDateTime(q.scheduledFor)}
               </div>
             </div>
             <div className="flex gap-2">
