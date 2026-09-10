@@ -5,7 +5,7 @@
  * apps/backend/src/auth/guards/roles.guard.ts) — this only prevents the UI
  * from rendering pages a role has no API access to anyway.
  */
-export const ADMIN_ONLY_ROUTE_PREFIXES = ['/dashboard/settings', '/dashboard/users', '/dashboard/quiz/manage', '/dashboard/reports/templates'];
+export const ADMIN_ONLY_ROUTE_PREFIXES = ['/dashboard/settings', '/dashboard/users', '/dashboard/quiz/manage'];
 
 export function isRouteAllowed(pathname: string, role: string | undefined): boolean {
   if (!role) return false;

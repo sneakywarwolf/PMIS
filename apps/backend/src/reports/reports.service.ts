@@ -314,17 +314,27 @@ export class ReportsService {
       throw new NotFoundException('Template not found');
     }
 
-    // Versioning: deactivate other versions of the same category + subType.
-    // Their files and records are kept, so old projects still regenerate correctly.
-    await this.prisma.reportTemplate.updateMany({
+    // Activating a template replaces whatever was active for the same
+    // category + subType — the old one is deleted outright (file + row +
+    // its field mappings), not just deactivated. Existing ReportGeneration
+    // rows and Project.templateId pointers are FK-SetNull, so already
+    // generated reports and their stored docx/pdf files are never touched;
+    // projects that had pinned the deleted template fall back to whichever
+    // template is active for their category/subType at their next generation.
+    const replaced = await this.prisma.reportTemplate.findMany({
       where: {
         category: template.category,
         subType: template.subType,
         isActive: true,
         id: { not: id },
       },
-      data: { isActive: false, effectiveTo: new Date() },
     });
+    for (const old of replaced) {
+      await this.storage.deleteFile(old.filePath).catch((err) =>
+        this.logger.warn(`Failed to delete replaced template file ${old.filePath}: ${err?.message}`),
+      );
+      await this.prisma.reportTemplate.delete({ where: { id: old.id } });
+    }
 
     const activated = await this.prisma.reportTemplate.update({
       where: { id },
@@ -403,6 +413,15 @@ export class ReportsService {
 
     if (!project.template) {
       missing.push({ field: 'template', label: 'Report template', source: 'Template management' });
+    } else {
+      const { unresolved } = this.resolveMappedFields(project.template, project);
+      for (const u of unresolved) {
+        missing.push({
+          field: `mapped:${u.parameter}`,
+          label: `${u.field} (mapped to ${u.parameter}, but no value found)`,
+          source: 'Template Mapping',
+        });
+      }
     }
 
     const approvedFindings = project.findings.length;
@@ -465,6 +484,7 @@ export class ReportsService {
       template = await this.prisma.reportTemplate.findFirst({
         where: { isActive: true, category: project.category, subType: project.subType },
         orderBy: { effectiveFrom: 'desc' },
+        include: { fields: true },
       });
     }
     if (!template) {
@@ -560,6 +580,9 @@ export class ReportsService {
         { id: actorId, role: UserRole.ADMIN } as User,
       );
       const template = reportGeneration.template;
+      if (!template) {
+        throw new BadRequestException('The template used for this report generation no longer exists.');
+      }
 
       const templateBuffer = await this.storage.getFile(template.filePath);
 
@@ -619,7 +642,7 @@ export class ReportsService {
       this.logger.log(`Generating report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
       const reportBuffer = await this.docxManipulator.generateReport(
         templateBuffer,
-        this.buildMappedFieldRules(template, project)
+        this.resolveMappedFieldsOrThrow(template, project)
           .concat(this.buildFieldRules(project))
           .concat(this.buildCustomFieldRules(project)),
         findingsData,
@@ -748,7 +771,7 @@ export class ReportsService {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       include: {
-        template: true,
+        template: { include: { fields: true } },
         tester: true,
         tl: { include: { manager: true } },
         findings: {
@@ -807,13 +830,45 @@ export class ReportsService {
    * independently once an admin has mapped them.
    */
   private buildMappedFieldRules(template: any, project: any): FieldRule[] {
-    const fields = (template?.fields || []) as { normalizedName: string; mappedParameter: string | null }[];
-    return fields
-      .filter((f) => !!f.mappedParameter)
-      .map((f) => ({
-        match: [f.normalizedName],
-        value: resolveTemplateParameter(f.mappedParameter as string, project, (d) => this.formatReportDate(d)),
-      }));
+    return this.resolveMappedFields(template, project).rules;
+  }
+
+  /** Same as buildMappedFieldRules, but fails loudly instead of silently dropping an unresolved mapping. */
+  private resolveMappedFieldsOrThrow(template: any, project: any): FieldRule[] {
+    const { rules, unresolved } = this.resolveMappedFields(template, project);
+    if (unresolved.length > 0) {
+      const detail = unresolved.map((u) => `"${u.field}" (mapped to ${u.parameter})`).join(', ');
+      throw new BadRequestException(
+        `Cannot resolve mapped parameter for: ${detail}. Fill in the missing project data or remap the field in Template Mapping.`,
+      );
+    }
+    return rules;
+  }
+
+  /**
+   * Resolves every admin-mapped field for a template against the project.
+   * A mapped field whose parameter resolves to an empty value is reported
+   * as unresolved rather than silently generating a blank placeholder.
+   */
+  private resolveMappedFields(
+    template: any,
+    project: any,
+  ): { rules: FieldRule[]; unresolved: { field: string; parameter: string }[] } {
+    const fields = (template?.fields || []) as { name: string; normalizedName: string; mappedParameter: string | null }[];
+    const rules: FieldRule[] = [];
+    const unresolved: { field: string; parameter: string }[] = [];
+
+    for (const f of fields) {
+      if (!f.mappedParameter) continue;
+      const value = resolveTemplateParameter(f.mappedParameter, project, (d) => this.formatReportDate(d));
+      if (!value) {
+        unresolved.push({ field: f.name, parameter: f.mappedParameter });
+        continue;
+      }
+      rules.push({ match: [f.normalizedName], value });
+    }
+
+    return { rules, unresolved };
   }
 
   private buildFieldRules(project: any): FieldRule[] {
