@@ -91,3 +91,39 @@ describe('ReportsService.removeReport', () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe('ReportsService.getNextReportVersion', () => {
+  let service: ReportsService;
+  let prisma: { reportGeneration: { count: jest.Mock } };
+
+  beforeEach(async () => {
+    prisma = { reportGeneration: { count: jest.fn() } };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReportsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: StorageService, useValue: {} },
+        { provide: DocxManipulatorService, useValue: {} },
+        { provide: ConfigService, useValue: { get: jest.fn() } },
+        { provide: AuditService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ReportsService);
+  });
+
+  it('returns 1.0 for the first generation of a project', async () => {
+    prisma.reportGeneration.count.mockResolvedValue(0);
+
+    const version = await (service as any).getNextReportVersion('p1');
+
+    expect(version).toBe('1.0');
+  });
+
+  it('increments the minor version for each subsequent generation, never resetting', async () => {
+    prisma.reportGeneration.count.mockResolvedValue(3);
+
+    const version = await (service as any).getNextReportVersion('p1');
+
+    expect(version).toBe('1.3');
+  });
+});

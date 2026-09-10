@@ -406,13 +406,16 @@ export class ReportsService {
       }
     }
 
+    const nextVersion = await this.getNextReportVersion(projectId);
+
     return {
       ready: missing.length === 0,
       missing,
       approvedFindings,
       pocGateBlocked,
       templateName: project.template?.name || null,
-      suggestedFileName: this.buildReportFileName(project),
+      nextVersion,
+      suggestedFileName: this.buildReportFileName(project, nextVersion),
     };
   }
 
@@ -517,8 +520,11 @@ export class ReportsService {
       this.buildContacts(project),
     );
 
-    // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{DocVersion}_{YYYY-MM-DD}_Non-Compliant.docx
-    const fileName = this.buildReportFileName(project, template);
+    // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{YYYY-MM-DD}_Non-Compliant.docx
+    // Version auto-increments per project: first generation is 1.0, every
+    // subsequent generation is 1.1, 1.2, ... and never resets.
+    const version = await this.getNextReportVersion(projectId);
+    const fileName = this.buildReportFileName(project, version, template);
     const docxName = `reports/${projectId}/${Date.now()}_${fileName}`;
     await this.storage.uploadFile(
       docxName,
@@ -537,6 +543,7 @@ export class ReportsService {
         templateId: template.id,
         generatedById: user.id,
         fieldData: fieldDataSnapshot,
+        version,
         docxPath: docxName,
         pdfPath: null,
         isDraft: true,
@@ -560,12 +567,13 @@ export class ReportsService {
       targetId: projectId,
       ipAddress,
       userAgent,
-      details: { templateId: template.id, format: 'docx', fileName },
+      details: { templateId: template.id, format: 'docx', fileName, version },
     });
 
     return {
       fileName,
-      docxUrl: await this.storage.getPresignedUrl(docxName, 3600),
+      version,
+      docxUrl: await this.storage.getPresignedUrl(docxName, 3600, fileName),
       isDraft: true,
       findingsCount: findingsData.length,
     };
@@ -599,11 +607,14 @@ export class ReportsService {
 
     // Attach presigned download URLs
     return Promise.all(
-      history.map(async (h) => ({
-        ...h,
-        fileName: h.docxPath ? h.docxPath.split('/').pop()?.replace(/^\d+_/, '') : null,
-        docxUrl: h.docxPath ? await this.storage.getPresignedUrl(h.docxPath, 3600) : null,
-      })),
+      history.map(async (h) => {
+        const fileName = h.docxPath ? h.docxPath.split('/').pop()?.replace(/^\d+_/, '') : null;
+        return {
+          ...h,
+          fileName,
+          docxUrl: h.docxPath ? await this.storage.getPresignedUrl(h.docxPath, 3600, fileName || undefined) : null,
+        };
+      }),
     );
   }
 
@@ -734,7 +745,7 @@ export class ReportsService {
     ];
   }
 
-  private buildReportFileName(project: any, template?: any): string {
+  private buildReportFileName(project: any, version: string, template?: any): string {
     const subTypeLabel = SUB_TYPE_FILE_LABELS[(template?.subType ?? project.subType) as TemplateSubType] || 'Web';
     const safe = (s: string) =>
       (s || '')
@@ -742,8 +753,23 @@ export class ReportsService {
         .replace(/[^a-zA-Z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '') || 'NA';
     const date = new Date().toISOString().split('T')[0];
-    const docVersion = safe(project.documentVersion || '1.0');
-    return `App-Security-Test_${safe(project.clientName)}-${safe(project.name)}_${subTypeLabel}_v${docVersion}_${date}_Non-Compliant.docx`;
+    return `App-Security-Test_${safe(project.clientName)}-${safe(project.name)}_${subTypeLabel}_v${version}_${date}_Non-Compliant.docx`;
+  }
+
+  /**
+   * First generation for a project is v1.0; every subsequent generation
+   * increments the minor version (v1.1, v1.2, ...) and never resets.
+   *
+   * ponytail: count-then-create isn't atomic under truly concurrent
+   * generation for the same project — two simultaneous requests could
+   * compute the same version. Acceptable for now since report generation
+   * for one project is a rare, human-triggered action; if concurrent
+   * generation of the SAME project becomes common, wrap this in the same
+   * transaction as the ReportGeneration insert.
+   */
+  private async getNextReportVersion(projectId: string): Promise<string> {
+    const count = await this.prisma.reportGeneration.count({ where: { projectId } });
+    return `1.${count}`;
   }
 
   private formatReportDate(date: Date | string | null | undefined): string {

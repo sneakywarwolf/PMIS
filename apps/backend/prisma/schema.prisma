@@ -280,6 +280,7 @@ model ReportGeneration {
   generatedBy   User      @relation(fields: [generatedById], references: [id])
 
   fieldData     Json      @map("field_data")
+  version       String    @default("1.0")
 
   docxPath      String?   @map("docx_path")
   pdfPath       String?   @map("pdf_path")
