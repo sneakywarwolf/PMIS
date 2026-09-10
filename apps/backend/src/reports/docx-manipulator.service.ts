@@ -424,8 +424,13 @@ export class DocxManipulatorService {
     findings.forEach((finding, i) => {
       let tbl = detailedTables[i];
       if (!tbl) {
+        // Beyond the template's own static finding slots (finding 5, 6, 7...
+        // for a template with 4 slots): each gets its own page, inserted
+        // only once the previous finding's table is fully complete.
+        const pageBreak = this.createPageBreakParagraph(doc);
+        anchor.parentNode?.insertBefore(pageBreak, anchor.nextSibling);
         tbl = pristine.cloneNode(true) as Element;
-        anchor.parentNode?.insertBefore(tbl, anchor.nextSibling);
+        pageBreak.parentNode?.insertBefore(tbl, pageBreak.nextSibling);
       }
       this.fillDetailedBlock(doc, tbl, finding, imageRegistry, severityColors);
       anchor = tbl;
@@ -443,9 +448,43 @@ export class DocxManipulatorService {
    * paragraph spacing/font size left a visible gap around every break.
    * Zero the spacing and shrink the run so the paragraph mark is ~1pt tall.
    */
+  /**
+   * A page break needs a paragraph to carry it, but that paragraph's own
+   * line still reserves vertical space — inheriting the template's default
+   * paragraph spacing/font size left a visible gap around every break.
+   * Zero the spacing and shrink the run so the paragraph mark is ~1pt tall.
+   */
+  private createPageBreakParagraph(doc: Document): Element {
+    const p = doc.createElementNS(this.W_NS, 'w:p');
+
+    const pPr = doc.createElementNS(this.W_NS, 'w:pPr');
+    const spacing = doc.createElementNS(this.W_NS, 'w:spacing');
+    spacing.setAttributeNS(this.W_NS, 'w:before', '0');
+    spacing.setAttributeNS(this.W_NS, 'w:after', '0');
+    spacing.setAttributeNS(this.W_NS, 'w:line', '240');
+    spacing.setAttributeNS(this.W_NS, 'w:lineRule', 'auto');
+    pPr.appendChild(spacing);
+    const pRPr = doc.createElementNS(this.W_NS, 'w:rPr');
+    pRPr.appendChild(doc.createElementNS(this.W_NS, 'w:sz')).setAttributeNS(this.W_NS, 'w:val', '2');
+    pPr.appendChild(pRPr);
+    p.appendChild(pPr);
+
+    const run = doc.createElementNS(this.W_NS, 'w:r');
+    const rPr = doc.createElementNS(this.W_NS, 'w:rPr');
+    const sz = doc.createElementNS(this.W_NS, 'w:sz');
+    sz.setAttributeNS(this.W_NS, 'w:val', '2');
+    rPr.appendChild(sz);
+    run.appendChild(rPr);
+    const br = doc.createElementNS(this.W_NS, 'w:br');
+    br.setAttributeNS(this.W_NS, 'w:type', 'page');
+    run.appendChild(br);
+    p.appendChild(run);
+    return p;
+  }
+
   /** Widens a table's first column (grid + every row's first cell) by ~3px. */
   private widenFirstColumn(table: Element): void {
-    const deltaTwips = 270; // 18px (3px + 5px + a further 10px) at 96 DPI (1px = 15 twips)
+    const deltaTwips = 645; // 43px (3+5+10px, plus a further 25px) at 96 DPI (1px = 15 twips)
 
     const grid = this.getFirstChildByTagName(table, 'tblGrid');
     const firstCol = grid?.getElementsByTagNameNS(this.W_NS, 'gridCol').item(0);
