@@ -93,9 +93,23 @@ function ProjectsPageContent() {
   const handleGenerateReport = async (projectId: string) => {
     setGeneratingReport(projectId);
     try {
-      const response = await api.post('/reports/generate', { projectId });
-      setReportResult(response.data);
-      toast('Report generated successfully');
+      // Generation runs in a background queue so it doesn't block other
+      // users generating reports at the same time — poll until it's done.
+      const queued = await api.post('/reports/generate', { projectId });
+      const reportId = queued.data.reportId;
+
+      let status = queued.data.status;
+      while (status === 'PENDING') {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const poll = await api.get(`/reports/generate/${reportId}/status`);
+        status = poll.data.status;
+        if (status === 'COMPLETED') {
+          setReportResult(poll.data);
+          toast('Report generated successfully');
+        } else if (status === 'FAILED') {
+          toast(poll.data.error || 'Report generation failed', 'error');
+        }
+      }
     } catch (error: any) {
       toast(error.response?.data?.message || 'Report generation failed', 'error');
     } finally {
@@ -248,7 +262,7 @@ function ProjectsPageContent() {
               <CheckCircle className="w-5 h-5 text-emerald-400" />
               <div className="flex-1">
                 <p className="text-sm text-white font-medium">Report Generated!</p>
-                <p className="text-xs text-gray-400">{reportResult.findingsCount} findings included • {reportResult.fileName}</p>
+                <p className="text-xs text-gray-400">{reportResult.fileName} (v{reportResult.version})</p>
               </div>
               <a
                 href={reportResult.docxUrl}

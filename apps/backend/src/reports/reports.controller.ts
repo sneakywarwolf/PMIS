@@ -137,6 +137,12 @@ export class ReportsController {
     );
   }
 
+  @Get('generate/:id/status')
+  @ApiOperation({ summary: 'Poll a queued/in-progress report generation for completion' })
+  async getGenerationStatus(@Param('id') id: string) {
+    return this.reportsService.getReportGenerationStatus(id);
+  }
+
   @Get('preflight/:projectId')
   @ApiOperation({ summary: 'Pre-generation completeness check (missing data report)' })
   async preflight(

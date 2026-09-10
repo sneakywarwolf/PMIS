@@ -155,10 +155,25 @@ function ReportGenerator() {
     if (!selectedProject) return;
     setGenerating(true);
     try {
-      const response = await api.post('/reports/generate', { projectId: selectedProject.id });
-      setResult(response.data);
-      setStep(3);
-      toast('Report generated successfully');
+      // Generation runs in a background queue (so it doesn't block other
+      // users generating reports at the same time) — this just enqueues
+      // the job; we poll for completion below.
+      const queued = await api.post('/reports/generate', { projectId: selectedProject.id });
+      const reportId = queued.data.reportId;
+
+      let status = queued.data.status;
+      while (status === 'PENDING') {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const poll = await api.get(`/reports/generate/${reportId}/status`);
+        status = poll.data.status;
+        if (status === 'COMPLETED') {
+          setResult({ ...poll.data, findingsCount: preflight?.approvedFindings ?? 0 });
+          setStep(3);
+          toast('Report generated successfully');
+        } else if (status === 'FAILED') {
+          toast(poll.data.error || 'Report generation failed', 'error');
+        }
+      }
     } catch (error: any) {
       toast(error.response?.data?.message || 'Report generation failed', 'error');
     } finally {

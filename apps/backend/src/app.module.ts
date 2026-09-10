@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { BullModule } from '@nestjs/bullmq';
 import { APP_GUARD } from '@nestjs/core';
+import IORedis from 'ioredis';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
@@ -28,6 +30,14 @@ import { RolesGuard } from './auth/guards/roles.guard';
       envFilePath: '../../.env',
     }),
     ScheduleModule.forRoot(),
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: new IORedis(config.get<string>('REDIS_URL') || 'redis://localhost:6379', {
+          maxRetriesPerRequest: null,
+        }),
+      }),
+    }),
     PrismaModule,
     RedisModule,
     AuthModule,

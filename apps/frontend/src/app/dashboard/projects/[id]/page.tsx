@@ -209,8 +209,22 @@ export default function ProjectDetailPage() {
     if (!project) return;
     setGeneratingReport(true);
     try {
-      const response = await api.post('/reports/generate', { projectId: project.id });
-      setReportResult(response.data);
+      // Generation runs in a background queue so it doesn't block other
+      // users generating reports at the same time — poll until it's done.
+      const queued = await api.post('/reports/generate', { projectId: project.id });
+      const reportId = queued.data.reportId;
+
+      let status = queued.data.status;
+      while (status === 'PENDING') {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const poll = await api.get(`/reports/generate/${reportId}/status`);
+        status = poll.data.status;
+        if (status === 'COMPLETED') {
+          setReportResult(poll.data);
+        } else if (status === 'FAILED') {
+          alert(poll.data.error || 'Report generation failed');
+        }
+      }
     } catch (error: any) {
       alert(error.response?.data?.message || 'Report generation failed');
     } finally {
@@ -271,7 +285,7 @@ export default function ProjectDetailPage() {
               <CheckCircle className="w-5 h-5 text-emerald-400" />
               <div className="flex-1">
                 <p className="text-sm text-white font-medium">Report Generated!</p>
-                <p className="text-xs text-gray-400">{reportResult.findingsCount} findings included • {reportResult.fileName}</p>
+                <p className="text-xs text-gray-400">{reportResult.fileName} (v{reportResult.version})</p>
               </div>
               <a
                 href={reportResult.docxUrl}
