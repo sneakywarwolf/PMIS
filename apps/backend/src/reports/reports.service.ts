@@ -394,7 +394,7 @@ export class ReportsService {
 
     const approvedFindings = project.findings.length;
     if (approvedFindings === 0) {
-      missing.push({ field: 'findings', label: 'At least one approved finding', source: 'Project findings' });
+      missing.push({ field: 'findings', label: 'At least one finding', source: 'Project findings' });
     }
 
     let pocGateBlocked = false;
@@ -736,7 +736,6 @@ export class ReportsService {
         tester: true,
         tl: { include: { manager: true } },
         findings: {
-          where: { status: 'APPROVED' },
           include: {
             vulnerability: true,
             pocSteps: { orderBy: { stepNo: 'asc' } },
