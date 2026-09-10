@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { User, UserRole, FindingStatus, ProjectStatus } from '@prisma/client';
+import { isFindingReportReady } from '../common/poc-validation.util';
 
 @Injectable()
 export class FindingsService {
@@ -41,7 +42,7 @@ export class FindingsService {
   async findByProject(projectId: string, user: User) {
     await this.checkProjectAccess(projectId, user);
 
-    return this.prisma.finding.findMany({
+    const findings = await this.prisma.finding.findMany({
       where: { projectId },
       include: {
         vulnerability: true,
@@ -54,6 +55,8 @@ export class FindingsService {
         { vulnerability: { cvssScore: 'desc' } },
       ],
     });
+
+    return findings.map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps) }));
   }
 
   async findOne(id: string, user: User) {
@@ -73,7 +76,7 @@ export class FindingsService {
     }
 
     await this.checkProjectAccess(finding.projectId, user);
-    return finding;
+    return { ...finding, pocComplete: isFindingReportReady(finding.pocSteps) };
   }
 
   async create(data: {

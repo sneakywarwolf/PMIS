@@ -9,6 +9,7 @@ import { AuditService } from '../audit/audit.service';
 import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, ReportGenerationStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
+import { isFindingReportReady } from '../common/poc-validation.util';
 
 const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   WEB: 'Web',
@@ -397,18 +398,15 @@ export class ReportsService {
       missing.push({ field: 'findings', label: 'At least one finding', source: 'Project findings' });
     }
 
-    let pocGateBlocked = false;
     for (const finding of project.findings) {
       const vulnName = finding.vulnerability?.name || finding.id;
       if (!finding.pocSteps || finding.pocSteps.length === 0) {
         missing.push({ field: 'pocSteps', label: 'Steps', source: `Finding: ${vulnName}` });
-        pocGateBlocked = true;
-      }
-      if (!finding.proofOfConcept) {
-        missing.push({ field: 'proofOfConcept', label: 'PoC', source: `Finding: ${vulnName}` });
-        pocGateBlocked = true;
+      } else if (!finding.pocSteps.some((s) => !!s.imagePath)) {
+        missing.push({ field: 'pocScreenshot', label: 'PoC screenshot/attachment', source: `Finding: ${vulnName}` });
       }
     }
+    const pocGateBlocked = project.findings.some((f) => !isFindingReportReady(f.pocSteps));
 
     const nextVersion = await this.getNextReportVersion(projectId);
 
@@ -442,11 +440,9 @@ export class ReportsService {
   ) {
     const project = await this.loadProjectForReport(projectId, user);
 
-    const pocGateBlocked = project.findings.some(
-      (f) => !f.pocSteps || f.pocSteps.length === 0 || !f.proofOfConcept,
-    );
+    const pocGateBlocked = project.findings.some((f) => !isFindingReportReady(f.pocSteps));
     if (pocGateBlocked) {
-      throw new BadRequestException('Report Generation not allowed until Steps and PoC are added.');
+      throw new BadRequestException('Report Generation not allowed until Steps and PoC screenshots/attachments are added.');
     }
 
     let template = project.template;

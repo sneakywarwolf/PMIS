@@ -88,6 +88,7 @@ interface Finding {
   cvssScoreOverride: number | null;
   cvssVectorOverride: string | null;
   pocSteps: PocStep[];
+  pocComplete: boolean;
   createdAt: string;
 }
 
@@ -721,10 +722,8 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
   const [expanded, setExpanded] = useState(false);
   const cvss = finding.cvssScoreOverride ?? finding.vulnerability.cvssScore ?? '-';
 
-  // PoC completion indicator (#5)
-  const hasPocSteps = finding.pocSteps.length > 0;
-  const hasPocDescriptions = finding.pocSteps.some(s => s.description.trim().length > 0);
-  const pocComplete = hasPocSteps && hasPocDescriptions;
+  // PoC completion indicator — mirrors backend isFindingReportReady (single source of truth)
+  const pocComplete = finding.pocComplete;
 
   return (
     <motion.div
@@ -757,7 +756,7 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
         <div className="flex items-center gap-2">
           {/* PoC Indicator (#5) */}
           <span
-            title={pocComplete ? 'POC steps added' : 'POC steps missing'}
+            title={pocComplete ? 'Steps and PoC screenshot/attachment present' : 'Missing Steps or PoC screenshot/attachment'}
             className={`p-1.5 rounded-lg transition-all ${
               pocComplete
                 ? 'text-emerald-400 bg-emerald-500/10'
