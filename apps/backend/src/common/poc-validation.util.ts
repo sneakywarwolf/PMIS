@@ -14,14 +14,15 @@ function hasValidSteps(pocSteps: PocStepLike[]): boolean {
 }
 
 /**
- * A step counts as having PoC evidence only if it carries a persisted attachment
- * path. This trusts the DB record rather than probing object storage per
- * finding on every list load.
+ * At least one step must exist, and every step must carry a persisted
+ * attachment path — one attached step does not excuse another bare one.
+ * Trusts the DB record rather than probing object storage per finding on
+ * every list load.
  * ponytail: doesn't verify the file still exists in MinIO, upgrade to a
  * storage.statObject() check if orphaned references become a real problem.
  */
 function hasValidPoc(pocSteps: PocStepLike[]): boolean {
-  return pocSteps.some((s) => !!s.imagePath && s.imagePath.trim().length > 0);
+  return pocSteps.length > 0 && pocSteps.every((s) => !!s.imagePath && s.imagePath.trim().length > 0);
 }
 
 /**
