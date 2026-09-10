@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateQuizQuestionDto } from './dto/create-quiz-question.dto';
 import { UpdateQuizQuestionDto } from './dto/update-quiz-question.dto';
 
@@ -15,21 +16,46 @@ export class QuizService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE)
   async sweepQuizStatuses(): Promise<void> {
     const now = new Date();
 
-    await this.prisma.quizQuestion.updateMany({
+    const activating = await this.prisma.quizQuestion.findMany({
       where: { status: 'SCHEDULED', scheduledFor: { lte: now } },
-      data: { status: 'ACTIVE' },
+      select: { id: true },
     });
+    if (activating.length > 0) {
+      await this.prisma.quizQuestion.updateMany({
+        where: { id: { in: activating.map((q) => q.id) } },
+        data: { status: 'ACTIVE' },
+      });
+      await this.notifications.notifyAllActiveUsers({
+        type: 'QUIZ_QUESTION_LIVE',
+        title: 'New Question of the Day',
+        message: "Today's quiz question is live — answer it within 24 hours.",
+        linkUrl: '/dashboard/quiz',
+      });
+    }
 
-    await this.prisma.quizQuestion.updateMany({
+    const revealing = await this.prisma.quizQuestion.findMany({
       where: { status: 'ACTIVE', scheduledFor: { lte: new Date(now.getTime() - TWENTY_FOUR_HOURS_MS) } },
-      data: { status: 'REVEALED', revealedAt: now },
+      select: { id: true },
     });
+    if (revealing.length > 0) {
+      await this.prisma.quizQuestion.updateMany({
+        where: { id: { in: revealing.map((q) => q.id) } },
+        data: { status: 'REVEALED', revealedAt: now },
+      });
+      await this.notifications.notifyAllActiveUsers({
+        type: 'QUIZ_ANSWER_REVEALED',
+        title: 'Quiz answer revealed',
+        message: "The Question of the Day's answer and explanation are now available.",
+        linkUrl: '/dashboard/quiz',
+      });
+    }
   }
 
   async submitAnswer(userId: string, questionId: string, selectedOption: number) {

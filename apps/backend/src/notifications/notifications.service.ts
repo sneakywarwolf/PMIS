@@ -80,4 +80,32 @@ export class NotificationsService {
 
     await Promise.all(notifications);
   }
+
+  async notifyAllActiveUsers(data: {
+    type: NotificationType;
+    title: string;
+    message: string;
+    linkUrl?: string;
+    relatedId?: string;
+  }) {
+    const activeUsers = await this.prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true },
+    });
+
+    const notifications = activeUsers.map((user) =>
+      this.prisma.notification.create({
+        data: {
+          userId: user.id,
+          type: data.type,
+          title: data.title,
+          message: data.message,
+          linkUrl: data.linkUrl,
+          relatedId: data.relatedId,
+        },
+      }),
+    );
+
+    await Promise.all(notifications);
+  }
 }

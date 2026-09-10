@@ -2,13 +2,14 @@ import { Test } from '@nestjs/testing';
 import { QuizService } from './quiz.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 function makePrismaMock(): any {
   return {
     quizQuestion: {
-      findMany: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       updateMany: jest.fn(),
@@ -38,36 +39,56 @@ let prisma: ReturnType<typeof makePrismaMock>;
 describe('QuizService.sweepQuizStatuses', () => {
   let service: QuizService;
   let audit: { log: jest.Mock };
+  let notifications: { notifyAllActiveUsers: jest.Mock };
 
   beforeEach(async () => {
     prisma = makePrismaMock();
     audit = { log: jest.fn() };
+    notifications = { notifyAllActiveUsers: jest.fn() };
     const moduleRef = await Test.createTestingModule({
       providers: [
         QuizService,
         { provide: PrismaService, useValue: prisma },
         { provide: AuditService, useValue: audit },
+        { provide: NotificationsService, useValue: notifications },
       ],
     }).compile();
     service = moduleRef.get(QuizService);
   });
 
-  it('activates SCHEDULED questions whose scheduledFor has arrived', async () => {
+  it('activates SCHEDULED questions whose scheduledFor has arrived, and notifies all active users', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValueOnce([{ id: 'q1' }]).mockResolvedValueOnce([]);
+
     await service.sweepQuizStatuses();
 
     expect(prisma.quizQuestion.updateMany).toHaveBeenCalledWith({
-      where: { status: 'SCHEDULED', scheduledFor: { lte: expect.any(Date) } },
+      where: { id: { in: ['q1'] } },
       data: { status: 'ACTIVE' },
     });
+    expect(notifications.notifyAllActiveUsers).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'QUIZ_QUESTION_LIVE' }),
+    );
   });
 
-  it('reveals ACTIVE questions older than 24 hours', async () => {
+  it('reveals ACTIVE questions older than 24 hours, and notifies all active users', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'q2' }]);
+
     await service.sweepQuizStatuses();
 
     expect(prisma.quizQuestion.updateMany).toHaveBeenCalledWith({
-      where: { status: 'ACTIVE', scheduledFor: { lte: expect.any(Date) } },
+      where: { id: { in: ['q2'] } },
       data: { status: 'REVEALED', revealedAt: expect.any(Date) },
     });
+    expect(notifications.notifyAllActiveUsers).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'QUIZ_ANSWER_REVEALED' }),
+    );
+  });
+
+  it('does not update or notify when nothing needs to transition', async () => {
+    await service.sweepQuizStatuses();
+
+    expect(prisma.quizQuestion.updateMany).not.toHaveBeenCalled();
+    expect(notifications.notifyAllActiveUsers).not.toHaveBeenCalled();
   });
 });
 
@@ -83,6 +104,7 @@ describe('QuizService.submitAnswer', () => {
         QuizService,
         { provide: PrismaService, useValue: prisma },
         { provide: AuditService, useValue: audit },
+        { provide: NotificationsService, useValue: { notifyAllActiveUsers: jest.fn() } },
       ],
     }).compile();
     service = moduleRef.get(QuizService);
@@ -208,6 +230,7 @@ describe('QuizService admin/read methods', () => {
         QuizService,
         { provide: PrismaService, useValue: prisma },
         { provide: AuditService, useValue: audit },
+        { provide: NotificationsService, useValue: { notifyAllActiveUsers: jest.fn() } },
       ],
     }).compile();
     service = moduleRef.get(QuizService);
