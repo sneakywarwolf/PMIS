@@ -5,9 +5,12 @@ interface PocStepLike {
   imagePath?: string | null;
 }
 
-/** A step counts only with real, non-whitespace text — not a blank/placeholder row. */
+/**
+ * At least one step must exist, and every step must carry real,
+ * non-whitespace text — one filled step does not excuse another blank one.
+ */
 function hasValidSteps(pocSteps: PocStepLike[]): boolean {
-  return pocSteps.some((s) => !!s.description && s.description.trim().length > 0);
+  return pocSteps.length > 0 && pocSteps.every((s) => !!s.description && s.description.trim().length > 0);
 }
 
 /**
