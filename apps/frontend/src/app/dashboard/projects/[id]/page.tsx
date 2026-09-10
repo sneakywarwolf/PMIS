@@ -756,7 +756,7 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
         <div className="flex items-center gap-2">
           {/* PoC Indicator (#5) */}
           <span
-            title={pocComplete ? 'Steps and PoC screenshot/attachment present' : 'Missing Steps or PoC screenshot/attachment'}
+            title={pocComplete ? 'Steps/POC Present' : 'Steps/POC Absent'}
             className={`p-1.5 rounded-lg transition-all ${
               pocComplete
                 ? 'text-emerald-400 bg-emerald-500/10'
