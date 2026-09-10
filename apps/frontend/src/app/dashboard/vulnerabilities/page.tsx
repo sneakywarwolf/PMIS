@@ -555,7 +555,7 @@ export default function VulnerabilitiesPage() {
                   transformOrigin: origin,
                   visibility: modalPos ? 'visible' : 'hidden',
                 }}
-                className="bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl z-50 w-[calc(100vw-2rem)] max-w-lg max-h-[85vh] overflow-y-auto"
+                className="bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl z-50 w-[calc(100vw-2rem)] max-w-xl max-h-[85vh] overflow-y-auto"
               >
                 <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-gray-700 rounded-t-2xl px-6 py-4 flex items-center justify-between">
                   <div>
