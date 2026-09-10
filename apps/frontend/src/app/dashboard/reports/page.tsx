@@ -6,10 +6,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, Upload, Download, Eye, ChevronRight, ChevronLeft,
   Shield, Server, Smartphone, Monitor, CheckCircle, Loader2,
-  AlertTriangle, XCircle, Check, ArrowLeftRight, CheckCircle2,
+  AlertTriangle, XCircle, Check, ArrowLeftRight, CheckCircle2, Trash2,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
+import { useConfirm } from '@/components/confirm-provider';
 
 const subTypeIcons: any = {
   WEB: Monitor,
@@ -391,11 +392,13 @@ function slugifyFieldName(raw: string) {
 
 function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
   const [fields, setFields] = useState<any[]>([]);
   const [activating, setActivating] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [addingField, setAddingField] = useState(false);
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldName, setNewFieldName] = useState('');
@@ -471,7 +474,7 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const activate = async (template: any) => {
-    if (!confirm(`Activate "${template.name}"? The current active ${template.category}/${template.subType} template will be deactivated (kept for history).`)) return;
+    if (!confirm(`Activate "${template.name}"? The current active ${template.category}/${template.subType} template will be permanently deleted (file, metadata, and mappings removed).`)) return;
     setActivating(template.id);
     try {
       await api.put(`/reports/templates/${template.id}/activate`);
@@ -481,6 +484,27 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
       toast(error.response?.data?.message || 'Activation failed', 'error');
     } finally {
       setActivating(null);
+    }
+  };
+
+  const handleDelete = async (template: any) => {
+    const ok = await confirmDialog({
+      title: `Delete template "${template.name}"?`,
+      message: 'This permanently removes the template file and its associated metadata/mapping. Previously generated reports are unaffected and remain downloadable.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    setDeleting(template.id);
+    try {
+      await api.delete(`/reports/templates/${template.id}`);
+      if (selectedTemplate?.id === template.id) setSelectedTemplate(null);
+      await fetchTemplates();
+      toast('Template deleted');
+    } catch (error: any) {
+      toast(error.response?.data?.message || 'Failed to delete template', 'error');
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -535,6 +559,16 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
                     title="Activate this template version"
                   >
                     {activating === template.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  </button>
+                )}
+                {isAdmin && !template.isActive && (
+                  <button
+                    onClick={() => handleDelete(template)}
+                    disabled={deleting === template.id}
+                    className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-all disabled:opacity-50"
+                    title="Permanently delete this template"
+                  >
+                    {deleting === template.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                   </button>
                 )}
               </div>

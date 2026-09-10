@@ -371,6 +371,39 @@ export class ReportsService {
     return template;
   }
 
+  /**
+   * Hard-deletes an inactive/replaced template: file + DB row + cascaded
+   * field mappings. Active templates are never deletable here — same
+   * FK-SetNull safety as the auto-delete-on-replace path means historical
+   * ReportGeneration rows and their stored docx/pdf files are untouched.
+   */
+  async deleteTemplate(id: string, adminId: string, ipAddress: string, userAgent: string) {
+    const template = await this.prisma.reportTemplate.findUnique({ where: { id } });
+    if (!template) {
+      throw new NotFoundException('Template not found');
+    }
+    if (template.isActive) {
+      throw new BadRequestException('Cannot delete the active template — deactivate or replace it first.');
+    }
+
+    await this.storage.deleteFile(template.filePath).catch((err) =>
+      this.logger.warn(`Failed to delete template file ${template.filePath}: ${err?.message}`),
+    );
+    await this.prisma.reportTemplate.delete({ where: { id } });
+
+    await this.auditService.log({
+      actorId: adminId,
+      action: 'TEMPLATE_DELETED',
+      targetType: 'TEMPLATE',
+      targetId: id,
+      ipAddress,
+      userAgent,
+      details: { name: template.name, category: template.category, subType: template.subType },
+    });
+
+    return { message: 'Template deleted' };
+  }
+
   // ---------------------------------------------------------------------------
   // Pre-generation completeness check
   // ---------------------------------------------------------------------------

@@ -123,6 +123,19 @@ export class ReportsController {
     return this.reportsService.deactivateTemplate(id, adminId, ipAddress, userAgent);
   }
 
+  @Delete('templates/:id')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Permanently delete an inactive template (file + metadata + mappings)' })
+  async deleteTemplate(
+    @Param('id') id: string,
+    @CurrentUser('id') adminId: string,
+    @Req() request: any,
+  ) {
+    const ipAddress = request.ip || 'unknown';
+    const userAgent = request.headers['user-agent'] || 'unknown';
+    return this.reportsService.deleteTemplate(id, adminId, ipAddress, userAgent);
+  }
+
   // Report Generation
   @Post('generate')
   @ApiOperation({ summary: 'Generate report — all data pulled automatically from project, profiles and findings' })
