@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ReportsService } from './reports.service';
 import { ReportsController } from './reports.controller';
@@ -8,11 +8,13 @@ import { ReportGenerationProcessor } from './report-generation.processor';
 import { REPORT_GENERATION_QUEUE } from './report-generation.types';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
     PrismaModule,
     AuditModule,
+    forwardRef(() => SettingsModule),
     BullModule.registerQueue({ name: REPORT_GENERATION_QUEUE }),
   ],
   controllers: [ReportsController],

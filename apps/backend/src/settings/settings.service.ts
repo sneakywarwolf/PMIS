@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
@@ -126,7 +126,7 @@ export class SettingsService {
     private prisma: PrismaService,
     private auditService: AuditService,
     private redisService: RedisService,
-    private storageService: StorageService,
+    @Inject(forwardRef(() => StorageService)) private storageService: StorageService,
   ) {}
 
   async get() {

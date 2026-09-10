@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -6,10 +6,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
 import { DocxManipulatorService, FieldRule, FindingData, PocImage } from './docx-manipulator.service';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, ReportGenerationStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
-import { isFindingReportReady } from '../common/poc-validation.util';
+import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
 
 const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   WEB: 'Web',
@@ -28,6 +29,7 @@ export class ReportsService {
     private docxManipulator: DocxManipulatorService,
     private configService: ConfigService,
     private auditService: AuditService,
+    @Inject(forwardRef(() => SettingsService)) private settingsService: SettingsService,
     @InjectQueue(REPORT_GENERATION_QUEUE) private reportQueue: Queue<ReportGenerationJobData>,
   ) {}
 
@@ -400,13 +402,16 @@ export class ReportsService {
 
     for (const finding of project.findings) {
       const vulnName = finding.vulnerability?.name || finding.id;
-      if (!finding.pocSteps || finding.pocSteps.length === 0) {
-        missing.push({ field: 'pocSteps', label: 'Steps', source: `Finding: ${vulnName}` });
-      } else if (!finding.pocSteps.some((s) => !!s.imagePath)) {
-        missing.push({ field: 'pocScreenshot', label: 'PoC screenshot/attachment', source: `Finding: ${vulnName}` });
+      const readiness = getPocReadiness(finding.pocSteps);
+      if (readiness === 'both_missing') {
+        missing.push({ field: 'pocStepsAndScreenshot', label: 'Steps & PoC Missing', source: `Finding: ${vulnName}` });
+      } else if (readiness === 'steps_missing') {
+        missing.push({ field: 'pocSteps', label: 'Steps Missing', source: `Finding: ${vulnName}` });
+      } else if (readiness === 'poc_missing') {
+        missing.push({ field: 'pocScreenshot', label: 'PoC Missing', source: `Finding: ${vulnName}` });
       }
     }
-    const pocGateBlocked = project.findings.some((f) => !isFindingReportReady(f.pocSteps));
+    const pocGateBlocked = project.findings.some((f) => getPocReadiness(f.pocSteps) !== 'ready');
 
     const nextVersion = await this.getNextReportVersion(projectId);
 
@@ -599,6 +604,8 @@ export class ReportsService {
         });
       }
 
+      const { settings } = await this.settingsService.get();
+
       this.logger.log(`Generating report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
       const reportBuffer = await this.docxManipulator.generateReport(
         templateBuffer,
@@ -606,6 +613,7 @@ export class ReportsService {
         findingsData,
         images,
         this.buildContacts(project),
+        settings.workflow.severityColors,
       );
 
       // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{YYYY-MM-DD}_Non-Compliant.docx

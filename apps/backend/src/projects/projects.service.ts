@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { User, UserRole, ProjectStatus } from '@prisma/client';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto, ReviewProjectDto } from './dto/project.dto';
-import { isFindingReportReady } from '../common/poc-validation.util';
+import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
 
 @Injectable()
 export class ProjectsService {
@@ -98,7 +98,7 @@ export class ProjectsService {
     if (!result) return result;
     return {
       ...result,
-      findings: result.findings.map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps) })),
+      findings: result.findings.map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps), pocReadiness: getPocReadiness(f.pocSteps) })),
     };
   }
 

@@ -82,6 +82,11 @@ interface RegisteredImage {
 const EMU_PER_PX = 9525; // 96 DPI
 const MAX_IMAGE_WIDTH_EMU = 5029200; // 5.5 inches
 
+/** Fallback if the caller doesn't pass admin-configured colors (matches settings.defaults.ts). */
+const DEFAULT_SEVERITY_COLORS: Record<string, string> = {
+  Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#3b82f6', Info: '#6b7280',
+};
+
 @Injectable()
 export class DocxManipulatorService {
   private readonly logger = new Logger(DocxManipulatorService.name);
@@ -211,6 +216,7 @@ export class DocxManipulatorService {
     findings: FindingData[],
     images: PocImage[] = [],
     contacts?: ContactValues,
+    severityColors: Record<string, string> = DEFAULT_SEVERITY_COLORS,
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -239,7 +245,7 @@ export class DocxManipulatorService {
 
     // Step 4: fill the template's own findings tables
     if (findings.length > 0) {
-      this.fillFindingsTables(doc, findings, imageRegistry);
+      this.fillFindingsTables(doc, findings, imageRegistry, severityColors);
     }
 
     // Step 5: serialize back
@@ -376,6 +382,7 @@ export class DocxManipulatorService {
     doc: Document,
     findings: FindingData[],
     imageRegistry: Map<string, RegisteredImage>,
+    severityColors: Record<string, string>,
   ): void {
     const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
     if (!body) return;
@@ -394,7 +401,7 @@ export class DocxManipulatorService {
 
     const summaryTable = tables.find(isSummary);
     if (summaryTable) {
-      this.fillSummaryTable(doc, summaryTable, findings);
+      this.fillSummaryTable(doc, summaryTable, findings, severityColors);
     }
 
     // Templates ship with one detailed-findings table PER finding slot
@@ -404,15 +411,27 @@ export class DocxManipulatorService {
     if (detailedTables.length === 0) return;
 
     const pristine = detailedTables[0].cloneNode(true) as Element;
-    const lastTable = detailedTables[detailedTables.length - 1];
+
+    // `anchor` tracks the node after which the next NEW table must be
+    // inserted, so clones for finding 3, 4, 5... land in order instead of
+    // all being inserted right after the original last placeholder table.
+    let anchor: Element = detailedTables[detailedTables.length - 1];
 
     findings.forEach((finding, i) => {
       let tbl = detailedTables[i];
       if (!tbl) {
         tbl = pristine.cloneNode(true) as Element;
-        lastTable.parentNode?.insertBefore(tbl, lastTable.nextSibling);
+        anchor.parentNode?.insertBefore(tbl, anchor.nextSibling);
       }
-      this.fillDetailedBlock(doc, tbl, finding, imageRegistry);
+      this.fillDetailedBlock(doc, tbl, finding, imageRegistry, severityColors);
+
+      anchor = tbl;
+      if (i < findings.length - 1) {
+        // Page break so each finding starts on its own page.
+        const pageBreak = this.createPageBreakParagraph(doc);
+        tbl.parentNode?.insertBefore(pageBreak, tbl.nextSibling);
+        anchor = pageBreak;
+      }
     });
 
     // Remove unused placeholder tables
@@ -421,8 +440,18 @@ export class DocxManipulatorService {
     }
   }
 
+  private createPageBreakParagraph(doc: Document): Element {
+    const p = doc.createElementNS(this.W_NS, 'w:p');
+    const run = doc.createElementNS(this.W_NS, 'w:r');
+    const br = doc.createElementNS(this.W_NS, 'w:br');
+    br.setAttributeNS(this.W_NS, 'w:type', 'page');
+    run.appendChild(br);
+    p.appendChild(run);
+    return p;
+  }
+
   /** Summary of Findings: S.No | Findings | CVSS Base Score | Severity | Status */
-  private fillSummaryTable(doc: Document, table: Element, findings: FindingData[]): void {
+  private fillSummaryTable(doc: Document, table: Element, findings: FindingData[], severityColors: Record<string, string>): void {
     const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
     const placeholderRows = rows.filter((r) =>
       this.getElementText(r).toLowerCase().includes('{vulnerability name}'),
@@ -434,7 +463,7 @@ export class DocxManipulatorService {
 
     for (const finding of findings) {
       const clone = templateRow.cloneNode(true) as Element;
-      this.fillSummaryRow(clone, finding);
+      this.fillSummaryRow(clone, finding, severityColors);
       table.insertBefore(clone, anchor);
     }
 
@@ -443,7 +472,7 @@ export class DocxManipulatorService {
     }
   }
 
-  private fillSummaryRow(row: Element, finding: FindingData): void {
+  private fillSummaryRow(row: Element, finding: FindingData, severityColors: Record<string, string>): void {
     const cells = Array.from(row.getElementsByTagNameNS(this.W_NS, 'tc'));
     for (const cell of cells) {
       const text = this.getElementText(cell).trim();
@@ -457,6 +486,8 @@ export class DocxManipulatorService {
         this.replaceCellValue(cell, `${finding.no}.`);
       } else if (['critical', 'high', 'medium', 'low', 'info'].includes(lower)) {
         this.replaceCellValue(cell, finding.severity);
+        const color = severityColors[finding.severity];
+        if (color) this.setCellShading(cell, color);
       } else if (['open', 'fixed', 'closed', 'accepted risk'].includes(lower)) {
         this.replaceCellValue(cell, finding.reportStatus || 'Open');
       }
@@ -473,6 +504,7 @@ export class DocxManipulatorService {
     table: Element,
     finding: FindingData,
     imageRegistry: Map<string, RegisteredImage>,
+    severityColors: Record<string, string>,
   ): void {
     const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
     const isPocStepRow = (row: Element) => {
@@ -482,7 +514,7 @@ export class DocxManipulatorService {
 
     for (const row of rows) {
       if (!isPocStepRow(row)) {
-        this.fillDetailedRow(row, finding);
+        this.fillDetailedRow(row, finding, severityColors);
         continue;
       }
 
@@ -512,7 +544,7 @@ export class DocxManipulatorService {
     }
   }
 
-  private fillDetailedRow(row: Element, finding: FindingData): void {
+  private fillDetailedRow(row: Element, finding: FindingData, severityColors: Record<string, string>): void {
     const cells = Array.from(row.getElementsByTagNameNS(this.W_NS, 'tc'));
     if (cells.length === 0) return;
 
@@ -536,6 +568,8 @@ export class DocxManipulatorService {
 
     if (label.includes('severity')) {
       this.replaceCellValue(valueCell, finding.severity);
+      const color = severityColors[finding.severity];
+      if (color) this.setCellShading(valueCell, color);
     } else if (label.includes('cvss')) {
       this.replaceCellValue(valueCell, cvssText);
     } else if (label.includes('cve/cwe')) {
@@ -872,6 +906,26 @@ export class DocxManipulatorService {
         if (r !== target) this.setRunText(r, '');
       }
     }
+  }
+
+  /** Sets a table cell's background fill to the given hex color (e.g. "#ef4444"). */
+  private setCellShading(cell: Element, hexColor: string): void {
+    const doc = cell.ownerDocument;
+    let tcPr = this.getFirstChildByTagName(cell, 'tcPr');
+    if (!tcPr) {
+      tcPr = doc.createElementNS(this.W_NS, 'w:tcPr');
+      cell.insertBefore(tcPr, cell.firstChild);
+    }
+    const existing = tcPr.getElementsByTagNameNS(this.W_NS, 'shd');
+    for (let i = existing.length - 1; i >= 0; i--) {
+      const node = existing.item(i);
+      if (node) tcPr.removeChild(node);
+    }
+    const shd = doc.createElementNS(this.W_NS, 'w:shd');
+    shd.setAttributeNS(this.W_NS, 'w:val', 'clear');
+    shd.setAttributeNS(this.W_NS, 'w:color', 'auto');
+    shd.setAttributeNS(this.W_NS, 'w:fill', hexColor.replace('#', ''));
+    tcPr.appendChild(shd);
   }
 
   private hasYellowHighlight(rPr: Element): boolean {
