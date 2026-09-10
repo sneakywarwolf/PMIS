@@ -222,3 +222,80 @@ describe('ReportsService.generateReport (fast/enqueue path)', () => {
     expect(prisma.reportGeneration.create).not.toHaveBeenCalled();
   });
 });
+
+describe('ReportsService.getReportGenerationStatus', () => {
+  let service: ReportsService;
+  let prisma: { reportGeneration: { findUnique: jest.Mock } };
+  let storage: { getPresignedUrl: jest.Mock };
+
+  beforeEach(async () => {
+    prisma = { reportGeneration: { findUnique: jest.fn() } };
+    storage = { getPresignedUrl: jest.fn().mockResolvedValue('https://example.com/signed') };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ReportsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: StorageService, useValue: storage },
+        { provide: DocxManipulatorService, useValue: {} },
+        { provide: ConfigService, useValue: { get: jest.fn() } },
+        { provide: AuditService, useValue: {} },
+        { provide: getQueueToken(REPORT_GENERATION_QUEUE), useValue: makeQueueMock() },
+      ],
+    }).compile();
+    service = moduleRef.get(ReportsService);
+  });
+
+  it('throws NotFoundException when the report does not exist', async () => {
+    prisma.reportGeneration.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.getReportGenerationStatus('r1', actor(UserRole.ADMIN, 'admin1')),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('rejects a Tester polling a report that belongs to a project they are not assigned to (IDOR guard)', async () => {
+    prisma.reportGeneration.findUnique.mockResolvedValue({
+      id: 'r1',
+      status: 'COMPLETED',
+      docxPath: 'reports/p1/1_report.docx',
+      project: { testerId: 'someone-else' },
+    });
+
+    await expect(
+      service.getReportGenerationStatus('r1', actor(UserRole.TESTER, 'tester-1')),
+    ).rejects.toThrow(NotFoundException);
+    expect(storage.getPresignedUrl).not.toHaveBeenCalled();
+  });
+
+  it('allows the assigned tester to poll their own project\'s report', async () => {
+    prisma.reportGeneration.findUnique.mockResolvedValue({
+      id: 'r1',
+      status: 'COMPLETED',
+      version: '1.0',
+      error: null,
+      docxPath: 'reports/p1/1_report.docx',
+      project: { testerId: 'tester-1' },
+    });
+
+    const result = await service.getReportGenerationStatus('r1', actor(UserRole.TESTER, 'tester-1'));
+
+    expect(result.status).toBe('COMPLETED');
+    expect(result.docxUrl).toBe('https://example.com/signed');
+  });
+
+  it('allows an Admin to poll any project\'s report', async () => {
+    prisma.reportGeneration.findUnique.mockResolvedValue({
+      id: 'r1',
+      status: 'PENDING',
+      version: '1.0',
+      error: null,
+      docxPath: null,
+      project: { testerId: 'someone-else' },
+    });
+
+    const result = await service.getReportGenerationStatus('r1', actor(UserRole.ADMIN, 'admin1'));
+
+    expect(result.status).toBe('PENDING');
+    expect(result.docxUrl).toBeNull();
+  });
+});

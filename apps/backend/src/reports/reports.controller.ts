@@ -139,8 +139,8 @@ export class ReportsController {
 
   @Get('generate/:id/status')
   @ApiOperation({ summary: 'Poll a queued/in-progress report generation for completion' })
-  async getGenerationStatus(@Param('id') id: string) {
-    return this.reportsService.getReportGenerationStatus(id);
+  async getGenerationStatus(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.reportsService.getReportGenerationStatus(id, user);
   }
 
   @Get('preflight/:projectId')

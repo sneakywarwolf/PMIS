@@ -499,9 +499,15 @@ export class ReportsService {
   }
 
   /** Poll target for the frontend while a queued generation is in progress. */
-  async getReportGenerationStatus(reportGenerationId: string) {
-    const report = await this.prisma.reportGeneration.findUnique({ where: { id: reportGenerationId } });
+  async getReportGenerationStatus(reportGenerationId: string, user: User) {
+    const report = await this.prisma.reportGeneration.findUnique({
+      where: { id: reportGenerationId },
+      include: { project: { select: { testerId: true } } },
+    });
     if (!report) {
+      throw new NotFoundException('Report not found');
+    }
+    if (user.role === UserRole.TESTER && report.project.testerId !== user.id) {
       throw new NotFoundException('Report not found');
     }
     const fileName = report.docxPath ? report.docxPath.split('/').pop()?.replace(/^\d+_/, '') : null;
