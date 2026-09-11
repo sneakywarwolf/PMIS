@@ -247,7 +247,14 @@ export class DocxManipulatorService {
 
     // Step 4: fill the template's own findings tables
     if (findings.length > 0) {
-      this.fillFindingsTables(doc, findings, imageRegistry, severityColors);
+      const unresolvedFindingParams = new Set<string>();
+      this.fillFindingsTables(doc, findings, imageRegistry, severityColors, unresolvedFindingParams);
+      if (unresolvedFindingParams.size > 0) {
+        throw new Error(
+          `Cannot resolve finding-table parameter(s): ${[...unresolvedFindingParams].join(', ')}. ` +
+          `Add support for them in the finding parameter registry or remove the placeholder from the template.`,
+        );
+      }
     }
 
     // Step 5: serialize back
@@ -441,6 +448,7 @@ export class DocxManipulatorService {
     findings: FindingData[],
     imageRegistry: Map<string, RegisteredImage>,
     severityColors: Record<string, string>,
+    unresolved: Set<string>,
   ): void {
     const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
     if (!body) return;
@@ -463,7 +471,7 @@ export class DocxManipulatorService {
     const summaryTable = tables.find(isSummary);
     if (summaryTable) {
       this.widenFirstColumn(summaryTable);
-      this.fillSummaryTable(doc, summaryTable, findings, severityColors);
+      this.fillSummaryTable(doc, summaryTable, findings, severityColors, unresolved);
     }
 
     // Templates ship with one detailed-findings table PER finding slot
@@ -493,7 +501,7 @@ export class DocxManipulatorService {
         tbl = pristine.cloneNode(true) as Element;
         pageBreak.parentNode?.insertBefore(tbl, pageBreak.nextSibling);
       }
-      this.fillDetailedBlock(doc, tbl, finding, imageRegistry, severityColors);
+      this.fillDetailedBlock(doc, tbl, finding, imageRegistry, severityColors, unresolved);
       anchor = tbl;
     });
 
@@ -569,7 +577,7 @@ export class DocxManipulatorService {
   }
 
   /** Summary of Findings: S.No | Findings | CVSS Base Score | Severity | Status */
-  private fillSummaryTable(doc: Document, table: Element, findings: FindingData[], severityColors: Record<string, string>): void {
+  private fillSummaryTable(doc: Document, table: Element, findings: FindingData[], severityColors: Record<string, string>, unresolved: Set<string>): void {
     const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
     const placeholderRows = rows.filter((r) => {
       const t = this.getElementText(r).toLowerCase();
@@ -582,7 +590,7 @@ export class DocxManipulatorService {
 
     for (const finding of findings) {
       const clone = templateRow.cloneNode(true) as Element;
-      this.fillSummaryRow(clone, finding, severityColors);
+      this.fillSummaryRow(clone, finding, severityColors, unresolved);
       table.insertBefore(clone, anchor);
     }
 
@@ -597,8 +605,12 @@ export class DocxManipulatorService {
    * document, just resolved against this one finding instead of the
    * project. No row-position or literal-text heuristics.
    */
-  private fillSummaryRow(row: Element, finding: FindingData, severityColors: Record<string, string>): void {
-    const resolver = (n: string) => this.resolveFindingParameter(n, finding);
+  private fillSummaryRow(row: Element, finding: FindingData, severityColors: Record<string, string>, unresolved: Set<string>): void {
+    const resolver = (n: string) => {
+      const v = this.resolveFindingParameter(n, finding);
+      if (v === undefined) unresolved.add(n);
+      return v;
+    };
     const cells = Array.from(row.getElementsByTagNameNS(this.W_NS, 'tc'));
     for (const cell of cells) {
       const paragraphs = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
@@ -623,6 +635,7 @@ export class DocxManipulatorService {
     finding: FindingData,
     imageRegistry: Map<string, RegisteredImage>,
     severityColors: Record<string, string>,
+    unresolved: Set<string>,
   ): void {
     const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
     const isPocStepRow = (row: Element) => {
@@ -635,7 +648,7 @@ export class DocxManipulatorService {
 
     for (const row of rows) {
       if (!isPocStepRow(row)) {
-        this.fillDetailedRow(row, finding, severityColors);
+        this.fillDetailedRow(row, finding, severityColors, unresolved);
         continue;
       }
 
@@ -673,8 +686,12 @@ export class DocxManipulatorService {
    * finding-table cell must now contain an explicit {Finding Title},
    * {Severity}, {CVSS Vector}, {CVE/CWE}, etc. placeholder to be filled.
    */
-  private fillDetailedRow(row: Element, finding: FindingData, severityColors: Record<string, string>): void {
-    const resolver = (n: string) => this.resolveFindingParameter(n, finding);
+  private fillDetailedRow(row: Element, finding: FindingData, severityColors: Record<string, string>, unresolved: Set<string>): void {
+    const resolver = (n: string) => {
+      const v = this.resolveFindingParameter(n, finding);
+      if (v === undefined) unresolved.add(n);
+      return v;
+    };
     const cells = Array.from(row.getElementsByTagNameNS(this.W_NS, 'tc'));
     for (const cell of cells) {
       const paragraphs = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];

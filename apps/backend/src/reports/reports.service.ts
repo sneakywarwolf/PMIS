@@ -617,7 +617,16 @@ export class ReportsService {
         throw new BadRequestException('The template used for this report generation no longer exists.');
       }
 
-      const templateBuffer = await this.storage.getFile(template.filePath);
+      let templateBuffer: Buffer;
+      try {
+        templateBuffer = await this.storage.getFile(template.filePath);
+      } catch (err: any) {
+        // Never substitute another template on a load failure — fail loud
+        // and name exactly which template/file could not be read.
+        throw new BadRequestException(
+          `Configured template "${template.name}" (id ${template.id}) could not be loaded from storage (${template.filePath}): ${err?.message || 'unknown error'}`,
+        );
+      }
 
       const sortedFindings = project.findings
         .map((f) => ({
