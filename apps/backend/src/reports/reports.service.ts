@@ -692,7 +692,7 @@ export class ReportsService {
       this.logger.log(`Generating report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
       const reportBuffer = await this.docxManipulator.generateReport(
         templateBuffer,
-        this.resolveMappedFieldsOrThrow(template, project)
+        this.buildMappedFieldRules(template, project)
           .concat(this.buildFieldRules(project))
           .concat(this.buildCustomFieldRules(project)),
         findingsData,
@@ -879,17 +879,19 @@ export class ReportsService {
    * happen to fuzzy-match the same generic rule can still resolve
    * independently once an admin has mapped them.
    */
+  /**
+   * Automatic/admin-mapped resolution is best-effort: an unresolved mapping
+   * is a valid state (left as literal template text, same as any other
+   * unmapped {Parameter}), never a reason to block generation. Logged for
+   * developer diagnostics only — never surfaced to users or thrown.
+   */
   private buildMappedFieldRules(template: any, project: any): FieldRule[] {
-    return this.resolveMappedFields(template, project).rules;
-  }
-
-  /** Same as buildMappedFieldRules, but fails loudly instead of silently dropping an unresolved mapping. */
-  private resolveMappedFieldsOrThrow(template: any, project: any): FieldRule[] {
     const { rules, unresolved } = this.resolveMappedFields(template, project);
     if (unresolved.length > 0) {
-      const detail = unresolved.map((u) => `"${u.field}" (mapped to ${u.parameter})`).join(', ');
-      throw new BadRequestException(
-        `Cannot resolve mapped parameter for: ${detail}. Fill in the missing project data or remap the field in Template Mapping.`,
+      this.logger.debug(
+        `Unresolved mapped parameter(s) left as literal template text: ${unresolved
+          .map((u) => `"${u.field}" (${u.parameter})`)
+          .join(', ')}`,
       );
     }
     return rules;

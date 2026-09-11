@@ -247,13 +247,13 @@ export class DocxManipulatorService {
 
     // Step 4: fill the template's own findings tables
     if (findings.length > 0) {
+      // Unresolved finding-table {Parameter}s are left as literal text —
+      // same as any other unmapped placeholder — never a reason to block
+      // generation. Logged for developer diagnostics only.
       const unresolvedFindingParams = new Set<string>();
       this.fillFindingsTables(doc, findings, imageRegistry, severityColors, unresolvedFindingParams);
       if (unresolvedFindingParams.size > 0) {
-        throw new Error(
-          `Cannot resolve finding-table parameter(s): ${[...unresolvedFindingParams].join(', ')}. ` +
-          `Add support for them in the finding parameter registry or remove the placeholder from the template.`,
-        );
+        this.logger.debug(`Unresolved finding-table parameter(s) left as literal: ${[...unresolvedFindingParams].join(', ')}`);
       }
     }
 
