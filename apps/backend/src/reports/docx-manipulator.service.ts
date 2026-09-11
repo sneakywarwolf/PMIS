@@ -416,7 +416,9 @@ export class DocxManipulatorService {
       let target: { start: number; end: number; value: string } | null = null;
       while ((m = re.exec(fullText))) {
         const raw = m[1].trim();
-        const value = resolveValue(this.normalizeFieldName(raw));
+        const normalizedName = this.normalizeFieldName(raw);
+        if (!raw || !normalizedName) continue; // "{}" / punctuation-only — not a real placeholder
+        const value = resolveValue(normalizedName);
         if (value !== undefined) {
           target = { start: m.index, end: m.index + m[0].length, value };
           break;
@@ -732,14 +734,19 @@ export class DocxManipulatorService {
       cvss: cvssCombined,
       cve_cwe: cveCwe,
       cve_id: finding.cveId || 'N/A',
+      cve: finding.cveId || 'N/A',
       cwe_id: finding.cweId || 'N/A',
+      cwe: finding.cweId || 'N/A',
       description: finding.description || 'N/A',
       vulnerability_description: finding.description || 'N/A',
       impact: finding.impact || 'N/A',
+      vulnerability_impact: finding.impact || 'N/A',
       remediation: finding.remediation || 'N/A',
+      vulnerability_remediation: finding.remediation || 'N/A',
       reference: finding.references || 'N/A',
       references: finding.references || 'N/A',
       reference_link: finding.references || 'N/A',
+      vulnerability_references: finding.references || 'N/A',
       affected: finding.affectedInstances || 'N/A',
       affected_url: finding.affectedInstances || 'N/A',
       affected_instances: finding.affectedInstances || 'N/A',
