@@ -315,12 +315,13 @@ export class ReportsService {
     }
 
     // Activating a template replaces whatever was active for the same
-    // category + subType — the old one is deleted outright (file + row +
-    // its field mappings), not just deactivated. Existing ReportGeneration
-    // rows and Project.templateId pointers are FK-SetNull, so already
-    // generated reports and their stored docx/pdf files are never touched;
-    // projects that had pinned the deleted template fall back to whichever
-    // template is active for their category/subType at their next generation.
+    // category + subType. Any project explicitly pinned to the template(s)
+    // being replaced is rebound to the new one FIRST (so Template Mapping
+    // and future generation immediately resolve against the new template's
+    // own mappings), then the old template is deleted outright — file, row,
+    // and its field mappings. Existing ReportGeneration rows are
+    // FK-SetNull, so already generated reports and their stored docx/pdf
+    // files are never touched by any of this.
     const replaced = await this.prisma.reportTemplate.findMany({
       where: {
         category: template.category,
@@ -330,6 +331,13 @@ export class ReportsService {
       },
     });
     for (const old of replaced) {
+      const rebound = await this.prisma.project.updateMany({
+        where: { templateId: old.id },
+        data: { templateId: id },
+      });
+      if (rebound.count > 0) {
+        this.logger.log(`Rebound ${rebound.count} project(s) from replaced template ${old.id} to ${id}`);
+      }
       await this.storage.deleteFile(old.filePath).catch((err) =>
         this.logger.warn(`Failed to delete replaced template file ${old.filePath}: ${err?.message}`),
       );
