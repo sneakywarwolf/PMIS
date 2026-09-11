@@ -760,9 +760,8 @@ function TemplateUploader() {
         </p>
         <p className="text-xs text-amber-400/90 mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
           <strong>How field detection works:</strong> the parser only picks up placeholders written in
-          curly braces, e.g. <code>{'{Client Name}'}</code> or <code>{'{Start Date}'}</code>. Yellow
-          highlighting is <em>not</em> used for detection anymore — braces are all that matter, anywhere
-          in the document including tables and the findings table. Use one pair of braces per field (e.g.{' '}
+          curly braces, e.g. <code>{'{Client Name}'}</code> or <code>{'{Start Date}'}</code>, anywhere in
+          the document including tables and the findings table. Use one pair of braces per field (e.g.{' '}
           <code>{'{Start Date}'}</code> and <code>{'{End Date}'}</code> as two separate placeholders, not
           one combined one). Text without braces is left completely untouched and won&apos;t be treated
           as a field, even if it looks like one (e.g. <code>Re-Assessment Date: NA</code> stays static).
