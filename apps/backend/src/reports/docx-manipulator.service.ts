@@ -116,9 +116,13 @@ export class DocxManipulatorService {
     const paragraphs = Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
     const fields: Map<string, TemplateField> = new Map();
 
+    // Extraction is read-only reporting of what's literally in the
+    // template, so — unlike the generation-time replacement pass — it
+    // scans everywhere, including the findings/contact tables. Those
+    // tables are populated by their own dedicated logic at generation
+    // time, but their {Parameter} placeholders still need to show up in
+    // Template Mapping for Admin visibility.
     for (const para of paragraphs) {
-      if (this.isInsideTable(para)) continue;
-
       const fullText = this.getParagraphRunSpans(para).map((s) => s.text).join('');
       const re = new RegExp(this.PLACEHOLDER_RE);
       let match: RegExpExecArray | null;
