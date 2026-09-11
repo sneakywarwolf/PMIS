@@ -333,12 +333,28 @@ export class DocxManipulatorService {
     };
   }
 
-  /** True if this node sits anywhere inside a table — used to keep {Parameter} replacement fully out of the findings/summary/contact tables. */
+  /**
+   * True only for the specific tables the existing pipeline owns: the
+   * findings/summary tables and the AVP/TL/Tester contact table — detected
+   * with the exact same marker text fillFindingsTables/fillContactTable
+   * already key off. A plain layout table (e.g. a cover-page info grid
+   * using {Client Name}-style placeholders) is NOT protected, so its
+   * placeholders are still extracted/replaced normally.
+   */
+  private isProtectedTable(table: Element): boolean {
+    const text = this.getElementText(table).toLowerCase();
+    const isDetailed = text.includes('{vulnerability name}') && text.includes('cve/cwe');
+    const isSummary = !isDetailed && text.includes('{vulnerability name}') && text.includes('{score value}');
+    const isContact = text.includes('avp name') && text.includes('team lead name') && text.includes('tester name');
+    return isDetailed || isSummary || isContact;
+  }
+
+  /** True if this node sits inside one of the protected tables above. */
   private isInsideTable(node: Node): boolean {
     let cur: Node | null = node.parentNode;
     while (cur) {
       const localName = (cur as any).localName || (cur as Element).tagName;
-      if (localName === 'tbl' || localName === 'w:tbl') return true;
+      if (localName === 'tbl' || localName === 'w:tbl') return this.isProtectedTable(cur as Element);
       cur = cur.parentNode;
     }
     return false;
