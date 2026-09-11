@@ -161,10 +161,10 @@ export class DocxManipulatorService {
       const table = tables.item(t);
       if (!table) continue;
       const text = this.getElementText(table).toLowerCase();
-      const isDetailed = text.includes('cve/cwe');
-      const isSummary =
-        !isDetailed && text.includes('{vulnerability name}') && text.includes('{score value}');
-      if (isDetailed && text.includes('{vulnerability name}')) hasDetailedTable = true;
+      const hasTitle = text.includes('{vulnerability name}') || text.includes('{finding title}');
+      const isDetailed = text.includes('cve/cwe') || text.includes('{cvss vector}');
+      const isSummary = !isDetailed && hasTitle && (text.includes('{score value}') || text.includes('{cvss score}'));
+      if (isDetailed && hasTitle) hasDetailedTable = true;
       if (isSummary) hasSummaryTable = true;
     }
 
@@ -343,8 +343,10 @@ export class DocxManipulatorService {
    */
   private isProtectedTable(table: Element): boolean {
     const text = this.getElementText(table).toLowerCase();
-    const isDetailed = text.includes('{vulnerability name}') && text.includes('cve/cwe');
-    const isSummary = !isDetailed && text.includes('{vulnerability name}') && text.includes('{score value}');
+    const hasTitle = text.includes('{vulnerability name}') || text.includes('{finding title}');
+    const hasCveCwe = text.includes('cve/cwe') || text.includes('{cve/cwe}') || text.includes('{cvss vector}');
+    const isDetailed = hasTitle && hasCveCwe;
+    const isSummary = !isDetailed && hasTitle && (text.includes('{score value}') || text.includes('{cvss score}'));
     const isContact = text.includes('avp name') && text.includes('team lead name') && text.includes('tester name');
     return isDetailed || isSummary || isContact;
   }
@@ -442,13 +444,16 @@ export class DocxManipulatorService {
     // Snapshot the table list — we mutate the tree while processing
     const tables = Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[];
 
+    const hasTitle = (x: string) => x.includes('{vulnerability name}') || x.includes('{finding title}');
+    const hasScore = (x: string) => x.includes('{score value}') || x.includes('{cvss score}');
+    const hasCveCwe = (x: string) => x.includes('cve/cwe') || x.includes('{cve/cwe}') || x.includes('{cvss vector}');
     const isDetailed = (t: Element) => {
       const x = this.getElementText(t).toLowerCase();
-      return x.includes('{vulnerability name}') && x.includes('cve/cwe');
+      return hasTitle(x) && hasCveCwe(x);
     };
     const isSummary = (t: Element) => {
       const x = this.getElementText(t).toLowerCase();
-      return x.includes('{vulnerability name}') && x.includes('{score value}') && !x.includes('cve/cwe');
+      return hasTitle(x) && hasScore(x) && !hasCveCwe(x);
     };
 
     const summaryTable = tables.find(isSummary);
@@ -562,9 +567,10 @@ export class DocxManipulatorService {
   /** Summary of Findings: S.No | Findings | CVSS Base Score | Severity | Status */
   private fillSummaryTable(doc: Document, table: Element, findings: FindingData[], severityColors: Record<string, string>): void {
     const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
-    const placeholderRows = rows.filter((r) =>
-      this.getElementText(r).toLowerCase().includes('{vulnerability name}'),
-    );
+    const placeholderRows = rows.filter((r) => {
+      const t = this.getElementText(r).toLowerCase();
+      return t.includes('{vulnerability name}') || t.includes('{finding title}');
+    });
     if (placeholderRows.length === 0) return;
 
     const templateRow = placeholderRows[0];
@@ -581,24 +587,23 @@ export class DocxManipulatorService {
     }
   }
 
+  /**
+   * Fills a summary row purely by resolving whatever {Parameter}
+   * placeholders its cells contain — same engine as the rest of the
+   * document, just resolved against this one finding instead of the
+   * project. No row-position or literal-text heuristics.
+   */
   private fillSummaryRow(row: Element, finding: FindingData, severityColors: Record<string, string>): void {
+    const resolver = (n: string) => this.resolveFindingParameter(n, finding);
     const cells = Array.from(row.getElementsByTagNameNS(this.W_NS, 'tc'));
     for (const cell of cells) {
-      const text = this.getElementText(cell).trim();
-      const lower = text.toLowerCase();
-
-      if (lower.includes('{vulnerability name}')) {
-        this.replaceCellValue(cell, finding.title);
-      } else if (lower.includes('{score value}')) {
-        this.replaceCellValue(cell, finding.cvssScore?.toString() ?? 'N/A');
-      } else if (/^\d+\.?$/.test(text)) {
-        this.replaceCellValue(cell, `${finding.no}.`);
-      } else if (['critical', 'high', 'medium', 'low', 'info'].includes(lower)) {
-        this.replaceCellValue(cell, finding.severity);
+      const paragraphs = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+      for (const para of paragraphs) {
+        this.replacePlaceholdersInParagraph(para, resolver);
+      }
+      if (this.getElementText(cell).trim() === finding.severity) {
         const color = severityColors[finding.severity];
         if (color) this.setCellShading(cell, color);
-      } else if (['open', 'fixed', 'closed', 'accepted risk'].includes(lower)) {
-        this.replaceCellValue(cell, finding.reportStatus || 'Open');
       }
     }
   }
@@ -618,7 +623,10 @@ export class DocxManipulatorService {
     const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
     const isPocStepRow = (row: Element) => {
       const text = this.getElementText(row).toLowerCase();
-      return text.includes('poc reproduction') || text.includes('poc snapshot') || /step\s*1/.test(text);
+      return (
+        text.includes('poc reproduction') || text.includes('poc snapshot') || /step\s*1/.test(text) ||
+        text.includes('{steps}') || text.includes('{poc}')
+      );
     };
 
     for (const row of rows) {
@@ -653,52 +661,74 @@ export class DocxManipulatorService {
     }
   }
 
+  /**
+   * Fills a detailed-block row purely by resolving whatever {Parameter}
+   * placeholders its cells contain — the same engine used for the rest of
+   * the document and the summary table, just resolved against this one
+   * finding. Replaces the old row-label/digit-position heuristics: a
+   * finding-table cell must now contain an explicit {Finding Title},
+   * {Severity}, {CVSS Vector}, {CVE/CWE}, etc. placeholder to be filled.
+   */
   private fillDetailedRow(row: Element, finding: FindingData, severityColors: Record<string, string>): void {
+    const resolver = (n: string) => this.resolveFindingParameter(n, finding);
     const cells = Array.from(row.getElementsByTagNameNS(this.W_NS, 'tc'));
-    if (cells.length === 0) return;
-
-    // Title row: "1." | "{Vulnerability Name}"
-    if (this.getElementText(row).toLowerCase().includes('{vulnerability name}')) {
-      if (cells[0] && /^\d+\.?$/.test(this.getElementText(cells[0]).trim())) {
-        this.replaceCellValue(cells[0], `${finding.no}.`);
+    for (const cell of cells) {
+      const paragraphs = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+      for (const para of paragraphs) {
+        this.replacePlaceholdersInParagraph(para, resolver);
       }
-      if (cells[1]) this.replaceCellValue(cells[1], finding.title);
-      return;
+      if (this.getElementText(cell).trim() === finding.severity) {
+        const color = severityColors[finding.severity];
+        if (color) this.setCellShading(cell, color);
+      }
     }
+  }
 
-    const label = this.getElementText(cells[0]).trim().toLowerCase().replace(/:$/, '');
-    const valueCell = cells[1];
-    if (!valueCell) return;
-
-    const cvssText = finding.cvssScore != null
+  /**
+   * Per-finding Application Parameter Registry — the finding-scoped
+   * counterpart to reports.service.ts's project/report parameter
+   * resolver. FindingData already carries every value a template could
+   * need, so resolution here is a straightforward canonical-name lookup;
+   * several aliases are accepted per parameter to match the naming
+   * variants used across existing and new templates.
+   */
+  private resolveFindingParameter(normalizedName: string, finding: FindingData): string | undefined {
+    const cvssCombined = finding.cvssScore != null
       ? `${finding.cvssScore}${finding.cvssVector ? ` | ${finding.cvssVector}` : ''}`
       : 'N/A';
     const cveCwe = [finding.cveId, finding.cweId].filter(Boolean).join(' / ') || 'N/A';
 
-    if (label.includes('severity')) {
-      this.replaceCellValue(valueCell, finding.severity);
-      const color = severityColors[finding.severity];
-      if (color) this.setCellShading(valueCell, color);
-    } else if (label.includes('cvss')) {
-      this.replaceCellValue(valueCell, cvssText);
-    } else if (label.includes('cve/cwe')) {
-      this.replaceCellValue(valueCell, cveCwe);
-    } else if (label.includes('affected')) {
-      this.replaceCellValue(valueCell, finding.affectedInstances || 'N/A');
-    } else if (label.includes('authentication')) {
-      this.replaceCellValue(valueCell, finding.authenticationType || 'N/A');
-    } else if (label.includes('vulnerability dependency')) {
-      this.replaceCellValue(valueCell, finding.vulnerabilityDependency || 'N/A');
-    } else if (label.includes('description')) {
-      this.replaceCellValue(valueCell, finding.description || 'N/A');
-    } else if (label.includes('impact')) {
-      this.replaceCellValue(valueCell, finding.impact || 'N/A');
-    } else if (label.includes('remediation')) {
-      this.replaceCellValue(valueCell, finding.remediation || 'N/A');
-    } else if (label.includes('reference')) {
-      this.replaceCellValue(valueCell, finding.references || 'N/A');
-    }
-    // Rows like the "POC" banner row are left untouched
+    const registry: Record<string, string> = {
+      s_no: `${finding.no}.`,
+      finding_no: `${finding.no}.`,
+      sno: `${finding.no}.`,
+      finding_title: finding.title,
+      vulnerability_name: finding.title,
+      severity: finding.severity,
+      cvss_score: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
+      score_value: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
+      cvss_vector: finding.cvssVector || 'N/A',
+      cvss: cvssCombined,
+      cve_cwe: cveCwe,
+      cve_id: finding.cveId || 'N/A',
+      cwe_id: finding.cweId || 'N/A',
+      description: finding.description || 'N/A',
+      vulnerability_description: finding.description || 'N/A',
+      impact: finding.impact || 'N/A',
+      remediation: finding.remediation || 'N/A',
+      reference: finding.references || 'N/A',
+      references: finding.references || 'N/A',
+      reference_link: finding.references || 'N/A',
+      affected: finding.affectedInstances || 'N/A',
+      affected_url: finding.affectedInstances || 'N/A',
+      affected_instances: finding.affectedInstances || 'N/A',
+      authentication: finding.authenticationType || 'N/A',
+      authentication_type: finding.authenticationType || 'N/A',
+      vulnerability_dependency: finding.vulnerabilityDependency || 'N/A',
+      status: finding.reportStatus || 'Open',
+      report_status: finding.reportStatus || 'Open',
+    };
+    return registry[normalizedName];
   }
 
   // ---------------------------------------------------------------------------
