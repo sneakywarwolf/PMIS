@@ -97,50 +97,45 @@ export class DocxManipulatorService {
   private readonly PIC_NS = 'http://schemas.openxmlformats.org/drawingml/2006/picture';
   private readonly RELS_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
   private readonly CT_NS = 'http://schemas.openxmlformats.org/package/2006/content-types';
+  /** Matches a single {Parameter} placeholder; braces don't nest so this stays non-greedy without lookahead tricks. */
+  private readonly PLACEHOLDER_RE = /\{([^{}]+)\}/g;
 
   // ---------------------------------------------------------------------------
   // Template field extraction (upload flow)
   // ---------------------------------------------------------------------------
 
   /**
-   * Extract yellow-highlighted fields from a DOCX buffer.
-   * Consecutive highlighted runs are merged first, because Word splits
-   * placeholders such as "{Client Name, Location}" into several runs.
+   * Extract `{Parameter}` placeholders from a DOCX buffer. Parameter
+   * detection no longer depends on yellow highlighting — only literal
+   * {...} text counts. Scoped to paragraphs outside any table, so this
+   * never sees (or interferes with) the findings/summary/contact tables,
+   * which keep their own dedicated, highlight-based cell-filling logic.
    */
-  async extractYellowFields(docxBuffer: Buffer): Promise<TemplateField[]> {
+  async extractPlaceholderFields(docxBuffer: Buffer): Promise<TemplateField[]> {
     const { doc } = await this.loadDocument(docxBuffer);
-    this.mergeAllHighlightedRuns(doc);
-
-    const paragraphs = doc.getElementsByTagNameNS(this.W_NS, 'p');
+    const paragraphs = Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
     const fields: Map<string, TemplateField> = new Map();
 
-    for (let i = 0; i < paragraphs.length; i++) {
-      const para = paragraphs.item(i);
-      if (!para) continue;
+    for (const para of paragraphs) {
+      if (this.isInsideTable(para)) continue;
 
-      const runs = para.getElementsByTagNameNS(this.W_NS, 'r');
-      for (let j = 0; j < runs.length; j++) {
-        const run = runs.item(j);
-        if (!run) continue;
+      const fullText = this.getParagraphRunSpans(para).map((s) => s.text).join('');
+      const re = new RegExp(this.PLACEHOLDER_RE);
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(fullText))) {
+        const raw = match[1].trim();
+        if (!raw) continue;
 
-        const rPr = this.getFirstChildByTagName(run, 'rPr');
-        if (!rPr || !this.hasYellowHighlight(rPr)) continue;
-
-        const cleanedText = this.getRunText(run).trim();
-        if (!cleanedText || cleanedText.length < 2) continue;
-        // Skip runs that are only braces/punctuation — fragments, not fields
-        if (/^[{}\s.,/\\()\[\]]+$/.test(cleanedText)) continue;
-
-        const normalizedName = this.normalizeFieldName(cleanedText);
+        const normalizedName = this.normalizeFieldName(raw);
         if (!normalizedName || fields.has(normalizedName)) continue;
 
         fields.set(normalizedName, {
           id: `field_${normalizedName}`,
-          name: cleanedText,
+          name: raw,
           normalizedName,
-          category: this.categorizeField(cleanedText),
-          description: this.generateDescription(cleanedText),
-          isRepeatable: this.isRepeatableField(cleanedText),
+          category: this.categorizeField(raw),
+          description: this.generateDescription(raw),
+          isRepeatable: this.isRepeatableField(raw),
         });
       }
     }
@@ -153,7 +148,7 @@ export class DocxManipulatorService {
    * structural checks on the mandatory findings tables.
    */
   async analyzeTemplate(docxBuffer: Buffer): Promise<TemplateAnalysis> {
-    const fields = await this.extractYellowFields(docxBuffer);
+    const fields = await this.extractPlaceholderFields(docxBuffer);
     const { doc } = await this.loadDocument(docxBuffer);
     this.mergeAllHighlightedRuns(doc);
 
@@ -240,8 +235,11 @@ export class DocxManipulatorService {
       this.fillContactTable(doc, contacts);
     }
 
-    // Step 3: replace project-info / contact / date fields via rules
-    this.replaceFieldsWithRules(doc, rules);
+    // Step 3: replace {Parameter} placeholders (project-info / contact / date)
+    // using the same rule set and match semantics as before — only the
+    // placeholder syntax and replacement precision changed, not the
+    // rule-resolution priority (admin-mapped > generic > custom).
+    this.replacePlaceholders(doc, this.buildResolver(rules));
 
     // Step 4: fill the template's own findings tables
     if (findings.length > 0) {
@@ -317,61 +315,99 @@ export class DocxManipulatorService {
   // Simple field replacement
   // ---------------------------------------------------------------------------
 
-  private replaceFieldsWithRules(doc: Document, rules: FieldRule[]): void {
-    const paragraphs = doc.getElementsByTagNameNS(this.W_NS, 'p');
+  /**
+   * Builds a normalizedName -> value lookup from the existing FieldRule[]
+   * (admin-mapped rules first, then generic, then custom — order set by the
+   * caller in reports.service.ts, untouched). Matching predicate is copied
+   * verbatim from the old highlight-based replacer so resolution behavior
+   * is unchanged; only the placeholder syntax it's applied to is new.
+   */
+  private buildResolver(rules: FieldRule[]): (normalizedName: string) => string | undefined {
+    return (normalizedName: string) => {
+      const rule = rules.find((r) =>
+        r.requireAll
+          ? r.match.every((m) => normalizedName.includes(m))
+          : r.match.some((m) => normalizedName.includes(m)),
+      );
+      return rule ? rule.value : undefined;
+    };
+  }
 
-    for (let i = 0; i < paragraphs.length; i++) {
-      const para = paragraphs.item(i);
-      if (!para) continue;
-
-      const runs = Array.from(para.getElementsByTagNameNS(this.W_NS, 'r'));
-      for (const run of runs) {
-        const rPr = this.getFirstChildByTagName(run, 'rPr');
-        if (!rPr || !this.hasYellowHighlight(rPr)) continue;
-
-        const currentText = this.getRunText(run).trim();
-        if (!currentText) continue;
-        const normalized = this.normalizeFieldName(currentText);
-
-        const rule = rules.find((r) =>
-          r.requireAll
-            ? r.match.every((m) => normalized.includes(m))
-            : r.match.some((m) => normalized.includes(m)),
-        );
-        if (rule) {
-          this.setRunText(run, rule.value);
-          this.removeYellowHighlight(rPr);
-          this.clearBraceResidue(run);
-        }
-      }
+  /** True if this node sits anywhere inside a table — used to keep {Parameter} replacement fully out of the findings/summary/contact tables. */
+  private isInsideTable(node: Node): boolean {
+    let cur: Node | null = node.parentNode;
+    while (cur) {
+      const localName = (cur as any).localName || (cur as Element).tagName;
+      if (localName === 'tbl' || localName === 'w:tbl') return true;
+      cur = cur.parentNode;
     }
+    return false;
+  }
+
+  /** Direct <w:r> children of a paragraph with each run's text and its [start,end) offset in the paragraph's concatenated text. */
+  private getParagraphRunSpans(para: Element): { run: Element; text: string; start: number; end: number }[] {
+    const runs: Element[] = [];
+    for (let i = 0; i < para.childNodes.length; i++) {
+      const child = para.childNodes.item(i);
+      const localName = (child as any).localName || (child as Element).tagName;
+      if (localName === 'r' || localName === 'w:r') runs.push(child as Element);
+    }
+    let offset = 0;
+    return runs.map((run) => {
+      const text = this.getRunText(run);
+      const span = { run, text, start: offset, end: offset + text.length };
+      offset += text.length;
+      return span;
+    });
   }
 
   /**
-   * After replacing a placeholder, remove orphaned brace fragments from
-   * adjacent non-highlighted runs (e.g. "{Application Scope" + "}").
+   * Replaces every resolvable {Parameter} placeholder in non-table
+   * paragraphs. Unresolved placeholders (no rule matches) are left as
+   * literal text, untouched — never silently blanked or guessed.
    */
-  private clearBraceResidue(run: Element): void {
-    for (const sibling of [this.adjacentElement(run, 1), this.adjacentElement(run, -1)]) {
-      if (!sibling) continue;
-      const localName = (sibling as any).localName || sibling.tagName;
-      if (localName !== 'r') continue;
-      const rPr = this.getFirstChildByTagName(sibling, 'rPr');
-      if (rPr && this.hasYellowHighlight(rPr)) continue; // never touch other placeholders
-      const text = this.getRunText(sibling).trim();
-      if (text && text.length <= 2 && /^[{}\[\]()<>.,\s]+$/.test(text)) {
-        this.setRunText(sibling, '');
-      }
+  private replacePlaceholders(doc: Document, resolveValue: (normalizedName: string) => string | undefined): void {
+    const paragraphs = Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+    for (const para of paragraphs) {
+      if (this.isInsideTable(para)) continue;
+      this.replacePlaceholdersInParagraph(para, resolveValue);
     }
   }
 
-  private adjacentElement(el: Element, direction: 1 | -1): Element | null {
-    let node = direction === 1 ? el.nextSibling : el.previousSibling;
-    while (node) {
-      if ((node as Element).tagName) return node as Element;
-      node = direction === 1 ? node.nextSibling : node.previousSibling;
+  private replacePlaceholdersInParagraph(para: Element, resolveValue: (n: string) => string | undefined): void {
+    // Re-reads the paragraph's runs fresh each iteration (rather than
+    // caching stale offsets) so multiple placeholders sharing a single run
+    // (e.g. "{Start Date} to {End Date}" typed as one run) resolve
+    // correctly instead of one replacement overwriting another.
+    for (let guard = 0; guard < 100; guard++) {
+      const spans = this.getParagraphRunSpans(para);
+      const fullText = spans.map((s) => s.text).join('');
+      const re = new RegExp(this.PLACEHOLDER_RE);
+      let m: RegExpExecArray | null;
+      let target: { start: number; end: number; value: string } | null = null;
+      while ((m = re.exec(fullText))) {
+        const raw = m[1].trim();
+        const value = resolveValue(this.normalizeFieldName(raw));
+        if (value !== undefined) {
+          target = { start: m.index, end: m.index + m[0].length, value };
+          break;
+        }
+      }
+      if (!target) break; // nothing left to resolve — remaining placeholders stay literal
+
+      const overlapping = spans.filter((s) => s.start < target!.end && s.end > target!.start);
+      if (overlapping.length === 0) break;
+      const first = overlapping[0];
+      const last = overlapping[overlapping.length - 1];
+      const before = first.text.slice(0, Math.max(0, target.start - first.start));
+      const after = last.text.slice(Math.max(0, target.end - last.start));
+      this.setRunText(first.run, before + target.value + after);
+      for (let j = 1; j < overlapping.length; j++) {
+        if (overlapping[j].run !== first.run) {
+          overlapping[j].run.parentNode?.removeChild(overlapping[j].run);
+        }
+      }
     }
-    return null;
   }
 
   // ---------------------------------------------------------------------------
