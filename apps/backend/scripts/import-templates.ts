@@ -93,7 +93,7 @@ async function main() {
 
         // Extract fields
         console.log(`  🔍 Extracting fields from: ${filename}`);
-        const extractedFields = await docxManipulator.extractYellowFields(fileBuffer);
+        const extractedFields = await docxManipulator.extractPlaceholderFields(fileBuffer);
         console.log(`     Found ${extractedFields.length} unique fields`);
 
         // For this import script, we skip MinIO upload and store locally
@@ -118,7 +118,7 @@ async function main() {
             isActive: true,
             uploadedById: admin.id,
             fields: {
-              create: extractedFields.map((field, index) => ({
+              create: extractedFields.map((field: any, index: number) => ({
                 name: field.name,
                 normalizedName: field.normalizedName,
                 category: field.category.toUpperCase().replace(/-/g, '_') as any,

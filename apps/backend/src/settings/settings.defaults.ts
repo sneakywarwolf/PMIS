@@ -45,7 +45,6 @@ export const DEFAULT_SETTINGS = {
   formatting: {
     dateFormat: 'DD/MM/YYYY',
     timeFormat: '24h', // '12h' | '24h'
-    timezone: 'Asia/Kolkata',
     numberFormat: 'en-IN',
   },
 };

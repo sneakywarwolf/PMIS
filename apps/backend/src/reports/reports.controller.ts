@@ -76,12 +76,19 @@ export class ReportsController {
 
   @Put('templates/fields/:fieldId')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Edit a template field label/category/description' })
+  @ApiOperation({ summary: 'Edit a template field label/category/description/parameter mapping' })
   async updateTemplateField(
     @Param('fieldId') fieldId: string,
-    @Body() body: { name?: string; category?: string; description?: string },
+    @Body() body: { name?: string; category?: string; description?: string; mappedParameter?: string | null },
   ) {
     return this.reportsService.updateTemplateField(fieldId, body);
+  }
+
+  @Get('templates/parameters')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'List canonical application parameters a template field can be mapped to' })
+  getTemplateParameters() {
+    return this.reportsService.getTemplateParameters();
   }
 
   @Get('templates/:id/fields')
@@ -114,6 +121,19 @@ export class ReportsController {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
     return this.reportsService.deactivateTemplate(id, adminId, ipAddress, userAgent);
+  }
+
+  @Delete('templates/:id')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Permanently delete an inactive template (file + metadata + mappings)' })
+  async deleteTemplate(
+    @Param('id') id: string,
+    @CurrentUser('id') adminId: string,
+    @Req() request: any,
+  ) {
+    const ipAddress = request.ip || 'unknown';
+    const userAgent = request.headers['user-agent'] || 'unknown';
+    return this.reportsService.deleteTemplate(id, adminId, ipAddress, userAgent);
   }
 
   // Report Generation

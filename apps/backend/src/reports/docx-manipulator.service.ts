@@ -82,6 +82,11 @@ interface RegisteredImage {
 const EMU_PER_PX = 9525; // 96 DPI
 const MAX_IMAGE_WIDTH_EMU = 5029200; // 5.5 inches
 
+/** Fallback if the caller doesn't pass admin-configured colors (matches settings.defaults.ts). */
+const DEFAULT_SEVERITY_COLORS: Record<string, string> = {
+  Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#3b82f6', Info: '#6b7280',
+};
+
 @Injectable()
 export class DocxManipulatorService {
   private readonly logger = new Logger(DocxManipulatorService.name);
@@ -92,50 +97,49 @@ export class DocxManipulatorService {
   private readonly PIC_NS = 'http://schemas.openxmlformats.org/drawingml/2006/picture';
   private readonly RELS_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
   private readonly CT_NS = 'http://schemas.openxmlformats.org/package/2006/content-types';
+  /** Matches a single {Parameter} placeholder; braces don't nest so this stays non-greedy without lookahead tricks. */
+  private readonly PLACEHOLDER_RE = /\{([^{}]+)\}/g;
 
   // ---------------------------------------------------------------------------
   // Template field extraction (upload flow)
   // ---------------------------------------------------------------------------
 
   /**
-   * Extract yellow-highlighted fields from a DOCX buffer.
-   * Consecutive highlighted runs are merged first, because Word splits
-   * placeholders such as "{Client Name, Location}" into several runs.
+   * Extract `{Parameter}` placeholders from a DOCX buffer. Parameter
+   * detection no longer depends on yellow highlighting — only literal
+   * {...} text counts. Scoped to paragraphs outside any table, so this
+   * never sees (or interferes with) the findings/summary/contact tables,
+   * which keep their own dedicated, highlight-based cell-filling logic.
    */
-  async extractYellowFields(docxBuffer: Buffer): Promise<TemplateField[]> {
+  async extractPlaceholderFields(docxBuffer: Buffer): Promise<TemplateField[]> {
     const { doc } = await this.loadDocument(docxBuffer);
-    this.mergeAllHighlightedRuns(doc);
-
-    const paragraphs = doc.getElementsByTagNameNS(this.W_NS, 'p');
+    const paragraphs = Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
     const fields: Map<string, TemplateField> = new Map();
 
-    for (let i = 0; i < paragraphs.length; i++) {
-      const para = paragraphs.item(i);
-      if (!para) continue;
+    // Extraction is read-only reporting of what's literally in the
+    // template, so — unlike the generation-time replacement pass — it
+    // scans everywhere, including the findings/contact tables. Those
+    // tables are populated by their own dedicated logic at generation
+    // time, but their {Parameter} placeholders still need to show up in
+    // Template Mapping for Admin visibility.
+    for (const para of paragraphs) {
+      const fullText = this.getParagraphRunSpans(para).map((s) => s.text).join('');
+      const re = new RegExp(this.PLACEHOLDER_RE);
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(fullText))) {
+        const raw = match[1].trim();
+        if (!raw) continue;
 
-      const runs = para.getElementsByTagNameNS(this.W_NS, 'r');
-      for (let j = 0; j < runs.length; j++) {
-        const run = runs.item(j);
-        if (!run) continue;
-
-        const rPr = this.getFirstChildByTagName(run, 'rPr');
-        if (!rPr || !this.hasYellowHighlight(rPr)) continue;
-
-        const cleanedText = this.getRunText(run).trim();
-        if (!cleanedText || cleanedText.length < 2) continue;
-        // Skip runs that are only braces/punctuation — fragments, not fields
-        if (/^[{}\s.,/\\()\[\]]+$/.test(cleanedText)) continue;
-
-        const normalizedName = this.normalizeFieldName(cleanedText);
+        const normalizedName = this.normalizeFieldName(raw);
         if (!normalizedName || fields.has(normalizedName)) continue;
 
         fields.set(normalizedName, {
           id: `field_${normalizedName}`,
-          name: cleanedText,
+          name: raw,
           normalizedName,
-          category: this.categorizeField(cleanedText),
-          description: this.generateDescription(cleanedText),
-          isRepeatable: this.isRepeatableField(cleanedText),
+          category: this.categorizeField(raw),
+          description: this.generateDescription(raw),
+          isRepeatable: this.isRepeatableField(raw),
         });
       }
     }
@@ -148,7 +152,7 @@ export class DocxManipulatorService {
    * structural checks on the mandatory findings tables.
    */
   async analyzeTemplate(docxBuffer: Buffer): Promise<TemplateAnalysis> {
-    const fields = await this.extractYellowFields(docxBuffer);
+    const fields = await this.extractPlaceholderFields(docxBuffer);
     const { doc } = await this.loadDocument(docxBuffer);
     this.mergeAllHighlightedRuns(doc);
 
@@ -161,10 +165,10 @@ export class DocxManipulatorService {
       const table = tables.item(t);
       if (!table) continue;
       const text = this.getElementText(table).toLowerCase();
-      const isDetailed = text.includes('cve/cwe');
-      const isSummary =
-        !isDetailed && text.includes('{vulnerability name}') && text.includes('{score value}');
-      if (isDetailed && text.includes('{vulnerability name}')) hasDetailedTable = true;
+      const hasTitle = text.includes('{vulnerability name}') || text.includes('{finding title}');
+      const isDetailed = text.includes('cve/cwe') || text.includes('{cvss vector}');
+      const isSummary = !isDetailed && hasTitle && (text.includes('{score value}') || text.includes('{cvss score}'));
+      if (isDetailed && hasTitle) hasDetailedTable = true;
       if (isSummary) hasSummaryTable = true;
     }
 
@@ -211,6 +215,7 @@ export class DocxManipulatorService {
     findings: FindingData[],
     images: PocImage[] = [],
     contacts?: ContactValues,
+    severityColors: Record<string, string> = DEFAULT_SEVERITY_COLORS,
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -234,12 +239,22 @@ export class DocxManipulatorService {
       this.fillContactTable(doc, contacts);
     }
 
-    // Step 3: replace project-info / contact / date fields via rules
-    this.replaceFieldsWithRules(doc, rules);
+    // Step 3: replace {Parameter} placeholders (project-info / contact / date)
+    // using the same rule set and match semantics as before — only the
+    // placeholder syntax and replacement precision changed, not the
+    // rule-resolution priority (admin-mapped > generic > custom).
+    this.replacePlaceholders(doc, this.buildResolver(rules));
 
     // Step 4: fill the template's own findings tables
     if (findings.length > 0) {
-      this.fillFindingsTables(doc, findings, imageRegistry);
+      // Unresolved finding-table {Parameter}s are left as literal text —
+      // same as any other unmapped placeholder — never a reason to block
+      // generation. Logged for developer diagnostics only.
+      const unresolvedFindingParams = new Set<string>();
+      this.fillFindingsTables(doc, findings, imageRegistry, severityColors, unresolvedFindingParams);
+      if (unresolvedFindingParams.size > 0) {
+        this.logger.debug(`Unresolved finding-table parameter(s) left as literal: ${[...unresolvedFindingParams].join(', ')}`);
+      }
     }
 
     // Step 5: serialize back
@@ -311,61 +326,119 @@ export class DocxManipulatorService {
   // Simple field replacement
   // ---------------------------------------------------------------------------
 
-  private replaceFieldsWithRules(doc: Document, rules: FieldRule[]): void {
-    const paragraphs = doc.getElementsByTagNameNS(this.W_NS, 'p');
-
-    for (let i = 0; i < paragraphs.length; i++) {
-      const para = paragraphs.item(i);
-      if (!para) continue;
-
-      const runs = Array.from(para.getElementsByTagNameNS(this.W_NS, 'r'));
-      for (const run of runs) {
-        const rPr = this.getFirstChildByTagName(run, 'rPr');
-        if (!rPr || !this.hasYellowHighlight(rPr)) continue;
-
-        const currentText = this.getRunText(run).trim();
-        if (!currentText) continue;
-        const normalized = this.normalizeFieldName(currentText);
-
-        const rule = rules.find((r) =>
-          r.requireAll
-            ? r.match.every((m) => normalized.includes(m))
-            : r.match.some((m) => normalized.includes(m)),
-        );
-        if (rule) {
-          this.setRunText(run, rule.value);
-          this.removeYellowHighlight(rPr);
-          this.clearBraceResidue(run);
-        }
-      }
-    }
+  /**
+   * Builds a normalizedName -> value lookup from the existing FieldRule[]
+   * (admin-mapped rules first, then generic, then custom — order set by the
+   * caller in reports.service.ts, untouched). Matching predicate is copied
+   * verbatim from the old highlight-based replacer so resolution behavior
+   * is unchanged; only the placeholder syntax it's applied to is new.
+   */
+  private buildResolver(rules: FieldRule[]): (normalizedName: string) => string | undefined {
+    return (normalizedName: string) => {
+      const rule = rules.find((r) =>
+        r.requireAll
+          ? r.match.every((m) => normalizedName.includes(m))
+          : r.match.some((m) => normalizedName.includes(m)),
+      );
+      return rule ? rule.value : undefined;
+    };
   }
 
   /**
-   * After replacing a placeholder, remove orphaned brace fragments from
-   * adjacent non-highlighted runs (e.g. "{Application Scope" + "}").
+   * True only for the specific tables the existing pipeline owns: the
+   * findings/summary tables and the AVP/TL/Tester contact table — detected
+   * with the exact same marker text fillFindingsTables/fillContactTable
+   * already key off. A plain layout table (e.g. a cover-page info grid
+   * using {Client Name}-style placeholders) is NOT protected, so its
+   * placeholders are still extracted/replaced normally.
    */
-  private clearBraceResidue(run: Element): void {
-    for (const sibling of [this.adjacentElement(run, 1), this.adjacentElement(run, -1)]) {
-      if (!sibling) continue;
-      const localName = (sibling as any).localName || sibling.tagName;
-      if (localName !== 'r') continue;
-      const rPr = this.getFirstChildByTagName(sibling, 'rPr');
-      if (rPr && this.hasYellowHighlight(rPr)) continue; // never touch other placeholders
-      const text = this.getRunText(sibling).trim();
-      if (text && text.length <= 2 && /^[{}\[\]()<>.,\s]+$/.test(text)) {
-        this.setRunText(sibling, '');
-      }
+  private isProtectedTable(table: Element): boolean {
+    const text = this.getElementText(table).toLowerCase();
+    const hasTitle = text.includes('{vulnerability name}') || text.includes('{finding title}');
+    const hasCveCwe = text.includes('cve/cwe') || text.includes('{cve/cwe}') || text.includes('{cvss vector}');
+    const isDetailed = hasTitle && hasCveCwe;
+    const isSummary = !isDetailed && hasTitle && (text.includes('{score value}') || text.includes('{cvss score}'));
+    const isContact = text.includes('avp name') && text.includes('team lead name') && text.includes('tester name');
+    return isDetailed || isSummary || isContact;
+  }
+
+  /** True if this node sits inside one of the protected tables above. */
+  private isInsideTable(node: Node): boolean {
+    let cur: Node | null = node.parentNode;
+    while (cur) {
+      const localName = (cur as any).localName || (cur as Element).tagName;
+      if (localName === 'tbl' || localName === 'w:tbl') return this.isProtectedTable(cur as Element);
+      cur = cur.parentNode;
+    }
+    return false;
+  }
+
+  /** Direct <w:r> children of a paragraph with each run's text and its [start,end) offset in the paragraph's concatenated text. */
+  private getParagraphRunSpans(para: Element): { run: Element; text: string; start: number; end: number }[] {
+    const runs: Element[] = [];
+    for (let i = 0; i < para.childNodes.length; i++) {
+      const child = para.childNodes.item(i);
+      const localName = (child as any).localName || (child as Element).tagName;
+      if (localName === 'r' || localName === 'w:r') runs.push(child as Element);
+    }
+    let offset = 0;
+    return runs.map((run) => {
+      const text = this.getRunText(run);
+      const span = { run, text, start: offset, end: offset + text.length };
+      offset += text.length;
+      return span;
+    });
+  }
+
+  /**
+   * Replaces every resolvable {Parameter} placeholder in non-table
+   * paragraphs. Unresolved placeholders (no rule matches) are left as
+   * literal text, untouched — never silently blanked or guessed.
+   */
+  private replacePlaceholders(doc: Document, resolveValue: (normalizedName: string) => string | undefined): void {
+    const paragraphs = Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+    for (const para of paragraphs) {
+      if (this.isInsideTable(para)) continue;
+      this.replacePlaceholdersInParagraph(para, resolveValue);
     }
   }
 
-  private adjacentElement(el: Element, direction: 1 | -1): Element | null {
-    let node = direction === 1 ? el.nextSibling : el.previousSibling;
-    while (node) {
-      if ((node as Element).tagName) return node as Element;
-      node = direction === 1 ? node.nextSibling : node.previousSibling;
+  private replacePlaceholdersInParagraph(para: Element, resolveValue: (n: string) => string | undefined): void {
+    // Re-reads the paragraph's runs fresh each iteration (rather than
+    // caching stale offsets) so multiple placeholders sharing a single run
+    // (e.g. "{Start Date} to {End Date}" typed as one run) resolve
+    // correctly instead of one replacement overwriting another.
+    for (let guard = 0; guard < 100; guard++) {
+      const spans = this.getParagraphRunSpans(para);
+      const fullText = spans.map((s) => s.text).join('');
+      const re = new RegExp(this.PLACEHOLDER_RE);
+      let m: RegExpExecArray | null;
+      let target: { start: number; end: number; value: string } | null = null;
+      while ((m = re.exec(fullText))) {
+        const raw = m[1].trim();
+        const normalizedName = this.normalizeFieldName(raw);
+        if (!raw || !normalizedName) continue; // "{}" / punctuation-only — not a real placeholder
+        const value = resolveValue(normalizedName);
+        if (value !== undefined) {
+          target = { start: m.index, end: m.index + m[0].length, value };
+          break;
+        }
+      }
+      if (!target) break; // nothing left to resolve — remaining placeholders stay literal
+
+      const overlapping = spans.filter((s) => s.start < target!.end && s.end > target!.start);
+      if (overlapping.length === 0) break;
+      const first = overlapping[0];
+      const last = overlapping[overlapping.length - 1];
+      const before = first.text.slice(0, Math.max(0, target.start - first.start));
+      const after = last.text.slice(Math.max(0, target.end - last.start));
+      this.setRunText(first.run, before + target.value + after);
+      for (let j = 1; j < overlapping.length; j++) {
+        if (overlapping[j].run !== first.run) {
+          overlapping[j].run.parentNode?.removeChild(overlapping[j].run);
+        }
+      }
     }
-    return null;
   }
 
   // ---------------------------------------------------------------------------
@@ -376,6 +449,8 @@ export class DocxManipulatorService {
     doc: Document,
     findings: FindingData[],
     imageRegistry: Map<string, RegisteredImage>,
+    severityColors: Record<string, string>,
+    unresolved: Set<string>,
   ): void {
     const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
     if (!body) return;
@@ -383,18 +458,22 @@ export class DocxManipulatorService {
     // Snapshot the table list — we mutate the tree while processing
     const tables = Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[];
 
+    const hasTitle = (x: string) => x.includes('{vulnerability name}') || x.includes('{finding title}');
+    const hasScore = (x: string) => x.includes('{score value}') || x.includes('{cvss score}');
+    const hasCveCwe = (x: string) => x.includes('cve/cwe') || x.includes('{cve/cwe}') || x.includes('{cvss vector}');
     const isDetailed = (t: Element) => {
       const x = this.getElementText(t).toLowerCase();
-      return x.includes('{vulnerability name}') && x.includes('cve/cwe');
+      return hasTitle(x) && hasCveCwe(x);
     };
     const isSummary = (t: Element) => {
       const x = this.getElementText(t).toLowerCase();
-      return x.includes('{vulnerability name}') && x.includes('{score value}') && !x.includes('cve/cwe');
+      return hasTitle(x) && hasScore(x) && !hasCveCwe(x);
     };
 
     const summaryTable = tables.find(isSummary);
     if (summaryTable) {
-      this.fillSummaryTable(doc, summaryTable, findings);
+      this.widenFirstColumn(summaryTable);
+      this.fillSummaryTable(doc, summaryTable, findings, severityColors, unresolved);
     }
 
     // Templates ship with one detailed-findings table PER finding slot
@@ -403,16 +482,29 @@ export class DocxManipulatorService {
     const detailedTables = tables.filter(isDetailed);
     if (detailedTables.length === 0) return;
 
+    // Widen before cloning the pristine copy, so every finding's table —
+    // original template slots and clones alike — gets the wider column.
+    detailedTables.forEach((t) => this.widenFirstColumn(t));
     const pristine = detailedTables[0].cloneNode(true) as Element;
-    const lastTable = detailedTables[detailedTables.length - 1];
+
+    // `anchor` tracks the node after which the next NEW table must be
+    // inserted, so clones for finding 3, 4, 5... land in order instead of
+    // all being inserted right after the original last placeholder table.
+    let anchor: Element = detailedTables[detailedTables.length - 1];
 
     findings.forEach((finding, i) => {
       let tbl = detailedTables[i];
       if (!tbl) {
+        // Beyond the template's own static finding slots (finding 5, 6, 7...
+        // for a template with 4 slots): each gets its own page, inserted
+        // only once the previous finding's table is fully complete.
+        const pageBreak = this.createPageBreakParagraph(doc);
+        anchor.parentNode?.insertBefore(pageBreak, anchor.nextSibling);
         tbl = pristine.cloneNode(true) as Element;
-        lastTable.parentNode?.insertBefore(tbl, lastTable.nextSibling);
+        pageBreak.parentNode?.insertBefore(tbl, pageBreak.nextSibling);
       }
-      this.fillDetailedBlock(doc, tbl, finding, imageRegistry);
+      this.fillDetailedBlock(doc, tbl, finding, imageRegistry, severityColors, unresolved);
+      anchor = tbl;
     });
 
     // Remove unused placeholder tables
@@ -421,12 +513,78 @@ export class DocxManipulatorService {
     }
   }
 
-  /** Summary of Findings: S.No | Findings | CVSS Base Score | Severity | Status */
-  private fillSummaryTable(doc: Document, table: Element, findings: FindingData[]): void {
+  /**
+   * A page break needs a paragraph to carry it, but that paragraph's own
+   * line still reserves vertical space — inheriting the template's default
+   * paragraph spacing/font size left a visible gap around every break.
+   * Zero the spacing and shrink the run so the paragraph mark is ~1pt tall.
+   */
+  /**
+   * A page break needs a paragraph to carry it, but that paragraph's own
+   * line still reserves vertical space — inheriting the template's default
+   * paragraph spacing/font size left a visible gap around every break.
+   * Zero the spacing and shrink the run so the paragraph mark is ~1pt tall.
+   */
+  private createPageBreakParagraph(doc: Document): Element {
+    const p = doc.createElementNS(this.W_NS, 'w:p');
+
+    const pPr = doc.createElementNS(this.W_NS, 'w:pPr');
+    const spacing = doc.createElementNS(this.W_NS, 'w:spacing');
+    spacing.setAttributeNS(this.W_NS, 'w:before', '0');
+    spacing.setAttributeNS(this.W_NS, 'w:after', '0');
+    spacing.setAttributeNS(this.W_NS, 'w:line', '240');
+    spacing.setAttributeNS(this.W_NS, 'w:lineRule', 'auto');
+    pPr.appendChild(spacing);
+    const pRPr = doc.createElementNS(this.W_NS, 'w:rPr');
+    pRPr.appendChild(doc.createElementNS(this.W_NS, 'w:sz')).setAttributeNS(this.W_NS, 'w:val', '2');
+    pPr.appendChild(pRPr);
+    p.appendChild(pPr);
+
+    const run = doc.createElementNS(this.W_NS, 'w:r');
+    const rPr = doc.createElementNS(this.W_NS, 'w:rPr');
+    const sz = doc.createElementNS(this.W_NS, 'w:sz');
+    sz.setAttributeNS(this.W_NS, 'w:val', '2');
+    rPr.appendChild(sz);
+    run.appendChild(rPr);
+    const br = doc.createElementNS(this.W_NS, 'w:br');
+    br.setAttributeNS(this.W_NS, 'w:type', 'page');
+    run.appendChild(br);
+    p.appendChild(run);
+    return p;
+  }
+
+  /** Widens a table's first column (grid + every row's first cell) by ~3px. */
+  private widenFirstColumn(table: Element): void {
+    const deltaTwips = 645; // 43px (3+5+10px, plus a further 25px) at 96 DPI (1px = 15 twips)
+
+    const grid = this.getFirstChildByTagName(table, 'tblGrid');
+    const firstCol = grid?.getElementsByTagNameNS(this.W_NS, 'gridCol').item(0);
+    if (firstCol) {
+      const w = parseInt(firstCol.getAttributeNS(this.W_NS, 'w') || '0', 10);
+      firstCol.setAttributeNS(this.W_NS, 'w:w', String(w + deltaTwips));
+    }
+
     const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
-    const placeholderRows = rows.filter((r) =>
-      this.getElementText(r).toLowerCase().includes('{vulnerability name}'),
-    );
+    for (const row of rows) {
+      const firstCell = row.getElementsByTagNameNS(this.W_NS, 'tc').item(0);
+      if (!firstCell) continue;
+      const tcPr = this.getFirstChildByTagName(firstCell, 'tcPr');
+      const tcW = tcPr && this.getFirstChildByTagName(tcPr, 'tcW');
+      if (!tcW) continue;
+      const type = tcW.getAttributeNS(this.W_NS, 'type');
+      if (type && type !== 'dxa') continue; // only widen fixed-width columns
+      const w = parseInt(tcW.getAttributeNS(this.W_NS, 'w') || '0', 10);
+      tcW.setAttributeNS(this.W_NS, 'w:w', String(w + deltaTwips));
+    }
+  }
+
+  /** Summary of Findings: S.No | Findings | CVSS Base Score | Severity | Status */
+  private fillSummaryTable(doc: Document, table: Element, findings: FindingData[], severityColors: Record<string, string>, unresolved: Set<string>): void {
+    const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
+    const placeholderRows = rows.filter((r) => {
+      const t = this.getElementText(r).toLowerCase();
+      return t.includes('{vulnerability name}') || t.includes('{finding title}');
+    });
     if (placeholderRows.length === 0) return;
 
     const templateRow = placeholderRows[0];
@@ -434,7 +592,7 @@ export class DocxManipulatorService {
 
     for (const finding of findings) {
       const clone = templateRow.cloneNode(true) as Element;
-      this.fillSummaryRow(clone, finding);
+      this.fillSummaryRow(clone, finding, severityColors, unresolved);
       table.insertBefore(clone, anchor);
     }
 
@@ -443,22 +601,27 @@ export class DocxManipulatorService {
     }
   }
 
-  private fillSummaryRow(row: Element, finding: FindingData): void {
+  /**
+   * Fills a summary row purely by resolving whatever {Parameter}
+   * placeholders its cells contain — same engine as the rest of the
+   * document, just resolved against this one finding instead of the
+   * project. No row-position or literal-text heuristics.
+   */
+  private fillSummaryRow(row: Element, finding: FindingData, severityColors: Record<string, string>, unresolved: Set<string>): void {
+    const resolver = (n: string) => {
+      const v = this.resolveFindingParameter(n, finding);
+      if (v === undefined) unresolved.add(n);
+      return v;
+    };
     const cells = Array.from(row.getElementsByTagNameNS(this.W_NS, 'tc'));
     for (const cell of cells) {
-      const text = this.getElementText(cell).trim();
-      const lower = text.toLowerCase();
-
-      if (lower.includes('{vulnerability name}')) {
-        this.replaceCellValue(cell, finding.title);
-      } else if (lower.includes('{score value}')) {
-        this.replaceCellValue(cell, finding.cvssScore?.toString() ?? 'N/A');
-      } else if (/^\d+\.?$/.test(text)) {
-        this.replaceCellValue(cell, `${finding.no}.`);
-      } else if (['critical', 'high', 'medium', 'low', 'info'].includes(lower)) {
-        this.replaceCellValue(cell, finding.severity);
-      } else if (['open', 'fixed', 'closed', 'accepted risk'].includes(lower)) {
-        this.replaceCellValue(cell, finding.reportStatus || 'Open');
+      const paragraphs = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+      for (const para of paragraphs) {
+        this.replacePlaceholdersInParagraph(para, resolver);
+      }
+      if (this.getElementText(cell).trim() === finding.severity) {
+        const color = severityColors[finding.severity];
+        if (color) this.setCellShading(cell, color);
       }
     }
   }
@@ -473,16 +636,21 @@ export class DocxManipulatorService {
     table: Element,
     finding: FindingData,
     imageRegistry: Map<string, RegisteredImage>,
+    severityColors: Record<string, string>,
+    unresolved: Set<string>,
   ): void {
     const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
     const isPocStepRow = (row: Element) => {
       const text = this.getElementText(row).toLowerCase();
-      return text.includes('poc reproduction') || text.includes('poc snapshot') || /step\s*1/.test(text);
+      return (
+        text.includes('poc reproduction') || text.includes('poc snapshot') || /step\s*1/.test(text) ||
+        text.includes('{steps}') || text.includes('{poc}')
+      );
     };
 
     for (const row of rows) {
       if (!isPocStepRow(row)) {
-        this.fillDetailedRow(row, finding);
+        this.fillDetailedRow(row, finding, severityColors, unresolved);
         continue;
       }
 
@@ -497,7 +665,7 @@ export class DocxManipulatorService {
       for (const step of pocSteps) {
         const clone = row.cloneNode(true) as Element;
         const cells = Array.from(clone.getElementsByTagNameNS(this.W_NS, 'tc'));
-        if (cells[0]) this.replaceCellValue(cells[0], `STEP ${step.stepNo}: ${step.description}`);
+        if (cells[0]) this.setStepCellText(cells[0], step.stepNo, step.description);
         if (cells[1]) {
           const img = step.imageKey ? imageRegistry.get(step.imageKey) : undefined;
           if (img) {
@@ -512,50 +680,83 @@ export class DocxManipulatorService {
     }
   }
 
-  private fillDetailedRow(row: Element, finding: FindingData): void {
+  /**
+   * Fills a detailed-block row purely by resolving whatever {Parameter}
+   * placeholders its cells contain — the same engine used for the rest of
+   * the document and the summary table, just resolved against this one
+   * finding. Replaces the old row-label/digit-position heuristics: a
+   * finding-table cell must now contain an explicit {Finding Title},
+   * {Severity}, {CVSS Vector}, {CVE/CWE}, etc. placeholder to be filled.
+   */
+  private fillDetailedRow(row: Element, finding: FindingData, severityColors: Record<string, string>, unresolved: Set<string>): void {
+    const resolver = (n: string) => {
+      const v = this.resolveFindingParameter(n, finding);
+      if (v === undefined) unresolved.add(n);
+      return v;
+    };
     const cells = Array.from(row.getElementsByTagNameNS(this.W_NS, 'tc'));
-    if (cells.length === 0) return;
-
-    // Title row: "1." | "{Vulnerability Name}"
-    if (this.getElementText(row).toLowerCase().includes('{vulnerability name}')) {
-      if (cells[0] && /^\d+\.?$/.test(this.getElementText(cells[0]).trim())) {
-        this.replaceCellValue(cells[0], `${finding.no}.`);
+    for (const cell of cells) {
+      const paragraphs = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+      for (const para of paragraphs) {
+        this.replacePlaceholdersInParagraph(para, resolver);
       }
-      if (cells[1]) this.replaceCellValue(cells[1], finding.title);
-      return;
+      if (this.getElementText(cell).trim() === finding.severity) {
+        const color = severityColors[finding.severity];
+        if (color) this.setCellShading(cell, color);
+      }
     }
+  }
 
-    const label = this.getElementText(cells[0]).trim().toLowerCase().replace(/:$/, '');
-    const valueCell = cells[1];
-    if (!valueCell) return;
-
-    const cvssText = finding.cvssScore != null
-      ? `${finding.cvssScore}${finding.cvssVector ? ` / ${finding.cvssVector}` : ''}`
+  /**
+   * Per-finding Application Parameter Registry — the finding-scoped
+   * counterpart to reports.service.ts's project/report parameter
+   * resolver. FindingData already carries every value a template could
+   * need, so resolution here is a straightforward canonical-name lookup;
+   * several aliases are accepted per parameter to match the naming
+   * variants used across existing and new templates.
+   */
+  private resolveFindingParameter(normalizedName: string, finding: FindingData): string | undefined {
+    const cvssCombined = finding.cvssScore != null
+      ? `${finding.cvssScore}${finding.cvssVector ? ` | ${finding.cvssVector}` : ''}`
       : 'N/A';
     const cveCwe = [finding.cveId, finding.cweId].filter(Boolean).join(' / ') || 'N/A';
 
-    if (label.includes('severity')) {
-      this.replaceCellValue(valueCell, finding.severity);
-    } else if (label.includes('cvss')) {
-      this.replaceCellValue(valueCell, cvssText);
-    } else if (label.includes('cve/cwe')) {
-      this.replaceCellValue(valueCell, cveCwe);
-    } else if (label.includes('affected')) {
-      this.replaceCellValue(valueCell, finding.affectedInstances || 'N/A');
-    } else if (label.includes('authentication')) {
-      this.replaceCellValue(valueCell, finding.authenticationType || 'N/A');
-    } else if (label.includes('vulnerability dependency')) {
-      this.replaceCellValue(valueCell, finding.vulnerabilityDependency || 'N/A');
-    } else if (label.includes('description')) {
-      this.replaceCellValue(valueCell, finding.description || 'N/A');
-    } else if (label.includes('impact')) {
-      this.replaceCellValue(valueCell, finding.impact || 'N/A');
-    } else if (label.includes('remediation')) {
-      this.replaceCellValue(valueCell, finding.remediation || 'N/A');
-    } else if (label.includes('reference')) {
-      this.replaceCellValue(valueCell, finding.references || 'N/A');
-    }
-    // Rows like the "POC" banner row are left untouched
+    const registry: Record<string, string> = {
+      s_no: `${finding.no}.`,
+      finding_no: `${finding.no}.`,
+      sno: `${finding.no}.`,
+      finding_title: finding.title,
+      vulnerability_name: finding.title,
+      severity: finding.severity,
+      cvss_score: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
+      score_value: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
+      cvss_vector: finding.cvssVector || 'N/A',
+      cvss: cvssCombined,
+      cve_cwe: cveCwe,
+      cve_id: finding.cveId || 'N/A',
+      cve: finding.cveId || 'N/A',
+      cwe_id: finding.cweId || 'N/A',
+      cwe: finding.cweId || 'N/A',
+      description: finding.description || 'N/A',
+      vulnerability_description: finding.description || 'N/A',
+      impact: finding.impact || 'N/A',
+      vulnerability_impact: finding.impact || 'N/A',
+      remediation: finding.remediation || 'N/A',
+      vulnerability_remediation: finding.remediation || 'N/A',
+      reference: finding.references || 'N/A',
+      references: finding.references || 'N/A',
+      reference_link: finding.references || 'N/A',
+      vulnerability_references: finding.references || 'N/A',
+      affected: finding.affectedInstances || 'N/A',
+      affected_url: finding.affectedInstances || 'N/A',
+      affected_instances: finding.affectedInstances || 'N/A',
+      authentication: finding.authenticationType || 'N/A',
+      authentication_type: finding.authenticationType || 'N/A',
+      vulnerability_dependency: finding.vulnerabilityDependency || 'N/A',
+      status: finding.reportStatus || 'Open',
+      report_status: finding.reportStatus || 'Open',
+    };
+    return registry[normalizedName];
   }
 
   // ---------------------------------------------------------------------------
@@ -851,6 +1052,46 @@ export class DocxManipulatorService {
     }
   }
 
+  /** Renders "STEP n: description" with only the "STEP n:" label bold. */
+  private setStepCellText(cell: Element, stepNo: number, description: string): void {
+    const doc = cell.ownerDocument;
+    const para = cell.getElementsByTagNameNS(this.W_NS, 'p').item(0);
+    if (!para) return;
+
+    for (const run of Array.from(para.getElementsByTagNameNS(this.W_NS, 'r'))) {
+      para.removeChild(run);
+    }
+
+    const makeRun = (text: string, bold: boolean) => {
+      const run = doc.createElementNS(this.W_NS, 'w:r');
+      const rPr = doc.createElementNS(this.W_NS, 'w:rPr');
+      if (bold) {
+        rPr.appendChild(doc.createElementNS(this.W_NS, 'w:b'));
+      }
+      const rFonts = doc.createElementNS(this.W_NS, 'w:rFonts');
+      rFonts.setAttributeNS(this.W_NS, 'w:ascii', 'Calibri');
+      rFonts.setAttributeNS(this.W_NS, 'w:hAnsi', 'Calibri');
+      rFonts.setAttributeNS(this.W_NS, 'w:cs', 'Calibri');
+      rPr.appendChild(rFonts);
+      const sz = doc.createElementNS(this.W_NS, 'w:sz');
+      sz.setAttributeNS(this.W_NS, 'w:val', '24'); // 12pt, in half-points
+      rPr.appendChild(sz);
+      const szCs = doc.createElementNS(this.W_NS, 'w:szCs');
+      szCs.setAttributeNS(this.W_NS, 'w:val', '24');
+      rPr.appendChild(szCs);
+      run.appendChild(rPr);
+
+      const t = doc.createElementNS(this.W_NS, 'w:t');
+      t.setAttribute('xml:space', 'preserve');
+      t.textContent = text;
+      run.appendChild(t);
+      return run;
+    };
+
+    para.appendChild(makeRun(`STEP ${stepNo}: `, true));
+    para.appendChild(makeRun(description, false));
+  }
+
   private replaceCellValue(cell: Element, value: string): void {
     const runs = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'r'));
     // Prefer the highlighted run; otherwise the first run with text; otherwise first run
@@ -872,6 +1113,26 @@ export class DocxManipulatorService {
         if (r !== target) this.setRunText(r, '');
       }
     }
+  }
+
+  /** Sets a table cell's background fill to the given hex color (e.g. "#ef4444"). */
+  private setCellShading(cell: Element, hexColor: string): void {
+    const doc = cell.ownerDocument;
+    let tcPr = this.getFirstChildByTagName(cell, 'tcPr');
+    if (!tcPr) {
+      tcPr = doc.createElementNS(this.W_NS, 'w:tcPr');
+      cell.insertBefore(tcPr, cell.firstChild);
+    }
+    const existing = tcPr.getElementsByTagNameNS(this.W_NS, 'shd');
+    for (let i = existing.length - 1; i >= 0; i--) {
+      const node = existing.item(i);
+      if (node) tcPr.removeChild(node);
+    }
+    const shd = doc.createElementNS(this.W_NS, 'w:shd');
+    shd.setAttributeNS(this.W_NS, 'w:val', 'clear');
+    shd.setAttributeNS(this.W_NS, 'w:color', 'auto');
+    shd.setAttributeNS(this.W_NS, 'w:fill', hexColor.replace('#', ''));
+    tcPr.appendChild(shd);
   }
 
   private hasYellowHighlight(rPr: Element): boolean {

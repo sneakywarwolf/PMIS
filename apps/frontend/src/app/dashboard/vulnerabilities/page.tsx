@@ -7,6 +7,7 @@ import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XC
 import { api, useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
+import { formatDateTime } from '@/lib/datetime';
 
 const DEFAULT_SEVERITY_COLORS: Record<string, string> = {
   Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#3b82f6', Info: '#6b7280',
@@ -631,7 +632,7 @@ export default function VulnerabilitiesPage() {
                     )}
                     <div>
                       <p className="text-xs text-gray-500 mb-1">Created</p>
-                      <p className="text-gray-300">{vuln.createdAt ? new Date(vuln.createdAt).toLocaleString() : '-'}</p>
+                      <p className="text-gray-300">{vuln.createdAt ? formatDateTime(vuln.createdAt) : '-'}</p>
                     </div>
                   </div>
                   <VulnHistoryTimeline vulnId={vuln.id} />
@@ -1031,7 +1032,7 @@ function VulnHistoryTimeline({ vulnId }: { vulnId: string }) {
                 <span className="font-medium text-white">{log.actor?.username || 'System'}</span>{' '}
                 {log.action.replace('VULNERABILITY_', '').replace(/_/g, ' ').toLowerCase()}
               </p>
-              <p className="text-gray-500">{new Date(log.timestamp).toLocaleString()}</p>
+              <p className="text-gray-500">{formatDateTime(log.timestamp)}</p>
             </div>
           </div>
         ))}
@@ -1086,7 +1087,7 @@ function ChangeTrackerTab() {
           <tbody>
             {logs.map((log: any) => (
               <tr key={log.id} className="border-b border-gray-800/60 hover:bg-white/[0.02]">
-                <td className="px-5 py-2.5 text-gray-400 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                <td className="px-5 py-2.5 text-gray-400 whitespace-nowrap">{formatDateTime(log.timestamp)}</td>
                 <td className="px-5 py-2.5 text-white">{log.actor?.username || 'System'}</td>
                 <td className="px-5 py-2.5">
                   <span className={`px-2 py-0.5 rounded text-xs font-medium ${ACTION_STYLES[log.action] || 'bg-gray-500/10 text-gray-400'}`}>

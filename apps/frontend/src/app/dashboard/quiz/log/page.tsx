@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/contexts/auth-context';
+import { formatDate } from '@/lib/datetime';
 
 // Same turquoise-glass hover treatment used app-wide (e.g. the sidebar nav) —
 // keep every Quiz control consistent with it rather than inventing a new one.
@@ -50,7 +51,7 @@ export default function QuizLogPage() {
             className={`glass-card w-full text-left p-4 rounded-lg text-gray-200 ${QUIZ_HOVER}`}
           >
             <div>{item.question}</div>
-            <div className="text-xs text-gray-500">{new Date(item.revealedAt).toLocaleDateString()}</div>
+            <div className="text-xs text-gray-500">{formatDate(item.revealedAt)}</div>
           </button>
         ))}
         {items.length === 0 && <div className="text-gray-500">No revealed questions yet.</div>}

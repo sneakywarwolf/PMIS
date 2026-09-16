@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
 import { api } from '@/contexts/auth-context';
+import { formatDateTime } from '@/lib/datetime';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
@@ -425,7 +426,7 @@ function RecentActivity({ delay }: { delay?: number }) {
                   <span className="text-gray-400">{log.action.replace(/_/g, ' ').toLowerCase()}</span>
                   {log.targetType && <span className="text-gray-500"> · {log.targetType.toLowerCase()}</span>}
                 </p>
-                <p className="text-xs text-gray-500 mt-0.5">{new Date(log.timestamp).toLocaleString()}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{formatDateTime(log.timestamp)}</p>
               </div>
             </div>
           ))}

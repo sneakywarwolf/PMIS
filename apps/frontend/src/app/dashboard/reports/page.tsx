@@ -6,10 +6,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   FileText, Upload, Download, Eye, ChevronRight, ChevronLeft,
   Shield, Server, Smartphone, Monitor, CheckCircle, Loader2,
-  AlertTriangle, XCircle, Check,
+  AlertTriangle, XCircle, Check, ArrowLeftRight, CheckCircle2, Trash2,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
+import { useConfirm } from '@/components/confirm-provider';
+import { toDateInputValue } from '@/lib/datetime';
 
 const subTypeIcons: any = {
   WEB: Monitor,
@@ -70,6 +72,18 @@ export default function ReportsPage() {
             Upload Template
           </button>
         )}
+        {user?.role === 'ADMIN' && (
+          <button
+            onClick={() => setActiveTab('mapping')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'mapping'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gray-800/50 text-gray-400 hover:text-white'
+            }`}
+          >
+            Template Mapping
+          </button>
+        )}
       </div>
 
       <AnimatePresence mode="wait">
@@ -92,6 +106,11 @@ export default function ReportsPage() {
         {activeTab === 'upload' && (
           <motion.div key="upload" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <TemplateUploader />
+          </motion.div>
+        )}
+        {activeTab === 'mapping' && (
+          <motion.div key="mapping" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <TemplateMapping />
           </motion.div>
         )}
       </AnimatePresence>
@@ -374,11 +393,13 @@ function slugifyFieldName(raw: string) {
 
 function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
   const [fields, setFields] = useState<any[]>([]);
   const [activating, setActivating] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [addingField, setAddingField] = useState(false);
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldName, setNewFieldName] = useState('');
@@ -454,7 +475,7 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
   };
 
   const activate = async (template: any) => {
-    if (!confirm(`Activate "${template.name}"? The current active ${template.category}/${template.subType} template will be deactivated (kept for history).`)) return;
+    if (!confirm(`Activate "${template.name}"? The current active ${template.category}/${template.subType} template will be permanently deleted (file, metadata, and mappings removed).`)) return;
     setActivating(template.id);
     try {
       await api.put(`/reports/templates/${template.id}/activate`);
@@ -464,6 +485,27 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
       toast(error.response?.data?.message || 'Activation failed', 'error');
     } finally {
       setActivating(null);
+    }
+  };
+
+  const handleDelete = async (template: any) => {
+    const ok = await confirmDialog({
+      title: `Delete template "${template.name}"?`,
+      message: 'This permanently removes the template file and its associated metadata/mapping. Previously generated reports are unaffected and remain downloadable.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
+    setDeleting(template.id);
+    try {
+      await api.delete(`/reports/templates/${template.id}`);
+      if (selectedTemplate?.id === template.id) setSelectedTemplate(null);
+      await fetchTemplates();
+      toast('Template deleted');
+    } catch (error: any) {
+      toast(error.response?.data?.message || 'Failed to delete template', 'error');
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -518,6 +560,16 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
                     title="Activate this template version"
                   >
                     {activating === template.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  </button>
+                )}
+                {isAdmin && !template.isActive && (
+                  <button
+                    onClick={() => handleDelete(template)}
+                    disabled={deleting === template.id}
+                    className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-all disabled:opacity-50"
+                    title="Permanently delete this template"
+                  >
+                    {deleting === template.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                   </button>
                 )}
               </div>
@@ -666,7 +718,7 @@ function TemplateUploader() {
     name: '',
     category: 'VAPT',
     subType: 'WEB',
-    effectiveFrom: new Date().toISOString().split('T')[0],
+    effectiveFrom: toDateInputValue(new Date()),
   });
 
   const handleUpload = async (e: React.FormEvent) => {
@@ -707,11 +759,12 @@ function TemplateUploader() {
           report and activate them from the Browse tab. Existing projects keep their original template.
         </p>
         <p className="text-xs text-amber-400/90 mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-          <strong>How field detection works:</strong> the parser only picks up placeholders that are
-          highlighted in yellow inside the DOCX (e.g. highlight the text <code>{'{Client Name, Location}'}</code>).
-          Consecutive highlighted words/runs are merged into one field, so keep a placeholder's highlight
-          continuous and don&apos;t highlight surrounding text you don&apos;t want extracted. Plain,
-          non-highlighted text is left untouched and won&apos;t be treated as a field.
+          <strong>How field detection works:</strong> the parser only picks up placeholders written in
+          curly braces, e.g. <code>{'{Client Name}'}</code> or <code>{'{Start Date}'}</code>, anywhere in
+          the document including tables and the findings table. Use one pair of braces per field (e.g.{' '}
+          <code>{'{Start Date}'}</code> and <code>{'{End Date}'}</code> as two separate placeholders, not
+          one combined one). Text without braces is left completely untouched and won&apos;t be treated
+          as a field, even if it looks like one (e.g. <code>Re-Assessment Date: NA</code> stays static).
         </p>
         <form onSubmit={handleUpload} className="space-y-4">
           <div>
@@ -865,6 +918,174 @@ function TemplateUploader() {
               : 'Template has issues — fix the DOCX and re-upload, or activate anyway from Browse Templates if intentional.'}
           </div>
         </motion.div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Template Mapping — map each detected template field to an application parameter
+// ---------------------------------------------------------------------------
+
+const mappingSelectCls = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
+
+function TemplateMapping() {
+  const toast = useToast();
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [parameters, setParameters] = useState<{ key: string; label: string }[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [fields, setFields] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fieldsLoading, setFieldsLoading] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [tRes, pRes] = await Promise.all([
+          api.get('/reports/templates/all'),
+          api.get('/reports/templates/parameters'),
+        ]);
+        setTemplates(tRes.data);
+        setParameters(pRes.data);
+        if (tRes.data.length > 0) setSelectedId(tRes.data[0].id);
+      } catch {
+        toast('Failed to load templates', 'error');
+      } finally {
+        setLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    setFieldsLoading(true);
+    api.get(`/reports/templates/${selectedId}/fields`)
+      .then((res) => setFields(res.data))
+      .catch(() => toast('Failed to load template fields', 'error'))
+      .finally(() => setFieldsLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  const handleMap = async (fieldId: string, mappedParameter: string) => {
+    setSavingId(fieldId);
+    try {
+      const value = mappedParameter || null;
+      await api.put(`/reports/templates/fields/${fieldId}`, { mappedParameter: value });
+      setFields((prev) => prev.map((f) => (f.id === fieldId ? { ...f, mappedParameter: value } : f)));
+      toast('Mapping saved');
+    } catch (error: any) {
+      toast(error.response?.data?.message || 'Failed to save mapping', 'error');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  // Fields mapped to the same application parameter — a real conflict, since
+  // both placeholders would be filled with the same value.
+  const conflictKeys = new Set(
+    Object.entries(
+      fields.reduce<Record<string, number>>((acc, f) => {
+        if (f.mappedParameter) acc[f.mappedParameter] = (acc[f.mappedParameter] || 0) + 1;
+        return acc;
+      }, {}),
+    )
+      .filter(([, count]) => count > 1)
+      .map(([key]) => key),
+  );
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <ArrowLeftRight className="w-5 h-5 text-emerald-400" />
+        <div>
+          <h2 className="text-lg font-semibold text-white">Template Parameter Mapping</h2>
+          <p className="text-xs text-gray-400">Map each detected template field to the correct application parameter. Saved mappings are used by report generation.</p>
+        </div>
+      </div>
+
+      {templates.length === 0 ? (
+        <p className="text-gray-500 text-sm py-8 text-center">No templates uploaded yet</p>
+      ) : (
+        <>
+          <div className="max-w-md">
+            <label className="block text-xs text-gray-400 mb-1">Template</label>
+            <select className={mappingSelectCls} value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} ({t.category} / {t.subType}){!t.isActive ? ' — inactive' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {fieldsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
+            </div>
+          ) : fields.length === 0 ? (
+            <p className="text-gray-500 text-sm py-8 text-center">No fields detected for this template</p>
+          ) : (
+            <div className="glass-card rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-700 text-left text-gray-400 text-xs">
+                    <th className="p-3">Template Field</th>
+                    <th className="p-3">Category</th>
+                    <th className="p-3">Application Parameter</th>
+                    <th className="p-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fields.map((f) => {
+                    const conflict = f.mappedParameter ? conflictKeys.has(f.mappedParameter) : false;
+                    return (
+                      <tr key={f.id} className="border-b border-gray-800 last:border-0">
+                        <td className="p-3 text-white">{f.name}</td>
+                        <td className="p-3 text-gray-400">{f.category}</td>
+                        <td className="p-3">
+                          <select
+                            className={mappingSelectCls}
+                            value={f.mappedParameter || ''}
+                            disabled={savingId === f.id}
+                            onChange={(e) => handleMap(f.id, e.target.value)}
+                          >
+                            <option value="">Automatic (no override)</option>
+                            {parameters.map((p) => (
+                              <option key={p.key} value={p.key}>{p.label}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="p-3">
+                          {conflict ? (
+                            <span className="inline-flex items-center gap-1 text-amber-400 text-xs">
+                              <AlertTriangle className="w-3.5 h-3.5" /> Conflicts with another field
+                            </span>
+                          ) : f.mappedParameter ? (
+                            <span className="inline-flex items-center gap-1 text-emerald-400 text-xs">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Mapped
+                            </span>
+                          ) : (
+                            <span className="text-gray-500 text-xs">Automatic</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

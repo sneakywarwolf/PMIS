@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -6,9 +6,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
 import { DocxManipulatorService, FieldRule, FindingData, PocImage } from './docx-manipulator.service';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, ReportGenerationStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
+import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
+import { CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, resolveTemplateParameter } from './template-parameters';
 
 const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   WEB: 'Web',
@@ -27,6 +30,7 @@ export class ReportsService {
     private docxManipulator: DocxManipulatorService,
     private configService: ConfigService,
     private auditService: AuditService,
+    @Inject(forwardRef(() => SettingsService)) private settingsService: SettingsService,
     @InjectQueue(REPORT_GENERATION_QUEUE) private reportQueue: Queue<ReportGenerationJobData>,
   ) {}
 
@@ -190,10 +194,13 @@ export class ReportsService {
    */
   private static readonly CANONICAL_FIELD_NAMES = [
     'start_date', 'end_date', 'qa_reviewer_name', 'team_lead_name', 'tester_name',
-    'app_version', 'version_ex', 'client_name_location', 'client_name', 'month_dd_yyyy',
+    'application_name', 'app_version', 'version_ex', 'document_version', 'client_name_location', 'client_name', 'month_dd_yyyy',
     'tools_name', 'tools_used', 'details_scope', 'scope', 'staging_uat',
     'testing_environment', 'black_box', 'grey_box', 'login_role_types',
     'nature_or_purpose', 'testing_limitation', 'build_details',
+    'manager', 'manager_designation', 'manager_phone', 'manager_email',
+    'team_lead_designation', 'team_lead_phone', 'team_lead_email',
+    'tester_designation', 'tester_phone', 'tester_email',
   ];
 
   /** Slug: lowercase, spaces/dashes → underscore, strip anything else. */
@@ -278,11 +285,14 @@ export class ReportsService {
 
   async updateTemplateField(
     fieldId: string,
-    data: { name?: string; category?: string; description?: string },
+    data: { name?: string; category?: string; description?: string; mappedParameter?: string | null },
   ) {
     const field = await this.prisma.templateField.findUnique({ where: { id: fieldId } });
     if (!field) {
       throw new NotFoundException('Field not found');
+    }
+    if (data.mappedParameter && !CANONICAL_PARAMETER_KEYS.has(data.mappedParameter)) {
+      throw new BadRequestException(`Unknown application parameter: ${data.mappedParameter}`);
     }
 
     return this.prisma.templateField.update({
@@ -291,8 +301,14 @@ export class ReportsService {
         ...(data.name ? { name: data.name } : {}),
         ...(data.category ? { category: data.category as any } : {}),
         ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.mappedParameter !== undefined ? { mappedParameter: data.mappedParameter } : {}),
       },
     });
+  }
+
+  /** Canonical application parameters the admin can map a template field to. */
+  getTemplateParameters() {
+    return CANONICAL_TEMPLATE_PARAMETERS;
   }
 
   async activateTemplate(id: string, adminId: string, ipAddress: string, userAgent: string) {
@@ -301,17 +317,35 @@ export class ReportsService {
       throw new NotFoundException('Template not found');
     }
 
-    // Versioning: deactivate other versions of the same category + subType.
-    // Their files and records are kept, so old projects still regenerate correctly.
-    await this.prisma.reportTemplate.updateMany({
+    // Activating a template replaces whatever was active for the same
+    // category + subType. Any project explicitly pinned to the template(s)
+    // being replaced is rebound to the new one FIRST (so Template Mapping
+    // and future generation immediately resolve against the new template's
+    // own mappings), then the old template is deleted outright — file, row,
+    // and its field mappings. Existing ReportGeneration rows are
+    // FK-SetNull, so already generated reports and their stored docx/pdf
+    // files are never touched by any of this.
+    const replaced = await this.prisma.reportTemplate.findMany({
       where: {
         category: template.category,
         subType: template.subType,
         isActive: true,
         id: { not: id },
       },
-      data: { isActive: false, effectiveTo: new Date() },
     });
+    for (const old of replaced) {
+      const rebound = await this.prisma.project.updateMany({
+        where: { templateId: old.id },
+        data: { templateId: id },
+      });
+      if (rebound.count > 0) {
+        this.logger.log(`Rebound ${rebound.count} project(s) from replaced template ${old.id} to ${id}`);
+      }
+      await this.storage.deleteFile(old.filePath).catch((err) =>
+        this.logger.warn(`Failed to delete replaced template file ${old.filePath}: ${err?.message}`),
+      );
+      await this.prisma.reportTemplate.delete({ where: { id: old.id } });
+    }
 
     const activated = await this.prisma.reportTemplate.update({
       where: { id },
@@ -346,6 +380,39 @@ export class ReportsService {
     });
 
     return template;
+  }
+
+  /**
+   * Hard-deletes an inactive/replaced template: file + DB row + cascaded
+   * field mappings. Active templates are never deletable here — same
+   * FK-SetNull safety as the auto-delete-on-replace path means historical
+   * ReportGeneration rows and their stored docx/pdf files are untouched.
+   */
+  async deleteTemplate(id: string, adminId: string, ipAddress: string, userAgent: string) {
+    const template = await this.prisma.reportTemplate.findUnique({ where: { id } });
+    if (!template) {
+      throw new NotFoundException('Template not found');
+    }
+    if (template.isActive) {
+      throw new BadRequestException('Cannot delete the active template — deactivate or replace it first.');
+    }
+
+    await this.storage.deleteFile(template.filePath).catch((err) =>
+      this.logger.warn(`Failed to delete template file ${template.filePath}: ${err?.message}`),
+    );
+    await this.prisma.reportTemplate.delete({ where: { id } });
+
+    await this.auditService.log({
+      actorId: adminId,
+      action: 'TEMPLATE_DELETED',
+      targetType: 'TEMPLATE',
+      targetId: id,
+      ipAddress,
+      userAgent,
+      details: { name: template.name, category: template.category, subType: template.subType },
+    });
+
+    return { message: 'Template deleted' };
   }
 
   // ---------------------------------------------------------------------------
@@ -390,25 +457,34 @@ export class ReportsService {
 
     if (!project.template) {
       missing.push({ field: 'template', label: 'Report template', source: 'Template management' });
+    } else {
+      const { unresolved } = this.resolveMappedFields(project.template, project);
+      for (const u of unresolved) {
+        missing.push({
+          field: `mapped:${u.parameter}`,
+          label: `${u.field} (mapped to ${u.parameter}, but no value found)`,
+          source: 'Template Mapping',
+        });
+      }
     }
 
     const approvedFindings = project.findings.length;
     if (approvedFindings === 0) {
-      missing.push({ field: 'findings', label: 'At least one approved finding', source: 'Project findings' });
+      missing.push({ field: 'findings', label: 'At least one finding', source: 'Project findings' });
     }
 
-    let pocGateBlocked = false;
     for (const finding of project.findings) {
       const vulnName = finding.vulnerability?.name || finding.id;
-      if (!finding.pocSteps || finding.pocSteps.length === 0) {
-        missing.push({ field: 'pocSteps', label: 'Steps', source: `Finding: ${vulnName}` });
-        pocGateBlocked = true;
-      }
-      if (!finding.proofOfConcept) {
-        missing.push({ field: 'proofOfConcept', label: 'PoC', source: `Finding: ${vulnName}` });
-        pocGateBlocked = true;
+      const readiness = getPocReadiness(finding.pocSteps);
+      if (readiness === 'both_missing') {
+        missing.push({ field: 'pocStepsAndScreenshot', label: 'Steps & PoC Missing', source: `Finding: ${vulnName}` });
+      } else if (readiness === 'steps_missing') {
+        missing.push({ field: 'pocSteps', label: 'Steps Missing', source: `Finding: ${vulnName}` });
+      } else if (readiness === 'poc_missing') {
+        missing.push({ field: 'pocScreenshot', label: 'PoC Missing', source: `Finding: ${vulnName}` });
       }
     }
+    const pocGateBlocked = project.findings.some((f) => getPocReadiness(f.pocSteps) !== 'ready');
 
     const nextVersion = await this.getNextReportVersion(projectId);
 
@@ -442,11 +518,9 @@ export class ReportsService {
   ) {
     const project = await this.loadProjectForReport(projectId, user);
 
-    const pocGateBlocked = project.findings.some(
-      (f) => !f.pocSteps || f.pocSteps.length === 0 || !f.proofOfConcept,
-    );
+    const pocGateBlocked = project.findings.some((f) => !isFindingReportReady(f.pocSteps));
     if (pocGateBlocked) {
-      throw new BadRequestException('Report Generation not allowed until Steps and PoC are added.');
+      throw new BadRequestException('Report Generation not allowed until Steps and PoC screenshots/attachments are added.');
     }
 
     let template = project.template;
@@ -454,6 +528,7 @@ export class ReportsService {
       template = await this.prisma.reportTemplate.findFirst({
         where: { isActive: true, category: project.category, subType: project.subType },
         orderBy: { effectiveFrom: 'desc' },
+        include: { fields: true },
       });
     }
     if (!template) {
@@ -534,7 +609,7 @@ export class ReportsService {
   ): Promise<void> {
     const reportGeneration = await this.prisma.reportGeneration.findUnique({
       where: { id: reportGenerationId },
-      include: { template: true },
+      include: { template: { include: { fields: true } } },
     });
     if (!reportGeneration) {
       this.logger.error(`processReportGeneration: report ${reportGenerationId} not found`);
@@ -549,8 +624,20 @@ export class ReportsService {
         { id: actorId, role: UserRole.ADMIN } as User,
       );
       const template = reportGeneration.template;
+      if (!template) {
+        throw new BadRequestException('The template used for this report generation no longer exists.');
+      }
 
-      const templateBuffer = await this.storage.getFile(template.filePath);
+      let templateBuffer: Buffer;
+      try {
+        templateBuffer = await this.storage.getFile(template.filePath);
+      } catch (err: any) {
+        // Never substitute another template on a load failure — fail loud
+        // and name exactly which template/file could not be read.
+        throw new BadRequestException(
+          `Configured template "${template.name}" (id ${template.id}) could not be loaded from storage (${template.filePath}): ${err?.message || 'unknown error'}`,
+        );
+      }
 
       const sortedFindings = project.findings
         .map((f) => ({
@@ -603,13 +690,18 @@ export class ReportsService {
         });
       }
 
+      const { settings } = await this.settingsService.get();
+
       this.logger.log(`Generating report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
       const reportBuffer = await this.docxManipulator.generateReport(
         templateBuffer,
-        this.buildFieldRules(project).concat(this.buildCustomFieldRules(project)),
+        this.buildMappedFieldRules(template, project)
+          .concat(this.buildFieldRules(project))
+          .concat(this.buildCustomFieldRules(project)),
         findingsData,
         images,
         this.buildContacts(project),
+        settings.workflow.severityColors,
       );
 
       // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{YYYY-MM-DD}_Non-Compliant.docx
@@ -732,11 +824,10 @@ export class ReportsService {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       include: {
-        template: true,
+        template: { include: { fields: true } },
         tester: true,
         tl: { include: { manager: true } },
         findings: {
-          where: { status: 'APPROVED' },
           include: {
             vulnerability: true,
             pocSteps: { orderBy: { stepNo: 'asc' } },
@@ -784,12 +875,63 @@ export class ReportsService {
       .map(([match, value]) => ({ match: [match], value: String(value) }));
   }
 
+  /**
+   * Admin-set per-field mappings take priority over the generic fuzzy
+   * matching in buildFieldRules() — each ties one specific template
+   * placeholder to one specific application value, so two placeholders that
+   * happen to fuzzy-match the same generic rule can still resolve
+   * independently once an admin has mapped them.
+   */
+  /**
+   * Automatic/admin-mapped resolution is best-effort: an unresolved mapping
+   * is a valid state (left as literal template text, same as any other
+   * unmapped {Parameter}), never a reason to block generation. Logged for
+   * developer diagnostics only — never surfaced to users or thrown.
+   */
+  private buildMappedFieldRules(template: any, project: any): FieldRule[] {
+    const { rules, unresolved } = this.resolveMappedFields(template, project);
+    if (unresolved.length > 0) {
+      this.logger.debug(
+        `Unresolved mapped parameter(s) left as literal template text: ${unresolved
+          .map((u) => `"${u.field}" (${u.parameter})`)
+          .join(', ')}`,
+      );
+    }
+    return rules;
+  }
+
+  /**
+   * Resolves every admin-mapped field for a template against the project.
+   * A mapped field whose parameter resolves to an empty value is reported
+   * as unresolved rather than silently generating a blank placeholder.
+   */
+  private resolveMappedFields(
+    template: any,
+    project: any,
+  ): { rules: FieldRule[]; unresolved: { field: string; parameter: string }[] } {
+    const fields = (template?.fields || []) as { name: string; normalizedName: string; mappedParameter: string | null }[];
+    const rules: FieldRule[] = [];
+    const unresolved: { field: string; parameter: string }[] = [];
+
+    for (const f of fields) {
+      if (!f.mappedParameter) continue;
+      const value = resolveTemplateParameter(f.mappedParameter, project, (d) => this.formatReportDate(d));
+      if (!value) {
+        unresolved.push({ field: f.name, parameter: f.mappedParameter });
+        continue;
+      }
+      rules.push({ match: [f.normalizedName], value });
+    }
+
+    return { rules, unresolved };
+  }
+
   private buildFieldRules(project: any): FieldRule[] {
     const tl = project.tl;
     const tester = project.tester;
+    const manager = project.tl?.manager;
 
     const appLabel = project.subType === 'API' ? 'API' : 'Application';
-    const appNameVersion = [project.name, project.appVersion].filter(Boolean).join(' ');
 
     return [
       {
@@ -803,8 +945,24 @@ export class ReportsService {
       { match: ['qa_reviewer_name'], value: project.qaReviewerName || 'N/A' },
       { match: ['team_lead_name'], value: tl?.fullName || tl?.username || '' },
       { match: ['tester_name'], value: tester?.fullName || tester?.username || '' },
-      { match: ['app_version'], value: appNameVersion || `${appLabel} Name` },
-      { match: ['version_ex'], value: project.documentVersion || '1.0' },
+      { match: ['manager_designation'], value: manager?.designation || 'N/A' },
+      { match: ['manager_phone'], value: manager?.phone || 'N/A' },
+      { match: ['manager_email'], value: manager?.email || 'N/A' },
+      { match: ['manager'], value: manager?.fullName || manager?.username || 'N/A' },
+      { match: ['team_lead_designation'], value: tl?.designation || 'N/A' },
+      { match: ['team_lead_phone'], value: tl?.phone || 'N/A' },
+      { match: ['team_lead_email'], value: tl?.email || 'N/A' },
+      { match: ['tester_designation'], value: tester?.designation || 'N/A' },
+      { match: ['tester_phone'], value: tester?.phone || 'N/A' },
+      { match: ['tester_email'], value: tester?.email || 'N/A' },
+      // {Application Name} and {App-Version} are independent parameters with
+      // independent application fields — never combined/inferred from
+      // each other. project.name and project.appVersion are matched
+      // separately so a template using only one of the two still resolves
+      // correctly.
+      { match: ['application_name'], value: project.name || `${appLabel} Name` },
+      { match: ['app_version'], value: project.appVersion || '' },
+      { match: ['version_ex', 'document_version'], value: project.documentVersion || '1.0' },
       { match: ['client_name_location'], value: [project.clientName, project.location].filter(Boolean).join(', ') },
       { match: ['client_name'], value: project.clientName || '' },
       { match: ['month_dd_yyyy'], value: this.formatReportDate(new Date()) },

@@ -67,6 +67,7 @@ enum AuditAction {
   TEMPLATE_UPLOADED
   TEMPLATE_ACTIVATED
   TEMPLATE_DEACTIVATED
+  TEMPLATE_DELETED
   VULNERABILITY_REQUESTED
   VULNERABILITY_APPROVED
   VULNERABILITY_REJECTED
@@ -187,7 +188,7 @@ model Project {
   tl          User          @relation("ProjectTL", fields: [tlId], references: [id])
 
   templateId  String?       @map("template_id")
-  template    ReportTemplate? @relation(fields: [templateId], references: [id])
+  template    ReportTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   category    TemplateCategory @default(VAPT) @map("category")
   subType     TemplateSubType  @default(WEB) @map("sub_type")
 
@@ -270,6 +271,9 @@ model TemplateField {
   isRepeatable  Boolean   @default(false) @map("is_repeatable")
   isCustom      Boolean   @default(false) @map("is_custom")
   sortOrder     Int       @default(0) @map("sort_order")
+  /// Admin-selected canonical application parameter key this field maps to
+  /// (e.g. "project.startDate"). Null = fall back to automatic fuzzy matching.
+  mappedParameter String? @map("mapped_parameter")
 
   createdAt     DateTime  @default(now()) @map("created_at")
 
@@ -284,8 +288,11 @@ model ReportGeneration {
   projectId     String    @map("project_id")
   project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  templateId    String    @map("template_id")
-  template      ReportTemplate @relation(fields: [templateId], references: [id])
+  /// Nullable + SetNull: deleting the source template (e.g. on replace) must
+  /// never touch this row or its already-generated docxPath/pdfPath file —
+  /// it just severs the "which template produced this" pointer.
+  templateId    String?   @map("template_id")
+  template      ReportTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   generatedById String    @map("generated_by")
   generatedBy   User      @relation(fields: [generatedById], references: [id])

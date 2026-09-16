@@ -27,6 +27,7 @@ import {
 import { api, useAuth } from '@/contexts/auth-context';
 import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
+import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
 
 const severityColors: Record<string, string> = {
@@ -88,6 +89,8 @@ interface Finding {
   cvssScoreOverride: number | null;
   cvssVectorOverride: string | null;
   pocSteps: PocStep[];
+  pocComplete: boolean;
+  pocReadiness: 'ready' | 'steps_missing' | 'poc_missing' | 'both_missing';
   createdAt: string;
 }
 
@@ -349,13 +352,13 @@ export default function ProjectDetailPage() {
           <div>
             <p className="text-gray-500 text-xs">Start Date</p>
             <p className="text-white font-medium flex items-center gap-1.5">
-              {new Date(project.startDate).toLocaleDateString()}
+              {formatDate(project.startDate)}
               {user?.role !== 'TESTER' && project.startDateChangedAt && (
                 <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
               )}
             </p>
           </div>
-          <InfoField label="End Date" value={project.endDate ? new Date(project.endDate).toLocaleDateString() : 'Not set'} />
+          <InfoField label="End Date" value={project.endDate ? formatDate(project.endDate) : 'Not set'} />
           <InfoField label="Sub Type" value={project.subType} />
           <InfoField label="App Version" value={project.appVersion || 'N/A'} />
           <InfoField label="Location" value={project.location || 'N/A'} />
@@ -495,7 +498,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     name: project.name,
     clientName: project.clientName,
     scope: project.scope || '',
-    endDate: project.endDate ? new Date(project.endDate).toISOString().split('T')[0] : '',
+    endDate: project.endDate ? toDateInputValue(project.endDate) : '',
     appVersion: project.appVersion || '',
     location: project.location || '',
     documentVersion: project.documentVersion || '',
@@ -556,7 +559,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
   const inputCls = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
   const labelCls = 'block text-xs text-gray-400 mb-1';
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
@@ -698,7 +701,8 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
           </div>
         </form>
       </motion.div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -721,10 +725,14 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
   const [expanded, setExpanded] = useState(false);
   const cvss = finding.cvssScoreOverride ?? finding.vulnerability.cvssScore ?? '-';
 
-  // PoC completion indicator (#5)
-  const hasPocSteps = finding.pocSteps.length > 0;
-  const hasPocDescriptions = finding.pocSteps.some(s => s.description.trim().length > 0);
-  const pocComplete = hasPocSteps && hasPocDescriptions;
+  // PoC completion indicator — backend getPocReadiness is the single source of truth
+  const pocComplete = finding.pocComplete;
+  const pocIndicatorText: Record<Finding['pocReadiness'], string> = {
+    ready: 'Steps/POC Present',
+    steps_missing: 'Steps Missing',
+    poc_missing: 'PoC Missing',
+    both_missing: 'Steps & PoC Missing',
+  };
 
   return (
     <motion.div
@@ -757,7 +765,7 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
         <div className="flex items-center gap-2">
           {/* PoC Indicator (#5) */}
           <span
-            title={pocComplete ? 'POC steps added' : 'POC steps missing'}
+            title={pocIndicatorText[finding.pocReadiness]}
             className={`p-1.5 rounded-lg transition-all ${
               pocComplete
                 ? 'text-emerald-400 bg-emerald-500/10'
@@ -1552,7 +1560,7 @@ function GeneratedReportsSection({ projectId, refreshKey, canDelete }: { project
               <div className="min-w-0">
                 <p className="text-sm text-white truncate">{r.fileName || r.template?.name || 'Report'}</p>
                 <p className="text-xs text-gray-500">
-                  Generated {new Date(r.createdAt).toLocaleString()} by {r.generatedBy?.fullName || r.generatedBy?.username || 'unknown'}
+                  Generated {formatDateTime(r.createdAt)} by {r.generatedBy?.fullName || r.generatedBy?.username || 'unknown'}
                 </p>
               </div>
             </div>
