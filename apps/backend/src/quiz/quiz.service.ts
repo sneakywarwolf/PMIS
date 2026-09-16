@@ -210,16 +210,27 @@ export class QuizService {
     return this.buildRevealedSummary(question);
   }
 
+  /**
+   * Attempts are scored the instant a user answers, but the question's
+   * correct option isn't revealed to anyone (including that user) for 24
+   * hours. Scorecards/leaderboard must only reflect revealed questions, or
+   * a user's own correctness — and others' point/streak movement — leaks
+   * the answer early.
+   */
+  private revealedAttemptsWhere(userId?: string): Prisma.QuizAttemptWhereInput {
+    return { ...(userId ? { userId } : {}), question: { status: 'REVEALED' } };
+  }
+
   async getScorecard(userId: string) {
-    const stats = await this.prisma.quizUserStats.findUnique({ where: { userId } });
-    const attempts = await this.prisma.quizAttempt.findMany({ where: { userId } });
+    const attempts = await this.prisma.quizAttempt.findMany({ where: this.revealedAttemptsWhere(userId) });
     const correct = attempts.filter((a) => a.isCorrect).length;
+    const stats = await this.prisma.quizUserStats.findUnique({ where: { userId } });
     return {
       totalAnswered: attempts.length,
       correct,
       incorrect: attempts.length - correct,
       accuracy: attempts.length ? Math.round((correct / attempts.length) * 100) : 0,
-      totalPoints: stats?.totalPoints ?? 0,
+      totalPoints: attempts.reduce((sum, a) => sum + a.pointsAwarded, 0),
       currentStreak: stats?.currentStreak ?? 0,
       bestStreak: stats?.bestStreak ?? 0,
       badges: stats?.badges ?? [],
@@ -227,29 +238,36 @@ export class QuizService {
   }
 
   async getLeaderboard() {
-    const allStats = await this.prisma.quizUserStats.findMany({
+    const attempts = await this.prisma.quizAttempt.findMany({
+      where: this.revealedAttemptsWhere(),
       include: { user: { select: { id: true, fullName: true } } },
-      orderBy: { totalPoints: 'desc' },
+    });
+    const stats = await this.prisma.quizUserStats.findMany();
+    const statsByUserId = new Map(stats.map((s) => [s.userId, s]));
+
+    const byUser = new Map<string, { userId: string; fullName: string; totalPoints: number; correct: number; total: number }>();
+    for (const a of attempts) {
+      const entry = byUser.get(a.userId) ?? { userId: a.userId, fullName: a.user.fullName ?? '', totalPoints: 0, correct: 0, total: 0 };
+      entry.totalPoints += a.pointsAwarded;
+      entry.total += 1;
+      if (a.isCorrect) entry.correct += 1;
+      byUser.set(a.userId, entry);
+    }
+
+    const result = Array.from(byUser.values()).map((entry) => {
+      const s = statsByUserId.get(entry.userId);
+      return {
+        userId: entry.userId,
+        fullName: entry.fullName,
+        totalPoints: entry.totalPoints,
+        currentStreak: s?.currentStreak ?? 0,
+        bestStreak: s?.bestStreak ?? 0,
+        badges: s?.badges ?? [],
+        accuracy: entry.total ? entry.correct / entry.total : 0,
+      };
     });
 
-    const withAccuracy = await Promise.all(
-      allStats.map(async (s: any) => {
-        const attempts = await this.prisma.quizAttempt.findMany({ where: { userId: s.userId } });
-        const correct = attempts.filter((a) => a.isCorrect).length;
-        const accuracy = attempts.length ? correct / attempts.length : 0;
-        return {
-          userId: s.userId,
-          fullName: s.user.fullName,
-          totalPoints: s.totalPoints,
-          currentStreak: s.currentStreak,
-          bestStreak: s.bestStreak,
-          badges: s.badges,
-          accuracy,
-        };
-      }),
-    );
-
-    return withAccuracy.sort((a, b) => b.totalPoints - a.totalPoints || b.accuracy - a.accuracy);
+    return result.sort((a, b) => b.totalPoints - a.totalPoints || b.accuracy - a.accuracy);
   }
 
   async createQuestion(createdById: string, dto: CreateQuizQuestionDto, ipAddress: string, userAgent: string) {

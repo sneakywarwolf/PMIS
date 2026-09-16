@@ -16,6 +16,22 @@ function isPlainObject(v: any) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
+/**
+ * Drops any key from `data` that no longer exists in `base`, recursively.
+ * Prevents settings retired from a past schema version (e.g. an old
+ * workflow/system field) from resurfacing via the DB and then being
+ * rejected as "unknown" when the client saves them straight back.
+ */
+function pruneUnknown(base: any, data: any): any {
+  if (!isPlainObject(data)) return data;
+  const result: any = {};
+  for (const key of Object.keys(data)) {
+    if (!(key in base)) continue;
+    result[key] = isPlainObject(base[key]) ? pruneUnknown(base[key], data[key]) : data[key];
+  }
+  return result;
+}
+
 function deepMerge(base: any, patch: any): any {
   if (!isPlainObject(patch)) return base;
   const result = { ...base };
@@ -133,7 +149,7 @@ export class SettingsService {
     const row = await this.prisma.appSettings.findUnique({ where: { id: SETTINGS_ID } });
     const stored = row ? (row.data as any) : {};
     return {
-      settings: deepMerge(DEFAULT_SETTINGS, stored),
+      settings: deepMerge(DEFAULT_SETTINGS, pruneUnknown(DEFAULT_SETTINGS, stored)),
       updatedAt: row?.updatedAt ?? null,
       updatedById: row?.updatedById ?? null,
     };
@@ -165,7 +181,7 @@ export class SettingsService {
 
     const row = await this.prisma.appSettings.findUnique({ where: { id: SETTINGS_ID } });
     const before = row ? (row.data as any) : {};
-    const merged = deepMerge(deepMerge(DEFAULT_SETTINGS, before), patch);
+    const merged = deepMerge(deepMerge(DEFAULT_SETTINGS, pruneUnknown(DEFAULT_SETTINGS, before)), patch);
 
     await this.prisma.appSettings.upsert({
       where: { id: SETTINGS_ID },
