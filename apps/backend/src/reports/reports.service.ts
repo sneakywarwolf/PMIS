@@ -194,10 +194,13 @@ export class ReportsService {
    */
   private static readonly CANONICAL_FIELD_NAMES = [
     'start_date', 'end_date', 'qa_reviewer_name', 'team_lead_name', 'tester_name',
-    'app_version', 'version_ex', 'client_name_location', 'client_name', 'month_dd_yyyy',
+    'application_name', 'app_version', 'version_ex', 'client_name_location', 'client_name', 'month_dd_yyyy',
     'tools_name', 'tools_used', 'details_scope', 'scope', 'staging_uat',
     'testing_environment', 'black_box', 'grey_box', 'login_role_types',
     'nature_or_purpose', 'testing_limitation', 'build_details',
+    'manager', 'manager_designation', 'manager_phone', 'manager_email',
+    'team_lead_designation', 'team_lead_phone', 'team_lead_email',
+    'tester_designation', 'tester_phone', 'tester_email',
   ];
 
   /** Slug: lowercase, spaces/dashes → underscore, strip anything else. */
@@ -926,9 +929,9 @@ export class ReportsService {
   private buildFieldRules(project: any): FieldRule[] {
     const tl = project.tl;
     const tester = project.tester;
+    const manager = project.tl?.manager;
 
     const appLabel = project.subType === 'API' ? 'API' : 'Application';
-    const appNameVersion = [project.name, project.appVersion].filter(Boolean).join(' ');
 
     return [
       {
@@ -942,7 +945,23 @@ export class ReportsService {
       { match: ['qa_reviewer_name'], value: project.qaReviewerName || 'N/A' },
       { match: ['team_lead_name'], value: tl?.fullName || tl?.username || '' },
       { match: ['tester_name'], value: tester?.fullName || tester?.username || '' },
-      { match: ['app_version'], value: appNameVersion || `${appLabel} Name` },
+      { match: ['manager_designation'], value: manager?.designation || 'N/A' },
+      { match: ['manager_phone'], value: manager?.phone || 'N/A' },
+      { match: ['manager_email'], value: manager?.email || 'N/A' },
+      { match: ['manager'], value: manager?.fullName || manager?.username || 'N/A' },
+      { match: ['team_lead_designation'], value: tl?.designation || 'N/A' },
+      { match: ['team_lead_phone'], value: tl?.phone || 'N/A' },
+      { match: ['team_lead_email'], value: tl?.email || 'N/A' },
+      { match: ['tester_designation'], value: tester?.designation || 'N/A' },
+      { match: ['tester_phone'], value: tester?.phone || 'N/A' },
+      { match: ['tester_email'], value: tester?.email || 'N/A' },
+      // {Application Name} and {App-Version} are independent parameters with
+      // independent application fields — never combined/inferred from
+      // each other. project.name and project.appVersion are matched
+      // separately so a template using only one of the two still resolves
+      // correctly.
+      { match: ['application_name'], value: project.name || `${appLabel} Name` },
+      { match: ['app_version'], value: project.appVersion || '' },
       { match: ['version_ex'], value: project.documentVersion || '1.0' },
       { match: ['client_name_location'], value: [project.clientName, project.location].filter(Boolean).join(', ') },
       { match: ['client_name'], value: project.clientName || '' },
