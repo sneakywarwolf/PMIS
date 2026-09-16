@@ -194,7 +194,7 @@ export class ReportsService {
    */
   private static readonly CANONICAL_FIELD_NAMES = [
     'start_date', 'end_date', 'qa_reviewer_name', 'team_lead_name', 'tester_name',
-    'application_name', 'app_version', 'version_ex', 'client_name_location', 'client_name', 'month_dd_yyyy',
+    'application_name', 'app_version', 'version_ex', 'document_version', 'client_name_location', 'client_name', 'month_dd_yyyy',
     'tools_name', 'tools_used', 'details_scope', 'scope', 'staging_uat',
     'testing_environment', 'black_box', 'grey_box', 'login_role_types',
     'nature_or_purpose', 'testing_limitation', 'build_details',
@@ -962,7 +962,7 @@ export class ReportsService {
       // correctly.
       { match: ['application_name'], value: project.name || `${appLabel} Name` },
       { match: ['app_version'], value: project.appVersion || '' },
-      { match: ['version_ex'], value: project.documentVersion || '1.0' },
+      { match: ['version_ex', 'document_version'], value: project.documentVersion || '1.0' },
       { match: ['client_name_location'], value: [project.clientName, project.location].filter(Boolean).join(', ') },
       { match: ['client_name'], value: project.clientName || '' },
       { match: ['month_dd_yyyy'], value: this.formatReportDate(new Date()) },
