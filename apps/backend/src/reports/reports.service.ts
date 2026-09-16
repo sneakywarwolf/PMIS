@@ -1004,8 +1004,9 @@ export class ReportsService {
       return rule ? rule.value : match; // leave unmapped placeholders literal, same as report content
     });
 
-    const ext = resolved.match(/\.[a-zA-Z0-9]+$/)?.[0] || '.docx';
-    const base = ext ? resolved.slice(0, -ext.length) : resolved;
+    const extMatch = resolved.match(/\.[a-zA-Z0-9]+$/)?.[0];
+    const ext = extMatch || '.docx'; // uploaded templates are always .docx; this only guards a malformed/no-extension original filename
+    const base = extMatch ? resolved.slice(0, -extMatch.length) : resolved;
     const sanitizedBase = base
       .replace(/\s+/g, '-') // no spaces, ever — applies to both static text and resolved values
       .replace(/[<>:"/\\|?*]+/g, '-') // strip filesystem-invalid characters
