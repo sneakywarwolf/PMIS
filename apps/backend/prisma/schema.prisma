@@ -231,6 +231,10 @@ model ReportTemplate {
   id            String    @id @default(cuid())
   name          String
   filePath      String    @map("file_path")
+  /// Original uploaded filename (e.g. "App-Security-Test_{Client-Name}_{Application-Name}_Web_{Document Version}_{Report Generation Date}_Non-Compliant.docx"),
+  /// used as the naming pattern for generated reports. Null for templates
+  /// uploaded before this column existed.
+  originalFileName String? @map("original_file_name")
   fileHash      String    @map("file_hash")
 
   category      TemplateCategory @default(VAPT) @map("category")

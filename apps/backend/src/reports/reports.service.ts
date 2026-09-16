@@ -97,6 +97,7 @@ export class ReportsService {
       data: {
         name,
         filePath: objectName,
+        originalFileName: file.originalname,
         fileHash,
         category,
         subType,
@@ -495,7 +496,7 @@ export class ReportsService {
       pocGateBlocked,
       templateName: project.template?.name || null,
       nextVersion,
-      suggestedFileName: this.buildReportFileName(project, nextVersion),
+      suggestedFileName: this.buildReportFileName(project, nextVersion, project.template),
     };
   }
 
@@ -978,7 +979,43 @@ export class ReportsService {
     ];
   }
 
+  /**
+   * The generated report's filename follows the uploaded template's own
+   * filename as a naming pattern: every {Parameter} in it is resolved
+   * through the exact same rule set (admin-mapped > generic > custom) used
+   * for report content, in place, then any run of whitespace is collapsed
+   * to a single "-" so the result never contains spaces. Falls back to the
+   * old fixed pattern only for templates uploaded before this existed.
+   */
   private buildReportFileName(project: any, version: string, template?: any): string {
+    if (!template?.originalFileName) {
+      return this.buildLegacyReportFileName(project, version, template);
+    }
+
+    const rules = this.buildMappedFieldRules(template, project)
+      .concat(this.buildFieldRules(project))
+      .concat(this.buildCustomFieldRules(project));
+
+    const resolved = template.originalFileName.replace(/\{([^{}]+)\}/g, (match: string, raw: string) => {
+      const normalized = this.slugifyFieldName(raw);
+      const rule = rules.find((r) =>
+        r.requireAll ? r.match.every((m) => normalized.includes(m)) : r.match.some((m) => normalized.includes(m)),
+      );
+      return rule ? rule.value : match; // leave unmapped placeholders literal, same as report content
+    });
+
+    const ext = resolved.match(/\.[a-zA-Z0-9]+$/)?.[0] || '.docx';
+    const base = ext ? resolved.slice(0, -ext.length) : resolved;
+    const sanitizedBase = base
+      .replace(/\s+/g, '-') // no spaces, ever — applies to both static text and resolved values
+      .replace(/[<>:"/\\|?*]+/g, '-') // strip filesystem-invalid characters
+      .replace(/-{2,}/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    return `${sanitizedBase || 'Report'}${ext}`;
+  }
+
+  private buildLegacyReportFileName(project: any, version: string, template?: any): string {
     const subTypeLabel = SUB_TYPE_FILE_LABELS[(template?.subType ?? project.subType) as TemplateSubType] || 'Web';
     const safe = (s: string) =>
       (s || '')
