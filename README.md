@@ -114,6 +114,7 @@ A futuristic, scalable, web-based RBAC Project Management and Dynamic Report Gen
 - `templateId` → ReportTemplate
 - `category` (TemplateCategory), `subType` (TemplateSubType)
 - Report detail fields: `appVersion`, `location`, `documentVersion`, `toolsUsed`, `testingEnvironment`, `qaReviewerName`, `applicationDetails`, `testingType`, `loginSystemTypes`, `applicationNature`, `testingLimitation`
+- Conditional detail fields: `mobilePlatform` (Android/iOS, shown when `subType` = `MOBILE`), `sha1` (shown when `subType` is `MOBILE` or `THICK_CLIENT`)
 - `reportDocxPath`, `reportPdfPath`, `isDraft`, `generatedAt`, `approvedAt`, `approvedById`
 - Relations: tester, tl, template, findings, reportGenerations
 
