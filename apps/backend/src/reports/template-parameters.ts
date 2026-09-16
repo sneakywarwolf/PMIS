@@ -26,6 +26,9 @@ export const CANONICAL_TEMPLATE_PARAMETERS: { key: string; label: string }[] = [
   { key: 'project.applicationNature', label: 'Nature/Purpose of Application' },
   { key: 'project.testingLimitation', label: 'Testing Limitation' },
   { key: 'project.applicationDetails', label: 'Build Details' },
+  { key: 'project.mobilePlatform', label: 'Mobile Platform (Android/iOS)' },
+  { key: 'project.sha1', label: 'SHA-1 Hash' },
+  { key: 'report.generationDateIso', label: 'Report Date (ISO, YYYY-MM-DD)' },
   { key: 'manager.fullName', label: 'Manager Name' },
   { key: 'manager.designation', label: 'Manager Designation' },
   { key: 'manager.phone', label: 'Manager Phone' },
@@ -82,6 +85,9 @@ export function resolveTemplateParameter(key: string, project: any, formatDate: 
     case 'project.applicationNature': return project.applicationNature || '';
     case 'project.testingLimitation': return project.testingLimitation || 'N/A';
     case 'project.applicationDetails': return project.applicationDetails || '';
+    case 'project.mobilePlatform': return project.mobilePlatform || '';
+    case 'project.sha1': return project.sha1 || '';
+    case 'report.generationDateIso': return new Date().toISOString().slice(0, 10);
     default: return '';
   }
 }

@@ -143,6 +143,8 @@ export class ProjectsService {
         loginSystemTypes: dto.loginSystemTypes,
         applicationNature: dto.applicationNature,
         testingLimitation: dto.testingLimitation,
+        mobilePlatform: dto.mobilePlatform,
+        sha1: dto.sha1,
         customFieldValues: dto.customFieldValues,
       },
       include: {
@@ -179,6 +181,7 @@ export class ProjectsService {
       'appVersion', 'location', 'documentVersion', 'toolsUsed', 'testingEnvironment',
       'qaReviewerName', 'applicationDetails', 'testingType', 'loginSystemTypes',
       'applicationNature', 'testingLimitation', 'complianceType',
+      'mobilePlatform', 'sha1',
     ] as const;
 
     const updateData: any = {

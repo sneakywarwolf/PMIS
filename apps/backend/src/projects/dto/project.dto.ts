@@ -77,6 +77,14 @@ export class CreateProjectDto {
   testingLimitation?: string;
 
   @IsOptional()
+  @IsString()
+  mobilePlatform?: string;
+
+  @IsOptional()
+  @IsString()
+  sha1?: string;
+
+  @IsOptional()
   @IsObject()
   customFieldValues?: Record<string, string>;
 }
@@ -153,6 +161,14 @@ export class UpdateProjectDto {
   @IsOptional()
   @IsString()
   testingLimitation?: string;
+
+  @IsOptional()
+  @IsString()
+  mobilePlatform?: string;
+
+  @IsOptional()
+  @IsString()
+  sha1?: string;
 
   @IsOptional()
   @IsString()

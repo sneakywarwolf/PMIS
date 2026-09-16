@@ -201,6 +201,7 @@ export class ReportsService {
     'manager', 'manager_designation', 'manager_phone', 'manager_email',
     'team_lead_designation', 'team_lead_phone', 'team_lead_email',
     'tester_designation', 'tester_phone', 'tester_email',
+    'android_ios', 'sha_1', 'sha1', 'report_date',
   ];
 
   /** Slug: lowercase, spaces/dashes → underscore, strip anything else. */
@@ -975,6 +976,9 @@ export class ReportsService {
       { match: ['nature_or_purpose'], value: project.applicationNature || '' },
       { match: ['testing_limitation'], value: project.testingLimitation || 'N/A' },
       { match: ['build_details'], value: project.applicationDetails || '' },
+      { match: ['android_ios'], value: project.mobilePlatform || '' },
+      { match: ['sha_1', 'sha1'], value: project.sha1 || '' },
+      { match: ['report_date'], value: new Date().toISOString().slice(0, 10) },
     ];
   }
 

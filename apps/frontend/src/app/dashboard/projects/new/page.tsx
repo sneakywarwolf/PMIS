@@ -37,6 +37,8 @@ export default function NewProjectPage() {
     loginSystemTypes: '',
     applicationNature: '',
     testingLimitation: '',
+    mobilePlatform: '',
+    sha1: '',
   });
 
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
@@ -77,6 +79,7 @@ export default function NewProjectPage() {
         'endDate', 'appVersion', 'location', 'documentVersion', 'toolsUsed',
         'testingEnvironment', 'qaReviewerName', 'applicationDetails', 'testingType',
         'loginSystemTypes', 'applicationNature', 'testingLimitation',
+        'mobilePlatform', 'sha1',
       ];
       for (const key of optional) {
         if ((form as any)[key]) payload[key] = (form as any)[key];
@@ -224,6 +227,22 @@ export default function NewProjectPage() {
               <label className={labelCls}>Types of Login System</label>
               <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} placeholder="e.g. Admin, Manager, Customer roles" />
             </div>
+            {form.subType === 'MOBILE' && (
+              <div>
+                <label className={labelCls}>Android/iOS</label>
+                <select value={form.mobilePlatform} onChange={(e) => set('mobilePlatform', e.target.value)} className={inputCls}>
+                  <option value="">Select platform</option>
+                  <option value="Android">Android</option>
+                  <option value="iOS">iOS</option>
+                </select>
+              </div>
+            )}
+            {(form.subType === 'MOBILE' || form.subType === 'THICK_CLIENT') && (
+              <div>
+                <label className={labelCls}>SHA-1</label>
+                <input type="text" value={form.sha1} onChange={(e) => set('sha1', e.target.value)} className={inputCls} placeholder="e.g. AA:BB:CC:..." />
+              </div>
+            )}
           </div>
 
           <div>

@@ -204,6 +204,8 @@ model Project {
   loginSystemTypes   String?  @map("login_system_types")
   applicationNature  String?  @map("application_nature")
   testingLimitation  String?  @map("testing_limitation")
+  mobilePlatform     String?  @map("mobile_platform")
+  sha1               String?  @map("sha1")
 
   customFieldValues Json?   @map("custom_field_values")
 

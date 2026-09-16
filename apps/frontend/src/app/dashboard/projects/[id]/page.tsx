@@ -117,6 +117,8 @@ interface Project {
   loginSystemTypes?: string;
   applicationNature?: string;
   testingLimitation?: string;
+  mobilePlatform?: string;
+  sha1?: string;
   complianceType?: string;
   tester: { id: string; username: string; email: string; fullName?: string | null };
   tl: { id: string; username: string; email: string; fullName?: string | null };
@@ -368,6 +370,12 @@ export default function ProjectDetailPage() {
           <InfoField label="QA Reviewer" value={project.qaReviewerName || 'N/A'} />
           <InfoField label="Testing Type" value={project.testingType || 'N/A'} />
           <InfoField label="Login Systems" value={project.loginSystemTypes || 'N/A'} />
+          {project.subType === 'MOBILE' && (
+            <InfoField label="Android/iOS" value={project.mobilePlatform || 'N/A'} />
+          )}
+          {(project.subType === 'MOBILE' || project.subType === 'THICK_CLIENT') && (
+            <InfoField label="SHA-1" value={project.sha1 || 'N/A'} />
+          )}
           <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} />
           <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
           <InfoField label="Team Lead" value={project.tl.fullName || project.tl.username} />
@@ -510,6 +518,8 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     loginSystemTypes: project.loginSystemTypes || '',
     applicationNature: project.applicationNature || '',
     testingLimitation: project.testingLimitation || '',
+    mobilePlatform: project.mobilePlatform || '',
+    sha1: project.sha1 || '',
     complianceType: project.complianceType || 'VAPT',
     templateId: project.template?.id || '',
   });
@@ -648,6 +658,22 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
               <label className={labelCls}>Types of Login System</label>
               <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} />
             </div>
+            {project.subType === 'MOBILE' && (
+              <div>
+                <label className={labelCls}>Android/iOS</label>
+                <select value={form.mobilePlatform} onChange={(e) => set('mobilePlatform', e.target.value)} className={inputCls}>
+                  <option value="">Select platform</option>
+                  <option value="Android">Android</option>
+                  <option value="iOS">iOS</option>
+                </select>
+              </div>
+            )}
+            {(project.subType === 'MOBILE' || project.subType === 'THICK_CLIENT') && (
+              <div>
+                <label className={labelCls}>SHA-1</label>
+                <input type="text" value={form.sha1} onChange={(e) => set('sha1', e.target.value)} className={inputCls} />
+              </div>
+            )}
           </div>
 
           <div>
