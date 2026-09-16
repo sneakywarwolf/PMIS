@@ -13,13 +13,21 @@ if errorlevel 1 (
 )
 
 REM Start infrastructure (in case containers are stopped)
-echo [1/5] Ensuring Docker services are running...
+echo [1/6] Ensuring Docker services are running...
 docker-compose up -d
 timeout /t 5 /nobreak >nul
 
 cd apps\backend
 
-echo [2/5] Generating Prisma client + applying migrations...
+echo [2/6] Syncing backend dependencies...
+call npm install
+if errorlevel 1 (
+    echo [ERROR] Backend npm install failed. Check error above.
+    pause
+    exit /b 1
+)
+
+echo [3/6] Generating Prisma client + applying migrations...
 call npx prisma generate
 call npx prisma migrate deploy
 if errorlevel 1 (
@@ -28,7 +36,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [3/5] Seeding database with default users...
+echo [4/6] Seeding database with default users...
 call npx prisma db seed
 if errorlevel 1 (
     echo [ERROR] Seed failed.
@@ -36,7 +44,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [4/5] Stopping any existing servers on ports 3000 and 4000...
+echo [5/6] Stopping any existing servers on ports 3000 and 4000...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr :4000') do (
     echo      Killing process on port 4000 (PID: %%a)
     taskkill /F /PID %%a >nul 2>&1
@@ -47,7 +55,7 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr :3000') do (
 )
 timeout /t 2 /nobreak >nul
 
-echo [5/5] Starting servers...
+echo [6/6] Starting servers...
 echo      Starting backend server on port 4000...
 start "VAPT Backend" cmd /k "npm run start:dev"
 

@@ -46,16 +46,12 @@ if not exist .env (
     echo      Created .env file from template
 )
 
-if %CLEAN%==1 (
-    echo [4/6] Installing backend dependencies (~2-3 mins)...
-    call npm install
-    if errorlevel 1 (
-        echo [ERROR] Backend npm install failed. Check error above.
-        pause
-        exit /b 1
-    )
-) else (
-    echo [4/6] Skipping npm install (fast mode). If you get module errors, re-run with --clean.
+echo [4/6] Syncing backend dependencies...
+call npm install
+if errorlevel 1 (
+    echo [ERROR] Backend npm install failed. Check error above.
+    pause
+    exit /b 1
 )
 
 echo [5/6] Setting up database...
@@ -93,16 +89,12 @@ REM Setup frontend
 echo Starting frontend setup...
 cd apps\frontend
 
-if %CLEAN%==1 (
-    echo Installing frontend dependencies (~1-2 mins)...
-    call npm install
-    if errorlevel 1 (
-        echo [ERROR] Frontend npm install failed. Check error above.
-        pause
-        exit /b 1
-    )
-) else (
-    echo Skipping frontend npm install (fast mode).
+echo Syncing frontend dependencies...
+call npm install
+if errorlevel 1 (
+    echo [ERROR] Frontend npm install failed. Check error above.
+    pause
+    exit /b 1
 )
 
 echo Starting frontend server...
