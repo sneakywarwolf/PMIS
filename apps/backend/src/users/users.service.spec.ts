@@ -68,3 +68,56 @@ describe('UsersService.softDelete', () => {
     );
   });
 });
+
+describe('UsersService.bulkUpload', () => {
+  let service: UsersService;
+  let prisma: {
+    user: { findMany: jest.Mock; create: jest.Mock };
+  };
+  let audit: { log: jest.Mock };
+
+  beforeEach(async () => {
+    prisma = {
+      user: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn().mockResolvedValue({}) },
+    };
+    audit = { log: jest.fn() };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        UsersService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AuditService, useValue: audit },
+        { provide: NotificationsService, useValue: {} },
+        { provide: SettingsService, useValue: {} },
+        { provide: ProjectPurgeService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(UsersService);
+  });
+
+  it('rejects a CSV with a missing/renamed required header, and never creates a user', async () => {
+    const badCsv = [
+      'S.No,Full Name,Email Address,Mobile,Designation,Role,Team Lead,Manager',
+      '1,Jane Doe,jane@example.com,555-1234,QA,Tester,,',
+    ].join('\n');
+
+    await expect(service.bulkUpload(badCsv, 'admin1', '1.2.3.4', 'jest')).rejects.toThrow(
+      'Missing or incorrect header(s): Email',
+    );
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('accepts headers in a different order, since rows are extracted by header name', async () => {
+    const reorderedCsv = [
+      'Email,S.No,Role,Full Name,Mobile,Designation,Team Lead,Manager',
+      'jane@example.com,1,Tester,Jane Doe,555-1234,QA,,',
+    ].join('\n');
+
+    const results = await service.bulkUpload(reorderedCsv, 'admin1', '1.2.3.4', 'jest');
+
+    expect(prisma.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ email: 'jane@example.com', fullName: 'Jane Doe' }) }),
+    );
+    expect(results.added).toBe(1);
+  });
+});

@@ -20,15 +20,17 @@ docker-compose up -d
 echo [2/3] Waiting for services to start...
 timeout /t 5 /nobreak >nul
 
-REM Check if node_modules exist
-echo [3/3] Starting development servers (silent mode)...
-if not exist apps\backend\node_modules (
-    echo [WARN] Backend node_modules missing. Run setup.bat first.
+REM Sync dependencies (fast no-op if already up to date; catches stale/missing packages)
+echo [3/3] Syncing dependencies and starting development servers (silent mode)...
+call npm install --prefix apps\backend
+if errorlevel 1 (
+    echo [ERROR] Backend npm install failed. Check error above.
     pause
     exit /b 1
 )
-if not exist apps\frontend\node_modules (
-    echo [WARN] Frontend node_modules missing. Run setup.bat first.
+call npm install --prefix apps\frontend
+if errorlevel 1 (
+    echo [ERROR] Frontend npm install failed. Check error above.
     pause
     exit /b 1
 )

@@ -62,6 +62,7 @@ enum AuditAction {
   PROJECT_REJECTED
   REPORT_GENERATED
   REPORT_DELETED
+  PROJECT_DELETED
   PROJECT_RETENTION_DELETED
   ATTACHMENT_RETENTION_DELETED
   TEMPLATE_UPLOADED
@@ -206,6 +207,12 @@ model Project {
   testingLimitation  String?  @map("testing_limitation")
   mobilePlatform     String?  @map("mobile_platform")
   sha1               String?  @map("sha1")
+
+  // Next report generation for this project is "1.{reportVersionCounter}".
+  // Only incremented when a generation actually COMPLETEs (never on
+  // creation/failure), and never decremented — so failed generations don't
+  // burn a version number, and deleting an old report can't cause reuse.
+  reportVersionCounter Int    @default(0) @map("report_version_counter")
 
   customFieldValues Json?   @map("custom_field_values")
 

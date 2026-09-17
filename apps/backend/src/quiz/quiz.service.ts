@@ -42,13 +42,12 @@ export class QuizService {
 
     const revealing = await this.prisma.quizQuestion.findMany({
       where: { status: 'ACTIVE', scheduledFor: { lte: new Date(now.getTime() - TWENTY_FOUR_HOURS_MS) } },
-      select: { id: true },
+      orderBy: { scheduledFor: 'asc' },
     });
     if (revealing.length > 0) {
-      await this.prisma.quizQuestion.updateMany({
-        where: { id: { in: revealing.map((q) => q.id) } },
-        data: { status: 'REVEALED', revealedAt: now },
-      });
+      for (const question of revealing) {
+        await this.revealQuestion(question, now);
+      }
       await this.notifications.notifyAllActiveUsers({
         type: 'QUIZ_ANSWER_REVEALED',
         title: 'Quiz answer revealed',
@@ -56,6 +55,78 @@ export class QuizService {
         linkUrl: '/dashboard/quiz',
       });
     }
+  }
+
+  /**
+   * Scores every attempt on a question and updates each answerer's stats.
+   * Points/streaks/badges are computed here — at reveal time — rather than
+   * the instant someone answers, so a user's own scorecard and the
+   * leaderboard can't leak whether an unrevealed answer was correct.
+   */
+  private async revealQuestion(question: { id: string; scheduledFor: Date }, revealedAt: Date) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.quizQuestion.update({ where: { id: question.id }, data: { status: 'REVEALED', revealedAt } });
+
+      const attempts = await tx.quizAttempt.findMany({ where: { questionId: question.id } });
+      for (const attempt of attempts) {
+        const stats = (await tx.quizUserStats.findUnique({ where: { userId: attempt.userId } })) ?? {
+          userId: attempt.userId,
+          totalPoints: 0,
+          currentStreak: 0,
+          bestStreak: 0,
+          lastAnsweredOn: null as Date | null,
+          badges: [] as string[],
+        };
+
+        const previousDay = new Date(question.scheduledFor.getTime() - TWENTY_FOUR_HOURS_MS).toDateString();
+        const noGap = stats.lastAnsweredOn !== null && stats.lastAnsweredOn.toDateString() === previousDay;
+        const nextStreak = attempt.isCorrect ? (noGap ? stats.currentStreak + 1 : 1) : 0;
+        const streakBonus = attempt.isCorrect ? Math.min(nextStreak - 1, MAX_STREAK_BONUS) : 0;
+        const pointsAwarded = attempt.isCorrect ? BASE_POINTS + streakBonus : 0;
+        const nextBestStreak = Math.max(stats.bestStreak, nextStreak);
+
+        await tx.quizAttempt.update({ where: { id: attempt.id }, data: { pointsAwarded } });
+
+        const totalAnswered = await tx.quizAttempt.count({
+          where: { userId: attempt.userId, question: { status: 'REVEALED' } },
+        });
+        const badges = new Set(stats.badges);
+        if (attempt.isCorrect && totalAnswered === 1) badges.add('FIRST_CORRECT');
+        if (nextStreak === 5) badges.add('STREAK_5');
+        if (nextStreak === 10) badges.add('STREAK_10');
+        if (nextStreak === 30) badges.add('STREAK_30');
+        if (totalAnswered === 50) badges.add('ANSWERED_50');
+        if (totalAnswered === 100) badges.add('ANSWERED_100');
+
+        const recentAttempts = await tx.quizAttempt.findMany({
+          where: { userId: attempt.userId, question: { status: 'REVEALED' } },
+          orderBy: { answeredAt: 'desc' },
+          take: 7,
+        });
+        if (recentAttempts.length === 7 && recentAttempts.every((a) => a.isCorrect)) {
+          badges.add('PERFECT_WEEK');
+        }
+
+        await tx.quizUserStats.upsert({
+          where: { userId: attempt.userId },
+          create: {
+            userId: attempt.userId,
+            totalPoints: pointsAwarded,
+            currentStreak: nextStreak,
+            bestStreak: nextBestStreak,
+            lastAnsweredOn: attempt.answeredAt,
+            badges: Array.from(badges) as any,
+          },
+          update: {
+            totalPoints: stats.totalPoints + pointsAwarded,
+            currentStreak: nextStreak,
+            bestStreak: nextBestStreak,
+            lastAnsweredOn: attempt.answeredAt,
+            badges: Array.from(badges) as any,
+          },
+        });
+      }
+    });
   }
 
   async submitAnswer(userId: string, questionId: string, selectedOption: number) {
@@ -73,74 +144,17 @@ export class QuizService {
 
     const isCorrect = selectedOption === question.correctIndex;
 
-    return this.prisma.$transaction(async (tx) => {
-      const stats = (await tx.quizUserStats.findUnique({ where: { userId } })) ?? {
-        userId,
-        totalPoints: 0,
-        currentStreak: 0,
-        bestStreak: 0,
-        lastAnsweredOn: null as Date | null,
-        badges: [] as string[],
-      };
-
-      const previousDay = new Date(question.scheduledFor.getTime() - TWENTY_FOUR_HOURS_MS).toDateString();
-      const noGap = stats.lastAnsweredOn !== null && stats.lastAnsweredOn.toDateString() === previousDay;
-      const nextStreak = isCorrect ? (noGap ? stats.currentStreak + 1 : 1) : 0;
-      const streakBonus = isCorrect ? Math.min(nextStreak - 1, MAX_STREAK_BONUS) : 0;
-      const pointsAwarded = isCorrect ? BASE_POINTS + streakBonus : 0;
-      const nextBestStreak = Math.max(stats.bestStreak, nextStreak);
-
-      let attempt;
-      try {
-        attempt = await tx.quizAttempt.create({
-          data: { questionId, userId, selectedOption, isCorrect, pointsAwarded },
-        });
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-          throw new ConflictException('You have already answered this question.');
-        }
-        throw error;
-      }
-
-      const totalAnswered = await tx.quizAttempt.count({ where: { userId } });
-      const badges = new Set(stats.badges);
-      if (isCorrect && totalAnswered === 1) badges.add('FIRST_CORRECT');
-      if (nextStreak === 5) badges.add('STREAK_5');
-      if (nextStreak === 10) badges.add('STREAK_10');
-      if (nextStreak === 30) badges.add('STREAK_30');
-      if (totalAnswered === 50) badges.add('ANSWERED_50');
-      if (totalAnswered === 100) badges.add('ANSWERED_100');
-
-      const recentAttempts = await tx.quizAttempt.findMany({
-        where: { userId },
-        orderBy: { answeredAt: 'desc' },
-        take: 7,
+    try {
+      // pointsAwarded stays 0 until revealQuestion scores it at the 24-hour reveal.
+      return await this.prisma.quizAttempt.create({
+        data: { questionId, userId, selectedOption, isCorrect, pointsAwarded: 0 },
       });
-      if (recentAttempts.length === 7 && recentAttempts.every((a) => a.isCorrect)) {
-        badges.add('PERFECT_WEEK');
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('You have already answered this question.');
       }
-
-      await tx.quizUserStats.upsert({
-        where: { userId },
-        create: {
-          userId,
-          totalPoints: pointsAwarded,
-          currentStreak: nextStreak,
-          bestStreak: nextBestStreak,
-          lastAnsweredOn: new Date(),
-          badges: Array.from(badges) as any,
-        },
-        update: {
-          totalPoints: stats.totalPoints + pointsAwarded,
-          currentStreak: nextStreak,
-          bestStreak: nextBestStreak,
-          lastAnsweredOn: new Date(),
-          badges: Array.from(badges) as any,
-        },
-      });
-
-      return attempt;
-    });
+      throw error;
+    }
   }
 
   async getTodayQuestion(userId: string) {
@@ -210,16 +224,27 @@ export class QuizService {
     return this.buildRevealedSummary(question);
   }
 
+  /**
+   * Attempts are scored the instant a user answers, but the question's
+   * correct option isn't revealed to anyone (including that user) for 24
+   * hours. Scorecards/leaderboard must only reflect revealed questions, or
+   * a user's own correctness — and others' point/streak movement — leaks
+   * the answer early.
+   */
+  private revealedAttemptsWhere(userId?: string): Prisma.QuizAttemptWhereInput {
+    return { ...(userId ? { userId } : {}), question: { status: 'REVEALED' } };
+  }
+
   async getScorecard(userId: string) {
-    const stats = await this.prisma.quizUserStats.findUnique({ where: { userId } });
-    const attempts = await this.prisma.quizAttempt.findMany({ where: { userId } });
+    const attempts = await this.prisma.quizAttempt.findMany({ where: this.revealedAttemptsWhere(userId) });
     const correct = attempts.filter((a) => a.isCorrect).length;
+    const stats = await this.prisma.quizUserStats.findUnique({ where: { userId } });
     return {
       totalAnswered: attempts.length,
       correct,
       incorrect: attempts.length - correct,
       accuracy: attempts.length ? Math.round((correct / attempts.length) * 100) : 0,
-      totalPoints: stats?.totalPoints ?? 0,
+      totalPoints: attempts.reduce((sum, a) => sum + a.pointsAwarded, 0),
       currentStreak: stats?.currentStreak ?? 0,
       bestStreak: stats?.bestStreak ?? 0,
       badges: stats?.badges ?? [],
@@ -227,29 +252,36 @@ export class QuizService {
   }
 
   async getLeaderboard() {
-    const allStats = await this.prisma.quizUserStats.findMany({
+    const attempts = await this.prisma.quizAttempt.findMany({
+      where: this.revealedAttemptsWhere(),
       include: { user: { select: { id: true, fullName: true } } },
-      orderBy: { totalPoints: 'desc' },
+    });
+    const stats = await this.prisma.quizUserStats.findMany();
+    const statsByUserId = new Map(stats.map((s) => [s.userId, s]));
+
+    const byUser = new Map<string, { userId: string; fullName: string; totalPoints: number; correct: number; total: number }>();
+    for (const a of attempts) {
+      const entry = byUser.get(a.userId) ?? { userId: a.userId, fullName: a.user.fullName ?? '', totalPoints: 0, correct: 0, total: 0 };
+      entry.totalPoints += a.pointsAwarded;
+      entry.total += 1;
+      if (a.isCorrect) entry.correct += 1;
+      byUser.set(a.userId, entry);
+    }
+
+    const result = Array.from(byUser.values()).map((entry) => {
+      const s = statsByUserId.get(entry.userId);
+      return {
+        userId: entry.userId,
+        fullName: entry.fullName,
+        totalPoints: entry.totalPoints,
+        currentStreak: s?.currentStreak ?? 0,
+        bestStreak: s?.bestStreak ?? 0,
+        badges: s?.badges ?? [],
+        accuracy: entry.total ? entry.correct / entry.total : 0,
+      };
     });
 
-    const withAccuracy = await Promise.all(
-      allStats.map(async (s: any) => {
-        const attempts = await this.prisma.quizAttempt.findMany({ where: { userId: s.userId } });
-        const correct = attempts.filter((a) => a.isCorrect).length;
-        const accuracy = attempts.length ? correct / attempts.length : 0;
-        return {
-          userId: s.userId,
-          fullName: s.user.fullName,
-          totalPoints: s.totalPoints,
-          currentStreak: s.currentStreak,
-          bestStreak: s.bestStreak,
-          badges: s.badges,
-          accuracy,
-        };
-      }),
-    );
-
-    return withAccuracy.sort((a, b) => b.totalPoints - a.totalPoints || b.accuracy - a.accuracy);
+    return result.sort((a, b) => b.totalPoints - a.totalPoints || b.accuracy - a.accuracy);
   }
 
   async createQuestion(createdById: string, dto: CreateQuizQuestionDto, ipAddress: string, userAgent: string) {

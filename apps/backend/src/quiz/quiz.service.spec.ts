@@ -22,6 +22,7 @@ function makePrismaMock(): any {
       findUnique: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
       groupBy: jest.fn(),
       count: jest.fn(),
     },
@@ -70,15 +71,26 @@ describe('QuizService.sweepQuizStatuses', () => {
     );
   });
 
-  it('reveals ACTIVE questions older than 24 hours, and notifies all active users', async () => {
-    prisma.quizQuestion.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'q2' }]);
+  it('reveals ACTIVE questions older than 24 hours, scores attempts, and notifies all active users', async () => {
+    const scheduledFor = new Date('2026-09-08T00:00:00.000Z');
+    prisma.quizQuestion.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'q2', scheduledFor }]);
+    prisma.quizAttempt.findMany.mockResolvedValue([
+      { id: 'a1', userId: 'u1', isCorrect: true, answeredAt: new Date('2026-09-08T01:00:00.000Z') },
+    ]);
+    prisma.quizUserStats.findUnique.mockResolvedValue(null);
+    prisma.quizAttempt.count.mockResolvedValue(1);
 
     await service.sweepQuizStatuses();
 
-    expect(prisma.quizQuestion.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ['q2'] } },
+    expect(prisma.quizQuestion.update).toHaveBeenCalledWith({
+      where: { id: 'q2' },
       data: { status: 'REVEALED', revealedAt: expect.any(Date) },
     });
+    expect(prisma.quizAttempt.update).toHaveBeenCalledWith({
+      where: { id: 'a1' },
+      data: { pointsAwarded: 10 },
+    });
+    expect(prisma.quizUserStats.upsert).toHaveBeenCalled();
     expect(notifications.notifyAllActiveUsers).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'QUIZ_ANSWER_REVEALED' }),
     );
@@ -123,11 +135,54 @@ describe('QuizService.submitAnswer', () => {
     await expect(service.submitAnswer('u1', 'q1', 0)).rejects.toThrow(ConflictException);
   });
 
+  it('records isCorrect but leaves pointsAwarded at 0 — scoring happens later at reveal', async () => {
+    const scheduledFor = new Date('2026-09-09T00:00:00.000Z');
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 2, scheduledFor });
+    prisma.quizAttempt.findUnique.mockResolvedValue(null);
+    prisma.quizAttempt.create.mockResolvedValue({ id: 'a1', isCorrect: true, pointsAwarded: 0 });
+
+    const result = await service.submitAnswer('u1', 'q1', 2);
+
+    expect(result.isCorrect).toBe(true);
+    expect(prisma.quizAttempt.create).toHaveBeenCalledWith({
+      data: { questionId: 'q1', userId: 'u1', selectedOption: 2, isCorrect: true, pointsAwarded: 0 },
+    });
+    expect(prisma.quizUserStats.upsert).not.toHaveBeenCalled();
+  });
+
+  it('maps a unique-constraint violation on create to a 409 Conflict', async () => {
+    const scheduledFor = new Date('2026-09-09T00:00:00.000Z');
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 0, scheduledFor });
+    prisma.quizAttempt.findUnique.mockResolvedValue(null);
+    const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+    Object.setPrototypeOf(p2002, Prisma.PrismaClientKnownRequestError.prototype);
+    prisma.quizAttempt.create.mockRejectedValue(p2002);
+
+    await expect(service.submitAnswer('u1', 'q1', 0)).rejects.toThrow(ConflictException);
+  });
+});
+
+describe('QuizService.revealQuestion (via sweepQuizStatuses)', () => {
+  let service: QuizService;
+
+  beforeEach(async () => {
+    prisma = makePrismaMock();
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        QuizService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AuditService, useValue: { log: jest.fn() } },
+        { provide: NotificationsService, useValue: { notifyAllActiveUsers: jest.fn() } },
+      ],
+    }).compile();
+    service = moduleRef.get(QuizService);
+  });
+
   it('awards base points and increments streak on a correct answer with no gap since last answer', async () => {
     const scheduledFor = new Date('2026-09-09T00:00:00.000Z');
     const previousDay = new Date('2026-09-08T12:00:00.000Z'); // same calendar day as scheduledFor - 24h
-    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 2, scheduledFor });
-    prisma.quizAttempt.findUnique.mockResolvedValue(null);
+    prisma.quizQuestion.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'q1', scheduledFor }]);
+    prisma.quizAttempt.findMany.mockResolvedValue([{ id: 'a1', userId: 'u1', isCorrect: true, answeredAt: new Date() }]);
     prisma.quizUserStats.findUnique.mockResolvedValue({
       userId: 'u1',
       totalPoints: 0,
@@ -136,14 +191,10 @@ describe('QuizService.submitAnswer', () => {
       lastAnsweredOn: previousDay,
       badges: [],
     });
-    prisma.quizAttempt.create.mockResolvedValue({ id: 'a1', isCorrect: true, pointsAwarded: 10 });
     prisma.quizAttempt.count.mockResolvedValue(1);
-    prisma.quizAttempt.findMany.mockResolvedValue([{ isCorrect: true }]);
 
-    const result = await service.submitAnswer('u1', 'q1', 2);
+    await service.sweepQuizStatuses();
 
-    expect(result.isCorrect).toBe(true);
-    expect(prisma.quizUserStats.upsert).toHaveBeenCalled();
     const upsertArg = prisma.quizUserStats.upsert.mock.calls[0][0];
     expect(upsertArg.create.totalPoints).toBe(10);
     expect(upsertArg.create.currentStreak).toBe(1);
@@ -153,8 +204,8 @@ describe('QuizService.submitAnswer', () => {
   it('awards zero points on an incorrect answer and resets streak', async () => {
     const scheduledFor = new Date('2026-09-09T00:00:00.000Z');
     const previousDay = new Date('2026-09-08T12:00:00.000Z');
-    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 2, scheduledFor });
-    prisma.quizAttempt.findUnique.mockResolvedValue(null);
+    prisma.quizQuestion.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'q1', scheduledFor }]);
+    prisma.quizAttempt.findMany.mockResolvedValue([{ id: 'a1', userId: 'u1', isCorrect: false, answeredAt: new Date() }]);
     prisma.quizUserStats.findUnique.mockResolvedValue({
       userId: 'u1',
       totalPoints: 20,
@@ -163,11 +214,9 @@ describe('QuizService.submitAnswer', () => {
       lastAnsweredOn: previousDay,
       badges: [],
     });
-    prisma.quizAttempt.create.mockResolvedValue({ id: 'a1', isCorrect: false, pointsAwarded: 0 });
     prisma.quizAttempt.count.mockResolvedValue(4);
-    prisma.quizAttempt.findMany.mockResolvedValue([]);
 
-    await service.submitAnswer('u1', 'q1', 0);
+    await service.sweepQuizStatuses();
 
     const upsertArg = prisma.quizUserStats.upsert.mock.calls[0][0];
     expect(upsertArg.update.currentStreak).toBe(0);
@@ -175,11 +224,10 @@ describe('QuizService.submitAnswer', () => {
   });
 
   it('restarts the streak at 1 when a question was skipped since the last answer', async () => {
-    // last answered two days before this question's scheduledFor (one question skipped in between)
     const scheduledFor = new Date('2026-09-09T00:00:00.000Z');
-    const lastAnsweredOn = new Date('2026-09-07T12:00:00.000Z');
-    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 2, scheduledFor });
-    prisma.quizAttempt.findUnique.mockResolvedValue(null);
+    const lastAnsweredOn = new Date('2026-09-07T12:00:00.000Z'); // one question skipped in between
+    prisma.quizQuestion.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'q1', scheduledFor }]);
+    prisma.quizAttempt.findMany.mockResolvedValue([{ id: 'a1', userId: 'u1', isCorrect: true, answeredAt: new Date() }]);
     prisma.quizUserStats.findUnique.mockResolvedValue({
       userId: 'u1',
       totalPoints: 50,
@@ -188,33 +236,12 @@ describe('QuizService.submitAnswer', () => {
       lastAnsweredOn,
       badges: [],
     });
-    prisma.quizAttempt.create.mockResolvedValue({ id: 'a1', isCorrect: true, pointsAwarded: 10 });
     prisma.quizAttempt.count.mockResolvedValue(10);
-    prisma.quizAttempt.findMany.mockResolvedValue([]);
 
-    await service.submitAnswer('u1', 'q1', 2);
+    await service.sweepQuizStatuses();
 
     const upsertArg = prisma.quizUserStats.upsert.mock.calls[0][0];
     expect(upsertArg.update.currentStreak).toBe(1);
-  });
-
-  it('maps a unique-constraint violation on create to a 409 Conflict', async () => {
-    const scheduledFor = new Date('2026-09-09T00:00:00.000Z');
-    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 0, scheduledFor });
-    prisma.quizAttempt.findUnique.mockResolvedValue(null);
-    prisma.quizUserStats.findUnique.mockResolvedValue({
-      userId: 'u1',
-      totalPoints: 0,
-      currentStreak: 0,
-      bestStreak: 0,
-      lastAnsweredOn: null,
-      badges: [],
-    });
-    const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
-    Object.setPrototypeOf(p2002, Prisma.PrismaClientKnownRequestError.prototype);
-    prisma.quizAttempt.create.mockRejectedValue(p2002);
-
-    await expect(service.submitAnswer('u1', 'q1', 0)).rejects.toThrow(ConflictException);
   });
 });
 
@@ -345,14 +372,28 @@ describe('QuizService admin/read methods', () => {
 
   it('getScorecard returns computed accuracy and stats defaults', async () => {
     prisma.quizUserStats.findUnique.mockResolvedValue(null);
-    prisma.quizAttempt.findMany.mockResolvedValue([{ isCorrect: true }, { isCorrect: false }]);
+    prisma.quizAttempt.findMany.mockResolvedValue([
+      { isCorrect: true, pointsAwarded: 10 },
+      { isCorrect: false, pointsAwarded: 0 },
+    ]);
 
     const result = await service.getScorecard('u1');
 
     expect(result.totalAnswered).toBe(2);
     expect(result.correct).toBe(1);
     expect(result.accuracy).toBe(50);
-    expect(result.totalPoints).toBe(0);
+    expect(result.totalPoints).toBe(10);
+  });
+
+  it('getScorecard only counts attempts on revealed questions', async () => {
+    prisma.quizUserStats.findUnique.mockResolvedValue(null);
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+
+    await service.getScorecard('u1');
+
+    expect(prisma.quizAttempt.findMany).toHaveBeenCalledWith({
+      where: { userId: 'u1', question: { status: 'REVEALED' } },
+    });
   });
 
   it('getLog returns paginated REVEALED questions', async () => {
@@ -376,21 +417,44 @@ describe('QuizService admin/read methods', () => {
 
   it('getLeaderboard breaks totalPoints ties by accuracy percentage', async () => {
     prisma.quizUserStats.findMany.mockResolvedValue([
-      { userId: 'u1', totalPoints: 50, currentStreak: 1, bestStreak: 1, badges: [], user: { id: 'u1', fullName: 'Low Accuracy' } },
-      { userId: 'u2', totalPoints: 50, currentStreak: 1, bestStreak: 1, badges: [], user: { id: 'u2', fullName: 'High Accuracy' } },
+      { userId: 'u1', currentStreak: 1, bestStreak: 1, badges: [] },
+      { userId: 'u2', currentStreak: 1, bestStreak: 1, badges: [] },
     ]);
-    prisma.quizAttempt.findMany.mockImplementation(({ where }: any) => {
-      if (where.userId === 'u1') {
-        // 1/4 correct = 25% accuracy
-        return Promise.resolve([{ isCorrect: true }, { isCorrect: false }, { isCorrect: false }, { isCorrect: false }]);
-      }
-      // 3/4 correct = 75% accuracy
-      return Promise.resolve([{ isCorrect: true }, { isCorrect: true }, { isCorrect: true }, { isCorrect: false }]);
+    // Both users score 10 total pts; u1 gets it from 1/4 correct (25%),
+    // u2 gets it from 1/4 correct too but with 3 extra zero-point correct answers (75% accuracy).
+    const attempt = (userId: string, fullName: string, isCorrect: boolean, pointsAwarded: number) => ({
+      userId,
+      isCorrect,
+      pointsAwarded,
+      user: { id: userId, fullName },
     });
+    prisma.quizAttempt.findMany.mockResolvedValue([
+      attempt('u1', 'Low Accuracy', true, 10),
+      attempt('u1', 'Low Accuracy', false, 0),
+      attempt('u1', 'Low Accuracy', false, 0),
+      attempt('u1', 'Low Accuracy', false, 0),
+      attempt('u2', 'High Accuracy', true, 10),
+      attempt('u2', 'High Accuracy', true, 0),
+      attempt('u2', 'High Accuracy', true, 0),
+      attempt('u2', 'High Accuracy', false, 0),
+    ]);
 
     const result = await service.getLeaderboard();
 
     expect(result[0].userId).toBe('u2');
     expect(result[1].userId).toBe('u1');
+    expect(prisma.quizAttempt.findMany).toHaveBeenCalledWith({
+      where: { question: { status: 'REVEALED' } },
+      include: { user: { select: { id: true, fullName: true } } },
+    });
+  });
+
+  it('getLeaderboard only counts attempts on revealed questions', async () => {
+    prisma.quizUserStats.findMany.mockResolvedValue([]);
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+
+    const result = await service.getLeaderboard();
+
+    expect(result).toEqual([]);
   });
 });

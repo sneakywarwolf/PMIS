@@ -8,6 +8,7 @@ import { StorageService } from './storage.service';
 import { DocxManipulatorService } from './docx-manipulator.service';
 import { ConfigService } from '@nestjs/config';
 import { AuditService } from '../audit/audit.service';
+import { SettingsService } from '../settings/settings.service';
 import { REPORT_GENERATION_QUEUE } from './report-generation.types';
 
 function actor(role: UserRole, id: string) {
@@ -38,6 +39,7 @@ describe('ReportsService.removeReport', () => {
         { provide: DocxManipulatorService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: audit },
+        { provide: SettingsService, useValue: {} },
         { provide: getQueueToken(REPORT_GENERATION_QUEUE), useValue: makeQueueMock() },
       ],
     }).compile();
@@ -101,10 +103,10 @@ describe('ReportsService.removeReport', () => {
 
 describe('ReportsService.getNextReportVersion', () => {
   let service: ReportsService;
-  let prisma: { reportGeneration: { count: jest.Mock } };
+  let prisma: { project: { findUnique: jest.Mock } };
 
   beforeEach(async () => {
-    prisma = { reportGeneration: { count: jest.fn() } };
+    prisma = { project: { findUnique: jest.fn() } };
     const moduleRef = await Test.createTestingModule({
       providers: [
         ReportsService,
@@ -113,6 +115,7 @@ describe('ReportsService.getNextReportVersion', () => {
         { provide: DocxManipulatorService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: {} },
+        { provide: SettingsService, useValue: {} },
         { provide: getQueueToken(REPORT_GENERATION_QUEUE), useValue: makeQueueMock() },
       ],
     }).compile();
@@ -120,19 +123,20 @@ describe('ReportsService.getNextReportVersion', () => {
   });
 
   it('returns 1.0 for the first generation of a project', async () => {
-    prisma.reportGeneration.count.mockResolvedValue(0);
+    prisma.project.findUnique.mockResolvedValue({ reportVersionCounter: 0 });
 
     const version = await (service as any).getNextReportVersion('p1');
 
     expect(version).toBe('1.0');
   });
 
-  it('increments the minor version for each subsequent generation, never resetting', async () => {
-    prisma.reportGeneration.count.mockResolvedValue(3);
+  it('is based on the persisted counter, not a count of ReportGeneration rows', async () => {
+    prisma.project.findUnique.mockResolvedValue({ reportVersionCounter: 3 });
 
     const version = await (service as any).getNextReportVersion('p1');
 
     expect(version).toBe('1.3');
+    expect(prisma.project.findUnique).toHaveBeenCalledWith({ where: { id: 'p1' }, select: { reportVersionCounter: true } });
   });
 });
 
@@ -150,7 +154,7 @@ describe('ReportsService.generateReport (fast/enqueue path)', () => {
   const approvedFinding = {
     id: 'f1',
     proofOfConcept: 'poc text',
-    pocSteps: [{ stepNo: 1, description: 'step', imagePath: null }],
+    pocSteps: [{ stepNo: 1, description: 'step', imagePath: 'evidence/step1.png' }],
     vulnerability: { name: 'X', severity: 'High', cvssScore: 7.5 },
     affectedInstances: [],
   };
@@ -186,6 +190,7 @@ describe('ReportsService.generateReport (fast/enqueue path)', () => {
         { provide: DocxManipulatorService, useValue: docxManipulator },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: { log: jest.fn() } },
+        { provide: SettingsService, useValue: {} },
         { provide: getQueueToken(REPORT_GENERATION_QUEUE), useValue: queue },
       ],
     }).compile();
@@ -212,12 +217,12 @@ describe('ReportsService.generateReport (fast/enqueue path)', () => {
       template: { id: 't1', filePath: 'templates/t1.docx', subType: 'WEB' },
       tester: {},
       tl: { manager: null },
-      findings: [{ ...approvedFinding, proofOfConcept: null }],
+      findings: [{ ...approvedFinding, pocSteps: [{ stepNo: 1, description: 'step', imagePath: null }] }],
     });
 
     await expect(
       service.generateReport('p1', actor(UserRole.ADMIN, 'admin1'), '1.2.3.4', 'jest'),
-    ).rejects.toThrow('Report Generation not allowed until Steps and PoC are added.');
+    ).rejects.toThrow('Report Generation not allowed until Steps and PoC screenshots/attachments are added.');
     expect(queue.add).not.toHaveBeenCalled();
     expect(prisma.reportGeneration.create).not.toHaveBeenCalled();
   });
@@ -239,6 +244,7 @@ describe('ReportsService.getReportGenerationStatus', () => {
         { provide: DocxManipulatorService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: {} },
+        { provide: SettingsService, useValue: {} },
         { provide: getQueueToken(REPORT_GENERATION_QUEUE), useValue: makeQueueMock() },
       ],
     }).compile();

@@ -5,6 +5,7 @@ import { ProjectsService } from './projects.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
+import { ProjectPurgeService } from '../common/project-purge.service';
 
 function project(overrides: any = {}) {
   return {
@@ -39,6 +40,7 @@ describe('ProjectsService.update — start date editing', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: AuditService, useValue: audit },
         { provide: SettingsService, useValue: {} },
+        { provide: ProjectPurgeService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(ProjectsService);
@@ -70,5 +72,46 @@ describe('ProjectsService.update — start date editing', () => {
 
     const updateArg = prisma.project.update.mock.calls[0][0];
     expect(updateArg.data.startDateChangedAt).toBeUndefined();
+  });
+});
+
+describe('ProjectsService.remove', () => {
+  let service: ProjectsService;
+  let audit: { log: jest.Mock };
+  let projectPurge: { loadPurgeableProject: jest.Mock; purgeProject: jest.Mock };
+
+  beforeEach(async () => {
+    audit = { log: jest.fn() };
+    projectPurge = { loadPurgeableProject: jest.fn(), purgeProject: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ProjectsService,
+        { provide: PrismaService, useValue: {} },
+        { provide: AuditService, useValue: audit },
+        { provide: SettingsService, useValue: {} },
+        { provide: ProjectPurgeService, useValue: projectPurge },
+      ],
+    }).compile();
+    service = moduleRef.get(ProjectsService);
+  });
+
+  it('purges the project and logs a PROJECT_DELETED audit entry', async () => {
+    projectPurge.loadPurgeableProject.mockResolvedValue({ id: 'p1' });
+    projectPurge.purgeProject.mockResolvedValue({ filesDeleted: 3 });
+
+    const result = await service.remove('p1', 'admin-1', '1.2.3.4', 'jest');
+
+    expect(projectPurge.purgeProject).toHaveBeenCalledWith({ id: 'p1' });
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ actorId: 'admin-1', action: 'PROJECT_DELETED', targetId: 'p1', details: { filesDeleted: 3 } }),
+    );
+    expect(result.filesDeleted).toBe(3);
+  });
+
+  it('throws NotFoundException when the project does not exist', async () => {
+    projectPurge.loadPurgeableProject.mockResolvedValue(null);
+
+    await expect(service.remove('missing', 'admin-1', '1.2.3.4', 'jest')).rejects.toThrow('Project not found');
+    expect(projectPurge.purgeProject).not.toHaveBeenCalled();
   });
 });

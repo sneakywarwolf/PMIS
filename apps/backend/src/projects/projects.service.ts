@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { ProjectPurgeService } from '../common/project-purge.service';
 import { User, UserRole, ProjectStatus } from '@prisma/client';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto, ReviewProjectDto } from './dto/project.dto';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
@@ -10,6 +11,7 @@ export class ProjectsService {
   constructor(
     private prisma: PrismaService,
     private auditService: AuditService,
+    private projectPurge: ProjectPurgeService,
   ) {}
 
   private async checkProjectAccess(projectId: string, user: User) {
@@ -287,5 +289,31 @@ export class ProjectsService {
     });
 
     return { message: `Project ${dto.status.toLowerCase().replace('_', ' ')}` };
+  }
+
+  /**
+   * Admin-only permanent delete. Removes the project's stored files (report
+   * docx/pdf, finding evidence, PoC images) and the DB row; Prisma cascade
+   * takes care of Finding/PocStep/ReportGeneration rows so nothing orphans.
+   */
+  async remove(id: string, adminId: string, ipAddress: string, userAgent: string) {
+    const project = await this.projectPurge.loadPurgeableProject(id);
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    const { filesDeleted } = await this.projectPurge.purgeProject(project);
+
+    await this.auditService.log({
+      actorId: adminId,
+      action: 'PROJECT_DELETED',
+      targetType: 'PROJECT',
+      targetId: id,
+      ipAddress,
+      userAgent,
+      details: { filesDeleted },
+    });
+
+    return { message: 'Project permanently deleted', filesDeleted };
   }
 }

@@ -727,6 +727,7 @@ export class ReportsService {
           reportPdfPath: null,
           generatedAt: new Date(),
           status: ProjectStatus.COMPLETED,
+          reportVersionCounter: { increment: 1 },
         },
       });
 
@@ -1033,9 +1034,13 @@ export class ReportsService {
 
   /**
    * First generation for a project is v1.0; every subsequent generation
-   * increments the minor version (v1.1, v1.2, ...) and never resets.
+   * increments the minor version (v1.1, v1.2, ...) and never resets. Based
+   * on project.reportVersionCounter, which only advances when a generation
+   * actually COMPLETEs (see processReportGeneration) — so a failed
+   * generation doesn't burn a version number, and deleting an old report
+   * can't cause version reuse or renumbering.
    *
-   * ponytail: count-then-create isn't atomic under truly concurrent
+   * ponytail: read-then-create isn't atomic under truly concurrent
    * generation for the same project — two simultaneous requests could
    * compute the same version. Acceptable for now since report generation
    * for one project is a rare, human-triggered action; if concurrent
@@ -1043,8 +1048,8 @@ export class ReportsService {
    * transaction as the ReportGeneration insert.
    */
   private async getNextReportVersion(projectId: string): Promise<string> {
-    const count = await this.prisma.reportGeneration.count({ where: { projectId } });
-    return `1.${count}`;
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { reportVersionCounter: true } });
+    return `1.${project?.reportVersionCounter ?? 0}`;
   }
 
   private formatReportDate(date: Date | string | null | undefined): string {
