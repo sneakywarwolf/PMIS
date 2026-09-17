@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Req } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -88,5 +89,17 @@ export class ProjectsController {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
     return this.projectsService.remove(id, adminId, ipAddress, userAgent);
+  }
+
+  @Post(':id/nmap-import')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Import an Nmap XML port scan into a Network project' })
+  async importNmapScan(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: User,
+  ) {
+    return this.projectsService.importNmapScan(id, file, user);
   }
 }

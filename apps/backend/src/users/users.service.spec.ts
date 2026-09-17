@@ -50,7 +50,10 @@ describe('UsersService.softDelete', () => {
     const result = await service.softDelete('u1', 'admin1', '1.2.3.4', 'jest');
 
     expect(projectPurge.purgeProject).not.toHaveBeenCalled();
-    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: 'u1' }, data: { isActive: false } });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { isActive: false, deletedAt: expect.any(Date) },
+    });
     expect(result.projectsDeleted).toBe(0);
   });
 

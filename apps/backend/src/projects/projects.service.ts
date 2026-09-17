@@ -5,6 +5,7 @@ import { ProjectPurgeService } from '../common/project-purge.service';
 import { User, UserRole, ProjectStatus } from '@prisma/client';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto, ReviewProjectDto } from './dto/project.dto';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
+import { parseNmapScan, NmapPortRecord } from '../common/nmap-parser.util';
 
 @Injectable()
 export class ProjectsService {
@@ -147,6 +148,10 @@ export class ProjectsService {
         testingLimitation: dto.testingLimitation,
         mobilePlatform: dto.mobilePlatform,
         sha1: dto.sha1,
+        externalInternal: dto.externalInternal,
+        totalScopeCount: dto.totalScopeCount,
+        networkScope: dto.networkScope as any,
+        quarter: dto.quarter,
         customFieldValues: dto.customFieldValues,
       },
       include: {
@@ -183,7 +188,7 @@ export class ProjectsService {
       'appVersion', 'location', 'documentVersion', 'toolsUsed', 'testingEnvironment',
       'qaReviewerName', 'applicationDetails', 'testingType', 'loginSystemTypes',
       'applicationNature', 'testingLimitation', 'complianceType',
-      'mobilePlatform', 'sha1',
+      'mobilePlatform', 'sha1', 'externalInternal', 'totalScopeCount', 'networkScope', 'quarter',
     ] as const;
 
     const updateData: any = {
@@ -315,5 +320,32 @@ export class ProjectsService {
     });
 
     return { message: 'Project permanently deleted', filesDeleted };
+  }
+
+  /**
+   * Network-only: parses an uploaded Nmap XML scan and appends its
+   * IP/port/protocol/service/status rows to the project, so repeated scans
+   * accumulate rather than overwrite each other.
+   */
+  async importNmapScan(id: string, file: Express.Multer.File, user: User) {
+    const project = await this.checkProjectAccess(id, user);
+    if (project.subType !== 'NETWORK') {
+      throw new BadRequestException('Nmap port import is only available for Network projects');
+    }
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
+
+    const records = parseNmapScan(file.buffer.toString('utf-8'));
+    if (records.length === 0) {
+      throw new BadRequestException('No ports found in the uploaded Nmap scan');
+    }
+
+    const existing = ((project as any).nmapPorts as NmapPortRecord[] | null) || [];
+    const nmapPorts = [...existing, ...records];
+
+    await this.prisma.project.update({ where: { id }, data: { nmapPorts: nmapPorts as any } });
+
+    return { message: 'Nmap scan imported', recordsImported: records.length, totalRecords: nmapPorts.length };
   }
 }

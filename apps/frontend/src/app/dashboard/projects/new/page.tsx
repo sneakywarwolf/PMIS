@@ -39,9 +39,27 @@ export default function NewProjectPage() {
     testingLimitation: '',
     mobilePlatform: '',
     sha1: '',
+    externalInternal: '',
+    totalScopeCount: '',
+    quarter: '',
   });
 
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Network projects have no "Application Name" field — the project still
+  // needs an identifying name (project lists, file names), so derive one
+  // from client + quarter instead of asking for it.
+  useEffect(() => {
+    if (form.subType !== 'NETWORK') return;
+    const derived = [form.clientName, 'Network', form.quarter].filter(Boolean).join(' - ');
+    if (derived && derived !== form.name) set('name', derived);
+  }, [form.subType, form.clientName, form.quarter]);
+
+  const [networkScope, setNetworkScope] = useState<{ ip: string; domainHostname: string; purpose: string }[]>([]);
+  const addScopeRow = () => setNetworkScope((rows) => [...rows, { ip: '', domainHostname: '', purpose: '' }]);
+  const removeScopeRow = (i: number) => setNetworkScope((rows) => rows.filter((_, idx) => idx !== i));
+  const setScopeRow = (i: number, key: 'ip' | 'domainHostname' | 'purpose', value: string) =>
+    setNetworkScope((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
 
   const [customFields, setCustomFields] = useState<any[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
@@ -71,19 +89,21 @@ export default function NewProjectPage() {
         category: form.category,
         subType: form.subType,
         complianceType: form.complianceType,
-        scope: form.scope,
         startDate: form.startDate,
       };
+      if (form.subType !== 'NETWORK') payload.scope = form.scope;
       // Optional fields — only send when filled
       const optional = [
         'endDate', 'appVersion', 'location', 'documentVersion', 'toolsUsed',
         'testingEnvironment', 'qaReviewerName', 'applicationDetails', 'testingType',
         'loginSystemTypes', 'applicationNature', 'testingLimitation',
-        'mobilePlatform', 'sha1',
+        'mobilePlatform', 'sha1', 'externalInternal', 'quarter',
       ];
       for (const key of optional) {
         if ((form as any)[key]) payload[key] = (form as any)[key];
       }
+      if (form.totalScopeCount) payload.totalScopeCount = parseInt(form.totalScopeCount, 10);
+      if (form.subType === 'NETWORK' && networkScope.length > 0) payload.networkScope = networkScope;
       if (Object.keys(customFieldValues).length > 0) payload.customFieldValues = customFieldValues;
 
       const res = await api.post('/projects', payload);
@@ -129,20 +149,14 @@ export default function NewProjectPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>Application Name *</label>
-              <input type="text" required value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} placeholder="e.g. Payments Portal" />
-            </div>
-            <div>
-              <label className={labelCls}>App Version</label>
-              <input type="text" value={form.appVersion} onChange={(e) => set('appVersion', e.target.value)} className={inputCls} placeholder="e.g. 4.2.1" />
-            </div>
-            <div>
-              <label className={labelCls}>Client Name *</label>
-              <input type="text" required value={form.clientName} onChange={(e) => set('clientName', e.target.value)} className={inputCls} placeholder="e.g. Acme Bank" />
-            </div>
-            <div>
-              <label className={labelCls}>Location</label>
-              <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} placeholder="e.g. Mumbai, India" />
+              <label className={labelCls}>Testing Type (Platform) *</label>
+              <select value={form.subType} onChange={(e) => set('subType', e.target.value)} className={inputCls}>
+                <option value="WEB">Web Application</option>
+                <option value="API">API</option>
+                <option value="MOBILE">Mobile Application</option>
+                <option value="THICK_CLIENT">Thick Client</option>
+                <option value="NETWORK">Network</option>
+              </select>
             </div>
             <div>
               <label className={labelCls}>Compliance Category *</label>
@@ -157,14 +171,23 @@ export default function NewProjectPage() {
                 <option value="ASV">ASV</option>
               </select>
             </div>
+            {form.subType !== 'NETWORK' && (
+              <div>
+                <label className={labelCls}>Application Name *</label>
+                <input type="text" required value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} placeholder="e.g. Payments Portal" />
+              </div>
+            )}
             <div>
-              <label className={labelCls}>Testing Type (Platform) *</label>
-              <select value={form.subType} onChange={(e) => set('subType', e.target.value)} className={inputCls}>
-                <option value="WEB">Web Application</option>
-                <option value="API">API</option>
-                <option value="MOBILE">Mobile Application</option>
-                <option value="THICK_CLIENT">Thick Client</option>
-              </select>
+              <label className={labelCls}>App Version</label>
+              <input type="text" value={form.appVersion} onChange={(e) => set('appVersion', e.target.value)} className={inputCls} placeholder="e.g. 4.2.1" />
+            </div>
+            <div>
+              <label className={labelCls}>Client Name *</label>
+              <input type="text" required value={form.clientName} onChange={(e) => set('clientName', e.target.value)} className={inputCls} placeholder="e.g. Acme Bank" />
+            </div>
+            <div>
+              <label className={labelCls}>Location</label>
+              <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} placeholder="e.g. Mumbai, India" />
             </div>
             <div>
               <label className={labelCls}>Start Date *</label>
@@ -184,10 +207,12 @@ export default function NewProjectPage() {
             </div>
           </div>
 
-          <div>
-            <label className={labelCls}>Scope *</label>
-            <textarea rows={3} required value={form.scope} onChange={(e) => set('scope', e.target.value)} className={inputCls} placeholder="In-scope URLs, endpoints, IP ranges..." />
-          </div>
+          {form.subType !== 'NETWORK' && (
+            <div>
+              <label className={labelCls}>Scope *</label>
+              <textarea rows={3} required value={form.scope} onChange={(e) => set('scope', e.target.value)} className={inputCls} placeholder="In-scope URLs, endpoints, IP ranges..." />
+            </div>
+          )}
         </motion.section>
 
         {/* Testing details */}
@@ -223,10 +248,12 @@ export default function NewProjectPage() {
                 <option value="White Box">White Box</option>
               </select>
             </div>
-            <div>
-              <label className={labelCls}>Types of Login System</label>
-              <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} placeholder="e.g. Admin, Manager, Customer roles" />
-            </div>
+            {form.subType !== 'NETWORK' && (
+              <div>
+                <label className={labelCls}>Types of Login System</label>
+                <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} placeholder="e.g. Admin, Manager, Customer roles" />
+              </div>
+            )}
             {form.subType === 'MOBILE' && (
               <div>
                 <label className={labelCls}>Android/iOS</label>
@@ -243,16 +270,60 @@ export default function NewProjectPage() {
                 <input type="text" value={form.sha1} onChange={(e) => set('sha1', e.target.value)} className={inputCls} placeholder="e.g. AA:BB:CC:..." />
               </div>
             )}
+            {form.subType === 'NETWORK' && (
+              <>
+                <div>
+                  <label className={labelCls}>Scope Exposure</label>
+                  <select value={form.externalInternal} onChange={(e) => set('externalInternal', e.target.value)} className={inputCls}>
+                    <option value="">Select exposure</option>
+                    <option value="External">External</option>
+                    <option value="Internal">Internal</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Total Scope Count</label>
+                  <input type="number" min="0" value={form.totalScopeCount} onChange={(e) => set('totalScopeCount', e.target.value)} className={inputCls} />
+                </div>
+              </>
+            )}
           </div>
 
+          {form.subType === 'NETWORK' && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className={labelCls}>Network Scope</label>
+                <button type="button" onClick={addScopeRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+              </div>
+              <div className="space-y-2">
+                {networkScope.map((row, i) => (
+                  <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                    <input type="text" value={row.ip || ''} onChange={(e) => setScopeRow(i, 'ip', e.target.value)} className={inputCls} placeholder="IP" />
+                    <input type="text" value={row.domainHostname || ''} onChange={(e) => setScopeRow(i, 'domainHostname', e.target.value)} className={inputCls} placeholder="Domain / Hostname" />
+                    <input type="text" value={row.purpose || ''} onChange={(e) => setScopeRow(i, 'purpose', e.target.value)} className={inputCls} placeholder="Purpose" />
+                    <button type="button" onClick={() => removeScopeRow(i)} className="text-xs text-red-400 hover:text-red-300 px-2">Remove</button>
+                  </div>
+                ))}
+                {networkScope.length === 0 && <p className="text-xs text-gray-500">No scope rows added yet.</p>}
+              </div>
+            </div>
+          )}
+
+          {form.subType !== 'NETWORK' && (
+            <div>
+              <label className={labelCls}>Application / Build Details</label>
+              <textarea rows={2} value={form.applicationDetails} onChange={(e) => set('applicationDetails', e.target.value)} className={inputCls} placeholder="Tech stack, platform, build info..." />
+            </div>
+          )}
           <div>
-            <label className={labelCls}>Application / Build Details</label>
-            <textarea rows={2} value={form.applicationDetails} onChange={(e) => set('applicationDetails', e.target.value)} className={inputCls} placeholder="Tech stack, platform, build info..." />
+            <label className={labelCls}>Quarter/Frequency</label>
+            <input type="text" value={form.quarter} onChange={(e) => set('quarter', e.target.value)} className={inputCls} placeholder="e.g. Q1, H1, Annually, Half-yearly" />
           </div>
-          <div>
-            <label className={labelCls}>Nature / Purpose of the Application</label>
-            <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} placeholder="What the application is used for..." />
-          </div>
+          {form.subType !== 'NETWORK' && (
+            <div>
+              <label className={labelCls}>Nature / Purpose of the Application</label>
+              <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} placeholder="What the application is used for..." />
+            </div>
+          )}
           <div>
             <label className={labelCls}>Testing Limitation</label>
             <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />

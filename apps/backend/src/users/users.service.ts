@@ -20,7 +20,11 @@ export class UsersService {
   ) {}
 
   async findAll(requestingUser: User) {
-    const where: any = {};
+    const where: any = {
+      // Deleted users stay visible for a 24h grace period (undo via
+      // Activate), then drop out of the list entirely.
+      OR: [{ deletedAt: null }, { deletedAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } }],
+    };
 
     if (requestingUser.role === UserRole.TEAM_LEAD || requestingUser.role === UserRole.AVP) {
       where.assignedTlId = requestingUser.id;
@@ -204,7 +208,10 @@ export class UsersService {
     if (dto.phone !== undefined) updateData.phone = dto.phone;
     if (dto.designation !== undefined) updateData.designation = dto.designation;
     if (dto.managerId !== undefined) updateData.managerId = dto.managerId || null;
-    if (dto.isActive !== undefined) updateData.isActive = dto.isActive;
+    if (dto.isActive !== undefined) {
+      updateData.isActive = dto.isActive;
+      if (dto.isActive) updateData.deletedAt = null;
+    }
 
     const updated = await this.prisma.user.update({
       where: { id },
@@ -348,7 +355,7 @@ export class UsersService {
 
     await this.prisma.user.update({
       where: { id },
-      data: { isActive: false },
+      data: { isActive: false, deletedAt: new Date() },
     });
 
     await this.auditService.log({
@@ -362,7 +369,7 @@ export class UsersService {
     });
 
     return {
-      message: 'User deactivated successfully',
+      message: 'User deleted successfully',
       projectsDeleted: ownedProjects.length,
     };
   }

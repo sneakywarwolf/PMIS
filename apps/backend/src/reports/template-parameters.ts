@@ -28,6 +28,9 @@ export const CANONICAL_TEMPLATE_PARAMETERS: { key: string; label: string }[] = [
   { key: 'project.applicationDetails', label: 'Build Details' },
   { key: 'project.mobilePlatform', label: 'Mobile Platform (Android/iOS)' },
   { key: 'project.sha1', label: 'SHA-1 Hash' },
+  { key: 'project.externalInternal', label: 'Scope Exposure (External/Internal)' },
+  { key: 'project.totalScopeCount', label: 'Total Scope Count' },
+  { key: 'project.quarter', label: 'Quarter' },
   { key: 'report.generationDateIso', label: 'Report Date (ISO, YYYY-MM-DD)' },
   { key: 'manager.fullName', label: 'Manager Name' },
   { key: 'manager.designation', label: 'Manager Designation' },
@@ -43,8 +46,14 @@ export const CANONICAL_TEMPLATE_PARAMETERS: { key: string; label: string }[] = [
 
 export const CANONICAL_PARAMETER_KEYS = new Set(CANONICAL_TEMPLATE_PARAMETERS.map((p) => p.key));
 
-/** Resolves a canonical parameter key to its actual value for a given project. */
-export function resolveTemplateParameter(key: string, project: any, formatDate: (d: any) => string): string {
+/**
+ * Resolves a canonical parameter key to its actual value for a given project.
+ * `version` is this report generation's progressive version (e.g. "1.2",
+ * from Project.reportVersionCounter) — Document Version tracks it rather
+ * than a static field, so it auto-increments across generations the same
+ * way the report's own version number does.
+ */
+export function resolveTemplateParameter(key: string, project: any, formatDate: (d: any) => string, version?: string): string {
   const tl = project.tl;
   const tester = project.tester;
   const manager = project.tl?.manager;
@@ -62,7 +71,7 @@ export function resolveTemplateParameter(key: string, project: any, formatDate: 
     case 'project.appNameVersion': return appNameVersion || `${appLabel} Name`;
     case 'project.applicationName': return project.name || '';
     case 'project.appVersion': return project.appVersion || '';
-    case 'project.documentVersion': return project.documentVersion || '1.0';
+    case 'project.documentVersion': return version || project.documentVersion || '1.0';
     case 'manager.fullName': return manager?.fullName || manager?.username || 'N/A';
     case 'manager.designation': return manager?.designation || 'N/A';
     case 'manager.phone': return manager?.phone || 'N/A';
@@ -87,6 +96,9 @@ export function resolveTemplateParameter(key: string, project: any, formatDate: 
     case 'project.applicationDetails': return project.applicationDetails || '';
     case 'project.mobilePlatform': return project.mobilePlatform || '';
     case 'project.sha1': return project.sha1 || '';
+    case 'project.externalInternal': return project.externalInternal || '';
+    case 'project.totalScopeCount': return project.totalScopeCount != null ? String(project.totalScopeCount) : '';
+    case 'project.quarter': return project.quarter || '';
     case 'report.generationDateIso': return new Date().toISOString().slice(0, 10);
     default: return '';
   }

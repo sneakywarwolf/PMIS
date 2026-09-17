@@ -1,5 +1,21 @@
-import { IsString, IsOptional, IsEnum, IsDateString, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsDateString, IsObject, IsArray, IsInt, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ProjectStatus, TemplateCategory, TemplateSubType, ComplianceType } from '@prisma/client';
+
+// A plain-object array with no nested validation class would have its
+// entries stripped to {} by the global ValidationPipe's whitelist option —
+// @ValidateNested + @Type is what tells class-validator/transformer these
+// rows have real shape worth preserving.
+export class NetworkScopeRow {
+  @IsString()
+  ip: string;
+
+  @IsString()
+  domainHostname: string;
+
+  @IsString()
+  purpose: string;
+}
 
 export class CreateProjectDto {
   @IsString()
@@ -8,8 +24,9 @@ export class CreateProjectDto {
   @IsString()
   clientName: string;
 
+  @IsOptional()
   @IsString()
-  scope: string;
+  scope?: string;
 
   @IsDateString()
   startDate: string;
@@ -83,6 +100,24 @@ export class CreateProjectDto {
   @IsOptional()
   @IsString()
   sha1?: string;
+
+  @IsOptional()
+  @IsString()
+  externalInternal?: string;
+
+  @IsOptional()
+  @IsInt()
+  totalScopeCount?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => NetworkScopeRow)
+  networkScope?: NetworkScopeRow[];
+
+  @IsOptional()
+  @IsString()
+  quarter?: string;
 
   @IsOptional()
   @IsObject()
@@ -169,6 +204,24 @@ export class UpdateProjectDto {
   @IsOptional()
   @IsString()
   sha1?: string;
+
+  @IsOptional()
+  @IsString()
+  externalInternal?: string;
+
+  @IsOptional()
+  @IsInt()
+  totalScopeCount?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => NetworkScopeRow)
+  networkScope?: NetworkScopeRow[];
+
+  @IsOptional()
+  @IsString()
+  quarter?: string;
 
   @IsOptional()
   @IsString()

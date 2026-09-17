@@ -109,21 +109,21 @@ export default function UsersPage() {
     }
   };
 
-  const handleDeactivate = async (userId: string) => {
+  const handleDelete = async (userId: string) => {
     const ok = await confirmDialog({
-      title: 'Deactivate user?',
-      message: 'They will no longer be able to log in. This will also permanently delete all of their projects, along with the generated reports, issue logs, and PoC attachments for those projects.',
-      confirmLabel: 'Deactivate',
+      title: 'Delete user?',
+      message: 'They will no longer be able to log in. This will also permanently delete all of their projects, along with the generated reports, issue logs, and PoC attachments for those projects. The user will disappear from this list 24 hours from now.',
+      confirmLabel: 'Delete',
       danger: true,
     });
     if (!ok) return;
     try {
       const res = await api.delete(`/users/${userId}`);
       const count = res.data?.projectsDeleted ?? 0;
-      showToast(count > 0 ? `User deactivated. ${count} project(s) permanently deleted.` : 'User deactivated.', 'success');
+      showToast(count > 0 ? `User deleted. ${count} project(s) permanently deleted.` : 'User deleted.', 'success');
       fetchUsers();
     } catch (error: any) {
-      showToast(error.response?.data?.message || 'Failed to deactivate user', 'error');
+      showToast(error.response?.data?.message || 'Failed to delete user', 'error');
     }
   };
 
@@ -374,9 +374,9 @@ export default function UsersPage() {
                     </button>
                     {u.isActive ? (
                       <button
-                        onClick={() => handleDeactivate(u.id)}
+                        onClick={() => handleDelete(u.id)}
                         className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
-                        title="Deactivate"
+                        title="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
