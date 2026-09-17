@@ -23,6 +23,7 @@ import {
   AlertCircle,
   Eye,
   Download,
+  Upload,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useConfirm } from '@/components/confirm-provider';
@@ -119,6 +120,11 @@ interface Project {
   testingLimitation?: string;
   mobilePlatform?: string;
   sha1?: string;
+  externalInternal?: string;
+  totalScopeCount?: number;
+  networkScope?: { ip: string; domainHostname: string; purpose: string }[];
+  nmapPorts?: { ip: string; port: string; protocol: string; service: string; status: string }[];
+  quarter?: string;
   complianceType?: string;
   tester: { id: string; username: string; email: string; fullName?: string | null };
   tl: { id: string; username: string; email: string; fullName?: string | null };
@@ -204,11 +210,45 @@ export default function ProjectDetailPage() {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `issue-log-${project.name.replace(/\s+/g, '-').toLowerCase()}.csv`;
+    // Issue-Log_{Compliance Category}_{Testing Type}_{Client Name}_v0.1_{Quarter}_{Report Date}
+    const sanitize = (s: string) => (s || 'NA').trim().replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
+    const reportDate = new Date().toISOString().slice(0, 10);
+    const fileName = [
+      'Issue-Log',
+      sanitize(project.category),
+      sanitize(project.subType),
+      sanitize(project.clientName),
+      'v0.1',
+      sanitize(project.quarter || 'NA'),
+      reportDate,
+    ].join('_');
+    link.download = `${fileName}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+  };
+
+  const nmapInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingNmap, setUploadingNmap] = useState(false);
+  const handleNmapFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !project) return;
+    setUploadingNmap(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post(`/projects/${project.id}/nmap-import`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      showToast(`Imported ${res.data.recordsImported} port(s) from Nmap scan.`, 'success');
+      await fetchProject();
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to import Nmap scan', 'error');
+    } finally {
+      setUploadingNmap(false);
+    }
   };
 
   const handleGenerateReport = async () => {
@@ -403,6 +443,13 @@ export default function ProjectDetailPage() {
           {(project.subType === 'MOBILE' || project.subType === 'THICK_CLIENT') && (
             <InfoField label="SHA-1" value={project.sha1 || 'N/A'} />
           )}
+          {project.subType === 'NETWORK' && (
+            <>
+              <InfoField label="Scope Exposure" value={project.externalInternal || 'N/A'} />
+              <InfoField label="Total Scope Count" value={project.totalScopeCount != null ? String(project.totalScopeCount) : 'N/A'} />
+            </>
+          )}
+          <InfoField label="Quarter/Frequency" value={project.quarter || 'N/A'} />
           <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} />
           <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
           <InfoField label="Team Lead" value={project.tl.fullName || project.tl.username} />
@@ -419,6 +466,58 @@ export default function ProjectDetailPage() {
           <div>
             <p className="text-gray-500 text-xs mb-1">Application Details</p>
             <p className="text-white text-sm whitespace-pre-wrap">{project.applicationDetails}</p>
+          </div>
+        )}
+        {project.subType === 'NETWORK' && project.networkScope && project.networkScope.length > 0 && (
+          <div className="pt-3 border-t border-gray-700/50">
+            <p className="text-gray-500 text-xs mb-2">Network Scope</p>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-500 text-xs">
+                  <th className="text-left font-normal pb-1">IP</th>
+                  <th className="text-left font-normal pb-1">Domain/Hostname</th>
+                  <th className="text-left font-normal pb-1">Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                {project.networkScope.map((row, i) => (
+                  <tr key={i} className="text-white border-t border-gray-800">
+                    <td className="py-1">{row.ip || 'NA'}</td>
+                    <td className="py-1">{row.domainHostname || 'NA'}</td>
+                    <td className="py-1">{row.purpose || 'NA'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {project.subType === 'NETWORK' && project.nmapPorts && project.nmapPorts.length > 0 && (
+          <div className="pt-3 border-t border-gray-700/50">
+            <p className="text-gray-500 text-xs mb-2">Nmap Ports ({project.nmapPorts.length})</p>
+            <div className="max-h-64 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-gray-500 text-xs">
+                    <th className="text-left font-normal pb-1">IP</th>
+                    <th className="text-left font-normal pb-1">Port</th>
+                    <th className="text-left font-normal pb-1">Protocol</th>
+                    <th className="text-left font-normal pb-1">Service</th>
+                    <th className="text-left font-normal pb-1">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {project.nmapPorts.map((row, i) => (
+                    <tr key={i} className="text-white border-t border-gray-800">
+                      <td className="py-1">{row.ip || 'NA'}</td>
+                      <td className="py-1">{row.port || 'NA'}</td>
+                      <td className="py-1">{row.protocol || 'NA'}</td>
+                      <td className="py-1">{row.service || 'NA'}</td>
+                      <td className="py-1">{row.status || 'NA'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
         {project.applicationNature && (
@@ -448,6 +547,26 @@ export default function ProjectDetailPage() {
                 <Plus className="w-4 h-4" />
                 Add Finding
               </button>
+            )}
+            {canEditFindings && project.subType === 'NETWORK' && (
+              <>
+                <input
+                  ref={nmapInputRef}
+                  type="file"
+                  accept=".xml,.txt,.nmap"
+                  className="hidden"
+                  onChange={handleNmapFileSelected}
+                />
+                <button
+                  onClick={() => nmapInputRef.current?.click()}
+                  disabled={uploadingNmap}
+                  title="Upload Nmap port scan result"
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm disabled:opacity-50"
+                >
+                  {uploadingNmap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  Add Ports
+                </button>
+              </>
             )}
             <button
               onClick={handleGenerateIssueLog}
@@ -547,11 +666,37 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     testingLimitation: project.testingLimitation || '',
     mobilePlatform: project.mobilePlatform || '',
     sha1: project.sha1 || '',
+    externalInternal: project.externalInternal || '',
+    totalScopeCount: project.totalScopeCount != null ? String(project.totalScopeCount) : '',
+    quarter: project.quarter || '',
     complianceType: project.complianceType || 'VAPT',
     templateId: project.template?.id || '',
   });
 
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
+
+  // Defends against rows saved before a past validation bug, which could
+  // store malformed entries (e.g. []) instead of {ip, domainHostname, purpose}.
+  const [networkScope, setNetworkScope] = useState<{ ip: string; domainHostname: string; purpose: string }[]>(
+    (project.networkScope || []).map((r: any) => ({
+      ip: r?.ip || '',
+      domainHostname: r?.domainHostname || '',
+      purpose: r?.purpose || '',
+    })),
+  );
+  const addScopeRow = () => setNetworkScope((rows) => [...rows, { ip: '', domainHostname: '', purpose: '' }]);
+  const removeScopeRow = (i: number) => setNetworkScope((rows) => rows.filter((_, idx) => idx !== i));
+  const setScopeRow = (i: number, key: 'ip' | 'domainHostname' | 'purpose', value: string) =>
+    setNetworkScope((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
+
+  // Network projects have no "Project Name" field — the project still
+  // needs an identifying name (project lists, file names), so derive one
+  // from client + quarter instead of asking for it.
+  useEffect(() => {
+    if (project.subType !== 'NETWORK') return;
+    const derived = [form.clientName, 'Network', form.quarter].filter(Boolean).join(' - ');
+    if (derived && derived !== form.name) set('name', derived);
+  }, [project.subType, form.clientName, form.quarter]);
 
   useEffect(() => {
     const fetchTemplates = async () => {
@@ -584,6 +729,8 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     try {
       const payload: any = { ...form, customFieldValues };
       if (!payload.templateId) payload.templateId = undefined;
+      payload.totalScopeCount = form.totalScopeCount ? parseInt(form.totalScopeCount, 10) : undefined;
+      if (project.subType === 'NETWORK') payload.networkScope = networkScope;
       await api.put(`/projects/${project.id}`, payload);
       onSaved();
     } catch (error: any) {
@@ -612,10 +759,24 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-4">
+            {/* Testing Type (Platform) is fixed at creation and not editable here;
+                Compliance Category leads the form to mirror the creation dialog's
+                field order as closely as an immutable subType allows. */}
             <div>
-              <label className={labelCls}>Project Name</label>
-              <input type="text" required value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} />
+              <label className={labelCls}>Compliance Type</label>
+              <select value={form.complianceType} onChange={(e) => set('complianceType', e.target.value)} className={inputCls}>
+                <option value="VAPT">VAPT</option>
+                <option value="CERT_IN">Cert-IN</option>
+                <option value="PCI">PCI</option>
+                <option value="ASV">ASV</option>
+              </select>
             </div>
+            {project.subType !== 'NETWORK' && (
+              <div>
+                <label className={labelCls}>Project Name</label>
+                <input type="text" required value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} />
+              </div>
+            )}
             <div>
               <label className={labelCls}>Client Name</label>
               <input type="text" required value={form.clientName} onChange={(e) => set('clientName', e.target.value)} className={inputCls} />
@@ -635,15 +796,6 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
             <div>
               <label className={labelCls}>QA Reviewer Name</label>
               <input type="text" value={form.qaReviewerName} onChange={(e) => set('qaReviewerName', e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Compliance Type</label>
-              <select value={form.complianceType} onChange={(e) => set('complianceType', e.target.value)} className={inputCls}>
-                <option value="VAPT">VAPT</option>
-                <option value="CERT_IN">Cert-IN</option>
-                <option value="PCI">PCI</option>
-                <option value="ASV">ASV</option>
-              </select>
             </div>
             <div>
               <label className={labelCls}>Report Template</label>
@@ -681,10 +833,12 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
                 <option value="White Box">White Box</option>
               </select>
             </div>
-            <div>
-              <label className={labelCls}>Types of Login System</label>
-              <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} />
-            </div>
+            {project.subType !== 'NETWORK' && (
+              <div>
+                <label className={labelCls}>Types of Login System</label>
+                <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} />
+              </div>
+            )}
             {project.subType === 'MOBILE' && (
               <div>
                 <label className={labelCls}>Android/iOS</label>
@@ -701,20 +855,66 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
                 <input type="text" value={form.sha1} onChange={(e) => set('sha1', e.target.value)} className={inputCls} />
               </div>
             )}
+            {project.subType === 'NETWORK' && (
+              <>
+                <div>
+                  <label className={labelCls}>Scope Exposure</label>
+                  <select value={form.externalInternal} onChange={(e) => set('externalInternal', e.target.value)} className={inputCls}>
+                    <option value="">Select exposure</option>
+                    <option value="External">External</option>
+                    <option value="Internal">Internal</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Total Scope Count</label>
+                  <input type="number" min="0" value={form.totalScopeCount} onChange={(e) => set('totalScopeCount', e.target.value)} className={inputCls} />
+                </div>
+              </>
+            )}
           </div>
 
+          {project.subType === 'NETWORK' && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className={labelCls}>Network Scope</label>
+                <button type="button" onClick={addScopeRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+              </div>
+              <div className="space-y-2">
+                {networkScope.map((row, i) => (
+                  <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                    <input type="text" value={row.ip || ''} onChange={(e) => setScopeRow(i, 'ip', e.target.value)} className={inputCls} placeholder="IP" />
+                    <input type="text" value={row.domainHostname || ''} onChange={(e) => setScopeRow(i, 'domainHostname', e.target.value)} className={inputCls} placeholder="Domain / Hostname" />
+                    <input type="text" value={row.purpose || ''} onChange={(e) => setScopeRow(i, 'purpose', e.target.value)} className={inputCls} placeholder="Purpose" />
+                    <button type="button" onClick={() => removeScopeRow(i)} className="text-xs text-red-400 hover:text-red-300 px-2">Remove</button>
+                  </div>
+                ))}
+                {networkScope.length === 0 && <p className="text-xs text-gray-500">No scope rows added yet.</p>}
+              </div>
+            </div>
+          )}
+
+          {project.subType !== 'NETWORK' && (
+            <div>
+              <label className={labelCls}>Scope</label>
+              <textarea rows={2} value={form.scope} onChange={(e) => set('scope', e.target.value)} className={inputCls} />
+            </div>
+          )}
+          {project.subType !== 'NETWORK' && (
+            <div>
+              <label className={labelCls}>Application / Build Details</label>
+              <textarea rows={2} value={form.applicationDetails} onChange={(e) => set('applicationDetails', e.target.value)} className={inputCls} />
+            </div>
+          )}
           <div>
-            <label className={labelCls}>Scope</label>
-            <textarea rows={2} value={form.scope} onChange={(e) => set('scope', e.target.value)} className={inputCls} />
+            <label className={labelCls}>Quarter/Frequency</label>
+            <input type="text" value={form.quarter} onChange={(e) => set('quarter', e.target.value)} className={inputCls} placeholder="e.g. Q1, H1, Annually, Half-yearly" />
           </div>
-          <div>
-            <label className={labelCls}>Application / Build Details</label>
-            <textarea rows={2} value={form.applicationDetails} onChange={(e) => set('applicationDetails', e.target.value)} className={inputCls} />
-          </div>
-          <div>
-            <label className={labelCls}>Nature / Purpose of the Application</label>
-            <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} />
-          </div>
+          {project.subType !== 'NETWORK' && (
+            <div>
+              <label className={labelCls}>Nature / Purpose of the Application</label>
+              <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} />
+            </div>
+          )}
           <div>
             <label className={labelCls}>Testing Limitation</label>
             <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />

@@ -139,7 +139,7 @@ export class UsersController {
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Soft delete user' })
+  @ApiOperation({ summary: 'Delete user (purges owned project data/files; user record and audit trail persist for 24h before disappearing from the list)' })
   async softDelete(
     @Param('id') id: string,
     @CurrentUser('id') adminId: string,

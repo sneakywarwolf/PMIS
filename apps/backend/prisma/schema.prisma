@@ -101,6 +101,7 @@ enum TemplateSubType {
   API
   MOBILE
   THICK_CLIENT
+  NETWORK
 }
 
 enum TemplateFieldCategory {
@@ -142,6 +143,7 @@ model User {
   designation   String?   @map("designation")
 
   isActive      Boolean   @default(true) @map("is_active")
+  deletedAt     DateTime? @map("deleted_at")
   isForcePasswordChange Boolean @default(false) @map("is_force_password_change")
 
   totpSecret    String?   @map("totp_secret")
@@ -175,7 +177,7 @@ model Project {
   id          String        @id @default(cuid())
   name        String
   clientName  String        @map("client_name")
-  scope       String
+  scope       String?
   startDate   DateTime      @map("start_date")
   startDateChangedAt DateTime? @map("start_date_changed_at")
   endDate     DateTime?     @map("end_date")
@@ -207,6 +209,11 @@ model Project {
   testingLimitation  String?  @map("testing_limitation")
   mobilePlatform     String?  @map("mobile_platform")
   sha1               String?  @map("sha1")
+  externalInternal   String?  @map("external_internal")
+  totalScopeCount    Int?     @map("total_scope_count")
+  networkScope       Json?    @map("network_scope")
+  quarter            String?  @map("quarter")
+  nmapPorts          Json?    @map("nmap_ports")
 
   // Next report generation for this project is "1.{reportVersionCounter}".
   // Only incremented when a generation actually COMPLETEs (never on

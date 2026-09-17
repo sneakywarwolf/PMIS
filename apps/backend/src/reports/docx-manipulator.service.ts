@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as JSZip from 'jszip';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
+import { NmapPortRecord } from '../common/nmap-parser.util';
 
 export interface TemplateField {
   id: string;
@@ -43,6 +44,12 @@ export interface ContactValues {
   avp?: PersonValues;
   tl?: PersonValues;
   tester?: PersonValues;
+}
+
+export interface NetworkScopeRow {
+  ip: string;
+  domainHostname: string;
+  purpose: string;
 }
 
 export interface FindingData {
@@ -216,6 +223,8 @@ export class DocxManipulatorService {
     images: PocImage[] = [],
     contacts?: ContactValues,
     severityColors: Record<string, string> = DEFAULT_SEVERITY_COLORS,
+    networkScope: NetworkScopeRow[] = [],
+    nmapPorts: NmapPortRecord[] = [],
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -238,6 +247,13 @@ export class DocxManipulatorService {
     if (contacts) {
       this.fillContactTable(doc, contacts);
     }
+
+    // Step 2.5: fill the {Network Scope} table (Network testing projects only —
+    // a no-op if the template has no such table). Row-cloned like the
+    // findings summary table, one row per scope entry, so multiple
+    // IP/Domain/Purpose entries stay independently associated.
+    this.fillNetworkScopeTable(doc, networkScope);
+    this.fillNmapPortsTable(doc, nmapPorts);
 
     // Step 3: replace {Parameter} placeholders (project-info / contact / date)
     // using the same rule set and match semantics as before — only the
@@ -623,6 +639,104 @@ export class DocxManipulatorService {
         const color = severityColors[finding.severity];
         if (color) this.setCellShading(cell, color);
       }
+    }
+  }
+
+  /**
+   * {Network Scope}: table with {IP} | {Domain&Hostname} | {Purpose} rows.
+   * Located by header/placeholder-row content rather than a fixed table
+   * index, same approach as the findings summary table. A no-op when the
+   * template has no such table (e.g. non-Network report).
+   */
+  private fillNetworkScopeTable(doc: Document, scope: NetworkScopeRow[]): void {
+    const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
+    if (!body) return;
+
+    const tables = Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[];
+    const table = tables.find((t) => {
+      const x = this.getElementText(t).toLowerCase();
+      return x.includes('{ip}') && x.includes('{purpose}');
+    });
+    if (!table) return;
+
+    const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
+    const placeholderRows = rows.filter((r) => this.getElementText(r).toLowerCase().includes('{ip}'));
+    if (placeholderRows.length === 0) return;
+
+    const templateRow = placeholderRows[0];
+    const anchor = placeholderRows[0];
+
+    for (const entry of scope) {
+      const clone = templateRow.cloneNode(true) as Element;
+      this.fillNetworkScopeRow(clone, entry);
+      table.insertBefore(clone, anchor);
+    }
+
+    for (const row of placeholderRows) {
+      table.removeChild(row);
+    }
+  }
+
+  /** Each of {IP}/{Domain&Hostname}/{Purpose} falls back to "NA" independently, per row. */
+  private fillNetworkScopeRow(row: Element, entry: NetworkScopeRow): void {
+    const resolver = (n: string) => {
+      if (n.includes('ip')) return entry.ip || 'NA';
+      if (n.includes('domain')) return entry.domainHostname || 'NA';
+      if (n.includes('purpose')) return entry.purpose || 'NA';
+      return undefined;
+    };
+    const paragraphs = Array.from(row.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+    for (const para of paragraphs) {
+      this.replacePlaceholdersInParagraph(para, resolver);
+    }
+  }
+
+  /**
+   * {network.nmap_ip} / {port} / {Protocol} / {Service} / {Status}: table
+   * fed by an imported Nmap scan. Same clone-per-record approach as the
+   * Network Scope table — one row per record, never merged across hosts.
+   */
+  private fillNmapPortsTable(doc: Document, records: NmapPortRecord[]): void {
+    const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
+    if (!body) return;
+
+    const tables = Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[];
+    const table = tables.find((t) => {
+      const x = this.getElementText(t).toLowerCase();
+      return x.includes('nmap') && x.includes('{port}');
+    });
+    if (!table) return;
+
+    const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
+    const placeholderRows = rows.filter((r) => this.getElementText(r).toLowerCase().includes('{port}'));
+    if (placeholderRows.length === 0) return;
+
+    const templateRow = placeholderRows[0];
+    const anchor = placeholderRows[0];
+
+    for (const record of records) {
+      const clone = templateRow.cloneNode(true) as Element;
+      this.fillNmapPortsRow(clone, record);
+      table.insertBefore(clone, anchor);
+    }
+
+    for (const row of placeholderRows) {
+      table.removeChild(row);
+    }
+  }
+
+  private fillNmapPortsRow(row: Element, record: NmapPortRecord): void {
+    const resolver = (n: string) => {
+      if (n.includes('nmap')) return record.ip || 'NA';
+      if (n.includes('port')) return record.port || 'NA';
+      if (n.includes('protocol')) return record.protocol || 'NA';
+      if (n.includes('service')) return record.service || 'NA';
+      if (n.includes('status')) return record.status || 'NA';
+      return undefined;
+    };
+    const paragraphs = Array.from(row.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+    for (const para of paragraphs) {
+      this.replacePlaceholdersInParagraph(para, resolver);
     }
   }
 

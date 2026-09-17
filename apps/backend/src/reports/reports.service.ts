@@ -5,6 +5,7 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
 import { DocxManipulatorService, FieldRule, FindingData, PocImage } from './docx-manipulator.service';
+import { NmapPortRecord } from '../common/nmap-parser.util';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
 import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, ReportGenerationStatus } from '@prisma/client';
@@ -18,6 +19,7 @@ const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   API: 'API',
   MOBILE: 'Mobile',
   THICK_CLIENT: 'Thick-Client',
+  NETWORK: 'Network',
 };
 
 @Injectable()
@@ -203,15 +205,25 @@ export class ReportsService {
     'team_lead_designation', 'team_lead_phone', 'team_lead_email',
     'tester_designation', 'tester_phone', 'tester_email',
     'android_ios', 'sha_1', 'sha1', 'report_date',
+    'external_internal', 'total_scope_count', 'quarter',
   ];
 
   /** Slug: lowercase, spaces/dashes → underscore, strip anything else. */
+  /**
+   * Must normalize identically to DocxManipulatorService's normalizeFieldName
+   * (non-alnum -> "_", not stripped) — filename resolution slugifies a raw
+   * "{Parameter}" and matches it against the same FieldRule.match tokens
+   * (e.g. "external_internal") that the doc-body resolver uses. Stripping
+   * instead of substituting separators silently broke any placeholder with
+   * a non-alnum character (e.g. "{External&Internal}" -> "externalinternal",
+   * which never matches "external_internal").
+   */
   private slugifyFieldName(raw: string): string {
     return raw
       .trim()
       .toLowerCase()
-      .replace(/[\s-]+/g, '_')
-      .replace(/[^a-z0-9_]/g, '');
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
   }
 
   /**
@@ -539,13 +551,14 @@ export class ReportsService {
       );
     }
 
-    const rules = this.buildFieldRules(project);
+    // Version auto-increments per project: first generation is 1.0, every
+    // subsequent generation is 1.1, 1.2, ... and never resets. Computed
+    // before the rules so Document Version can track it too.
+    const version = await this.getNextReportVersion(projectId);
+
+    const rules = this.buildFieldRules(project, version);
     rules.push(...this.buildCustomFieldRules(project));
     const fieldDataSnapshot = Object.fromEntries(rules.map((r) => [r.match[0], r.value]));
-
-    // Version auto-increments per project: first generation is 1.0, every
-    // subsequent generation is 1.1, 1.2, ... and never resets.
-    const version = await this.getNextReportVersion(projectId);
 
     const reportGeneration = await this.prisma.reportGeneration.create({
       data: {
@@ -697,13 +710,15 @@ export class ReportsService {
       this.logger.log(`Generating report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
       const reportBuffer = await this.docxManipulator.generateReport(
         templateBuffer,
-        this.buildMappedFieldRules(template, project)
-          .concat(this.buildFieldRules(project))
+        this.buildMappedFieldRules(template, project, reportGeneration.version)
+          .concat(this.buildFieldRules(project, reportGeneration.version))
           .concat(this.buildCustomFieldRules(project)),
         findingsData,
         images,
         this.buildContacts(project),
         settings.workflow.severityColors,
+        (project.networkScope as { ip: string; domainHostname: string; purpose: string }[] | null) || [],
+        (project.nmapPorts as NmapPortRecord[] | null) || [],
       );
 
       // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{YYYY-MM-DD}_Non-Compliant.docx
@@ -891,8 +906,8 @@ export class ReportsService {
    * unmapped {Parameter}), never a reason to block generation. Logged for
    * developer diagnostics only — never surfaced to users or thrown.
    */
-  private buildMappedFieldRules(template: any, project: any): FieldRule[] {
-    const { rules, unresolved } = this.resolveMappedFields(template, project);
+  private buildMappedFieldRules(template: any, project: any, version?: string): FieldRule[] {
+    const { rules, unresolved } = this.resolveMappedFields(template, project, version);
     if (unresolved.length > 0) {
       this.logger.debug(
         `Unresolved mapped parameter(s) left as literal template text: ${unresolved
@@ -911,6 +926,7 @@ export class ReportsService {
   private resolveMappedFields(
     template: any,
     project: any,
+    version?: string,
   ): { rules: FieldRule[]; unresolved: { field: string; parameter: string }[] } {
     const fields = (template?.fields || []) as { name: string; normalizedName: string; mappedParameter: string | null }[];
     const rules: FieldRule[] = [];
@@ -918,7 +934,7 @@ export class ReportsService {
 
     for (const f of fields) {
       if (!f.mappedParameter) continue;
-      const value = resolveTemplateParameter(f.mappedParameter, project, (d) => this.formatReportDate(d));
+      const value = resolveTemplateParameter(f.mappedParameter, project, (d) => this.formatReportDate(d), version);
       if (!value) {
         unresolved.push({ field: f.name, parameter: f.mappedParameter });
         continue;
@@ -929,7 +945,7 @@ export class ReportsService {
     return { rules, unresolved };
   }
 
-  private buildFieldRules(project: any): FieldRule[] {
+  private buildFieldRules(project: any, version?: string): FieldRule[] {
     const tl = project.tl;
     const tester = project.tester;
     const manager = project.tl?.manager;
@@ -965,12 +981,19 @@ export class ReportsService {
       // correctly.
       { match: ['application_name'], value: project.name || `${appLabel} Name` },
       { match: ['app_version'], value: project.appVersion || '' },
-      { match: ['version_ex', 'document_version'], value: project.documentVersion || '1.0' },
+      // Document Version tracks this generation's progressive report version
+      // (1.0, 1.1, 1.2, ...) rather than the static field, same as the report
+      // version counter — applies to every testing type uniformly.
+      { match: ['version_ex', 'document_version'], value: version || project.documentVersion || '1.0' },
       { match: ['client_name_location'], value: [project.clientName, project.location].filter(Boolean).join(', ') },
       { match: ['client_name'], value: project.clientName || '' },
       { match: ['month_dd_yyyy'], value: this.formatReportDate(new Date()) },
       { match: ['tools_name', 'tools_used'], value: project.toolsUsed || '' },
       { match: ['details_scope'], value: [project.applicationDetails, project.scope].filter(Boolean).join('\n') },
+      // total_scope_count must be checked before the bare 'scope' rule below —
+      // .find() takes the first match, and "total_scope_count".includes("scope")
+      // is true, so 'scope' was winning and leaving {Total Scope Count} blank.
+      { match: ['total_scope_count'], value: project.totalScopeCount != null ? String(project.totalScopeCount) : '' },
       { match: ['scope'], value: project.scope || '' },
       { match: ['staging_uat', 'testing_environment'], value: project.testingEnvironment || '' },
       { match: ['black_box', 'grey_box'], value: project.testingType || '' },
@@ -980,6 +1003,8 @@ export class ReportsService {
       { match: ['build_details'], value: project.applicationDetails || '' },
       { match: ['android_ios'], value: project.mobilePlatform || '' },
       { match: ['sha_1', 'sha1'], value: project.sha1 || '' },
+      { match: ['external_internal'], value: project.externalInternal || '' },
+      { match: ['quarter'], value: project.quarter || '' },
       { match: ['report_date'], value: new Date().toISOString().slice(0, 10) },
     ];
   }
@@ -997,8 +1022,8 @@ export class ReportsService {
       return this.buildLegacyReportFileName(project, version, template);
     }
 
-    const rules = this.buildMappedFieldRules(template, project)
-      .concat(this.buildFieldRules(project))
+    const rules = this.buildMappedFieldRules(template, project, version)
+      .concat(this.buildFieldRules(project, version))
       .concat(this.buildCustomFieldRules(project));
 
     const resolved = template.originalFileName.replace(/\{([^{}]+)\}/g, (match: string, raw: string) => {

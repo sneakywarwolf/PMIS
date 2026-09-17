@@ -18,6 +18,7 @@ const subTypeIcons: any = {
   API: Server,
   MOBILE: Smartphone,
   THICK_CLIENT: Monitor,
+  NETWORK: Server,
 };
 
 const subTypeLabels: any = {
@@ -25,6 +26,7 @@ const subTypeLabels: any = {
   API: 'API',
   MOBILE: 'Mobile Application',
   THICK_CLIENT: 'Thick Client',
+  NETWORK: 'Network',
 };
 
 export default function ReportsPage() {
@@ -800,6 +802,7 @@ function TemplateUploader() {
                 <option value="API">API</option>
                 <option value="MOBILE">Mobile</option>
                 <option value="THICK_CLIENT">Thick Client</option>
+                <option value="NETWORK">Network</option>
               </select>
             </div>
           </div>
