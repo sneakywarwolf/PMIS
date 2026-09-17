@@ -59,4 +59,29 @@ describe('VulnerabilitiesService.bulkUpload', () => {
       data: [expect.objectContaining({ name: 'SQL Injection', category: 'NETWORK' })],
     });
   });
+
+  it('rejects a CSV with a missing/renamed required header, and never touches the database', async () => {
+    const badCsv = [
+      'S.No,Name,Severity,CVSS Score,CVSS-VEC,Description,Impact,Remediation,Reference,CVE ID,CWE ID',
+      '1,SQL Injection,High,8.1,VEC,Desc,Impact text,Remediate it,https://ref,CVE-1,CWE-89',
+    ].join('\n');
+
+    await expect(
+      service.bulkUpload(badCsv, 'NETWORK', 'admin1', '127.0.0.1', 'jest'),
+    ).rejects.toThrow('Missing or incorrect header(s): CVSS');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('accepts headers in a different order, since rows are extracted by header name', async () => {
+    const reorderedCsv = [
+      'CVSS,S.No,Severity,Name,CVSS-VEC,Description,Impact,Remediation,Reference,CVE ID,CWE ID',
+      '8.1,1,High,SQL Injection,VEC,Desc,Impact text,Remediate it,https://ref,CVE-1,CWE-89',
+    ].join('\n');
+
+    await service.bulkUpload(reorderedCsv, 'NETWORK', 'admin1', '127.0.0.1', 'jest');
+
+    expect(prisma.vulnerability.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ name: 'SQL Injection', cvssScore: 8.1, category: 'NETWORK' })],
+    });
+  });
 });

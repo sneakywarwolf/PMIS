@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SettingsService } from '../settings/settings.service';
 import { ProjectPurgeService } from '../common/project-purge.service';
+import { validateCsvHeaders } from '../common/csv-validation.util';
 import { User, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
@@ -453,16 +454,10 @@ export class UsersService {
     const headerLine = lines[0].trim();
     const headers = this.parseCsvLine(headerLine).map(h => h.trim());
 
+    // Validate headers by name before reading any data row — order doesn't
+    // matter since `get()` below looks columns up by header name.
+    validateCsvHeaders(headers, this.USER_CSV_HEADERS);
     const normalize = (h: string) => h.toLowerCase().replace(/\s+/g, '').replace(/[-_]/g, '');
-    const expectedNormalized = this.USER_CSV_HEADERS.map(normalize);
-    const actualNormalized = headers.map(normalize);
-
-    const missing = expectedNormalized.filter((h, i) => actualNormalized[i] !== h);
-    if (missing.length > 0 || actualNormalized.length < expectedNormalized.length) {
-      throw new BadRequestException(
-        `Invalid CSV format. Missing or incorrect headers. Expected: ${this.USER_CSV_HEADERS.join(', ')}`,
-      );
-    }
 
     const get = (expectedHeader: string, cols: string[]) => {
       const idx = headers.findIndex(h => normalize(h) === normalize(expectedHeader));

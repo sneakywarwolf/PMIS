@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
 import { UserRole, VulnerabilityStatus, NotificationType } from '@prisma/client';
+import { validateCsvHeaders } from '../common/csv-validation.util';
 
 @Injectable()
 export class VulnerabilitiesService {
@@ -394,17 +395,10 @@ export class VulnerabilitiesService {
     const headerLine = lines[0].trim();
     const headers = this.parseCsvLine(headerLine).map(h => h.trim());
 
-    // Normalize headers for comparison (case-insensitive, handle spaces)
+    // Validate headers by name before reading any data row — order doesn't
+    // matter since `get()` below looks columns up by header name.
+    validateCsvHeaders(headers, this.EXPECTED_HEADERS);
     const normalize = (h: string) => h.toLowerCase().replace(/\s+/g, '').replace(/[-_]/g, '');
-    const expectedNormalized = this.EXPECTED_HEADERS.map(normalize);
-    const actualNormalized = headers.map(normalize);
-
-    const missing = expectedNormalized.filter((h, i) => actualNormalized[i] !== h);
-    if (missing.length > 0 || actualNormalized.length < expectedNormalized.length) {
-      throw new BadRequestException(
-        `Invalid CSV format. Missing or incorrect headers. Expected: ${this.EXPECTED_HEADERS.join(', ')}`,
-      );
-    }
 
     const rows: any[] = [];
     for (let i = 1; i < lines.length; i++) {
