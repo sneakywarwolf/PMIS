@@ -4,10 +4,11 @@ import { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FolderKanban, Plus, Search, FileText, Edit, AlertTriangle, X, Loader2, CheckCircle, Eye, LayoutGrid, Table2 } from 'lucide-react';
+import { FolderKanban, Plus, Search, FileText, Edit, AlertTriangle, X, Loader2, CheckCircle, Eye, LayoutGrid, Table2, Trash2 } from 'lucide-react';
 import { toDateInputValue, formatDate } from '@/lib/datetime';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
+import { useConfirm } from '@/components/confirm-provider';
 
 const statusColors: Record<string, string> = {
   NOT_STARTED: 'bg-gray-700 text-gray-300',
@@ -63,6 +64,7 @@ export default function ProjectsPage() {
 
 function ProjectsPageContent() {
   const toast = useToast();
+  const confirmDialog = useConfirm();
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -150,6 +152,23 @@ function ProjectsPageContent() {
       window.URL.revokeObjectURL(url);
     } catch (error: any) {
       toast(error.response?.data?.message || 'Failed to generate issue log', 'error');
+    }
+  };
+
+  const handleDeleteProject = async (project: Project) => {
+    const ok = await confirmDialog({
+      title: 'Permanently delete project?',
+      message: `"${project.name}" and all its findings, reports, PoCs/attachments, and issue logs will be permanently deleted. This cannot be undone.`,
+      confirmLabel: 'Delete Permanently',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/projects/${project.id}`);
+      toast('Project permanently deleted');
+      setProjects((prev) => prev.filter((p) => p.id !== project.id));
+    } catch (error: any) {
+      toast(error.response?.data?.message || 'Failed to delete project', 'error');
     }
   };
 
@@ -351,8 +370,17 @@ function ProjectsPageContent() {
                     {generatingReport === project.id ? 'Generating...' : 'Report'}
                   </button>
                 </div>
+                {user?.role === 'ADMIN' && (
+                  <button
+                    onClick={() => handleDeleteProject(project)}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-medium transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete
+                  </button>
+                )}
               </div>
-              
+
               <div className="pt-3 border-t border-gray-700/50 flex items-center justify-between text-xs">
                 <span className="text-gray-400 flex items-center gap-1">
                   {formatDate(project.startDate)}
@@ -449,6 +477,15 @@ function ProjectsPageContent() {
                             <FileText className="w-3.5 h-3.5" />
                           )}
                         </button>
+                        {user?.role === 'ADMIN' && (
+                          <button
+                            onClick={() => handleDeleteProject(project)}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                            title="Delete Permanently"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </motion.tr>

@@ -262,6 +262,23 @@ export default function ProjectDetailPage() {
 
   const canEditFindings = user?.role === 'ADMIN' || user?.role === 'AVP' || user?.role === 'TEAM_LEAD' || project.tester.id === user?.id;
 
+  const handleDeleteProject = async () => {
+    const ok = await confirmDialog({
+      title: 'Permanently delete project?',
+      message: `"${project.name}" and all its findings, reports, PoCs/attachments, and issue logs will be permanently deleted. This cannot be undone.`,
+      confirmLabel: 'Delete Permanently',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/projects/${project.id}`);
+      showToast('Project permanently deleted', 'success');
+      router.push('/dashboard/projects');
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to delete project', 'error');
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -272,10 +289,20 @@ export default function ProjectDetailPage() {
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold text-white">{project.name}</h1>
           <p className="text-gray-400 text-sm">{project.clientName}</p>
         </div>
+        {user?.role === 'ADMIN' && (
+          <button
+            onClick={handleDeleteProject}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-sm"
+            title="Permanently delete this project"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete Project
+          </button>
+        )}
       </div>
 
       {/* Report Result Toast */}

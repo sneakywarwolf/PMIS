@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Req } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -79,5 +79,14 @@ export class ProjectsController {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
     return this.projectsService.review(id, dto, tlId, ipAddress, userAgent);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Permanently delete a project and all related data (Admin only)' })
+  async remove(@Param('id') id: string, @CurrentUser('id') adminId: string, @Req() request: any) {
+    const ipAddress = request.ip || 'unknown';
+    const userAgent = request.headers['user-agent'] || 'unknown';
+    return this.projectsService.remove(id, adminId, ipAddress, userAgent);
   }
 }
