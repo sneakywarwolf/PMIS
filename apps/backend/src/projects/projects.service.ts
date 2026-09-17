@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ProjectPurgeService } from '../common/project-purge.service';
 import { User, UserRole, ProjectStatus } from '@prisma/client';
-import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto, ReviewProjectDto } from './dto/project.dto';
+import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
 import { parseNmapScan, NmapPortRecord } from '../common/nmap-parser.util';
 
@@ -258,42 +258,6 @@ export class ProjectsService {
     });
 
     return { message: 'Project reassigned successfully' };
-  }
-
-  async review(id: string, dto: ReviewProjectDto, tlId: string, ipAddress: string, userAgent: string) {
-    const project = await this.prisma.project.findUnique({ where: { id } });
-    if (!project) {
-      throw new NotFoundException('Project not found');
-    }
-
-    if (project.tlId !== tlId) {
-      throw new ForbiddenException('Only assigned TL can review this project');
-    }
-
-    const updateData: any = { status: dto.status };
-    if (dto.status === ProjectStatus.COMPLETED) {
-      updateData.approvedAt = new Date();
-      updateData.approvedById = tlId;
-      updateData.isDraft = false;
-    }
-
-    await this.prisma.project.update({
-      where: { id },
-      data: updateData,
-    });
-
-    const action = dto.status === ProjectStatus.COMPLETED ? 'PROJECT_APPROVED' : 'PROJECT_REJECTED';
-    await this.auditService.log({
-      actorId: tlId,
-      action,
-      targetType: 'PROJECT',
-      targetId: id,
-      ipAddress,
-      userAgent,
-      details: { comment: dto.comment },
-    });
-
-    return { message: `Project ${dto.status.toLowerCase().replace('_', ' ')}` };
   }
 
   /**

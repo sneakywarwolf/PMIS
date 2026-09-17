@@ -156,7 +156,6 @@ async function main() {
       status: ProjectStatus.COMPLETED,
       testerId: tester1.id,
       tlId: tl.id,
-      isDraft: false,
     },
   });
   console.log('✅ Sample projects created');

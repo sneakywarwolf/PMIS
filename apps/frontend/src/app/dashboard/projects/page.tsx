@@ -50,7 +50,6 @@ interface Project {
   tester?: { id: string; username: string; email: string; fullName?: string | null };
   tl?: { id: string; username: string; email: string; fullName?: string | null };
   _count?: { findings: number };
-  isDraft?: boolean;
   startDateChangedAt?: string | null;
 }
 
@@ -388,9 +387,6 @@ function ProjectsPageContent() {
                     <span title="Start date changed after project creation"><AlertTriangle className="w-3.5 h-3.5 text-amber-400" /></span>
                   )}
                 </span>
-                {project.isDraft !== false && (
-                  <span className="text-amber-400">Draft</span>
-                )}
               </div>
             </motion.div>
           ))}

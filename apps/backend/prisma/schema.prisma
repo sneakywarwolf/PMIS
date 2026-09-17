@@ -225,10 +225,7 @@ model Project {
 
   reportDocxPath  String?   @map("report_docx_path")
   reportPdfPath   String?   @map("report_pdf_path")
-  isDraft         Boolean   @default(true) @map("is_draft")
   generatedAt     DateTime? @map("generated_at")
-  approvedAt      DateTime? @map("approved_at")
-  approvedById    String?   @map("approved_by_id")
 
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
@@ -324,8 +321,6 @@ model ReportGeneration {
 
   docxPath      String?   @map("docx_path")
   pdfPath       String?   @map("pdf_path")
-
-  isDraft       Boolean   @default(true) @map("is_draft")
 
   createdAt     DateTime  @default(now()) @map("created_at")
 

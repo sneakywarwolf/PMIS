@@ -1,6 +1,6 @@
 import { IsString, IsOptional, IsEnum, IsDateString, IsObject, IsArray, IsInt, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ProjectStatus, TemplateCategory, TemplateSubType, ComplianceType } from '@prisma/client';
+import { TemplateCategory, TemplateSubType, ComplianceType } from '@prisma/client';
 
 // A plain-object array with no nested validation class would have its
 // entries stripped to {} by the global ValidationPipe's whitelist option —
@@ -235,13 +235,4 @@ export class UpdateProjectDto {
 export class ReassignProjectDto {
   @IsString()
   testerId: string;
-}
-
-export class ReviewProjectDto {
-  @IsEnum(ProjectStatus)
-  status: ProjectStatus;
-
-  @IsOptional()
-  @IsString()
-  comment?: string;
 }

@@ -4,7 +4,7 @@ import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto, ReviewProjectDto } from './dto/project.dto';
+import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
 import { User, UserRole } from '@prisma/client';
 
 @ApiTags('Projects')
@@ -66,20 +66,6 @@ export class ProjectsController {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
     return this.projectsService.reassign(id, dto, tlId, ipAddress, userAgent);
-  }
-
-  @Post(':id/review')
-  @Roles(UserRole.TEAM_LEAD, UserRole.AVP, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Review and approve/reject project' })
-  async review(
-    @Param('id') id: string,
-    @Body() dto: ReviewProjectDto,
-    @CurrentUser('id') tlId: string,
-    @Req() request: any,
-  ) {
-    const ipAddress = request.ip || 'unknown';
-    const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.projectsService.review(id, dto, tlId, ipAddress, userAgent);
   }
 
   @Delete(':id')

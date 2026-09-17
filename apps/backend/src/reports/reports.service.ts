@@ -568,7 +568,6 @@ export class ReportsService {
         fieldData: fieldDataSnapshot,
         version,
         status: ReportGenerationStatus.PENDING,
-        isDraft: true,
       },
     });
 
