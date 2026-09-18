@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
 import { UserRole, VulnerabilityStatus, NotificationType } from '@prisma/client';
-import { validateCsvHeaders } from '../common/csv-validation.util';
+import { validateExactCsvHeaders, parseCsv } from '../common/csv-validation.util';
 
 @Injectable()
 export class VulnerabilitiesService {
@@ -387,25 +387,32 @@ export class VulnerabilitiesService {
       throw new BadRequestException('category must be APPLICATION_API or NETWORK.');
     }
 
-    const lines = csvContent.trim().split(/\r?\n/);
-    if (lines.length < 2) {
+    const allRows = parseCsv(csvContent.trim());
+    if (allRows.length < 2) {
       throw new BadRequestException('CSV file is empty or missing data rows.');
     }
 
-    const headerLine = lines[0].trim();
-    const headers = this.parseCsvLine(headerLine).map(h => h.trim());
+    const headers = allRows[0].map(h => h.trim());
 
     // Validate headers by name before reading any data row — order doesn't
     // matter since `get()` below looks columns up by header name.
-    validateCsvHeaders(headers, this.EXPECTED_HEADERS);
+    validateExactCsvHeaders(headers, this.EXPECTED_HEADERS);
     const normalize = (h: string) => h.toLowerCase().replace(/\s+/g, '').replace(/[-_]/g, '');
 
     const rows: any[] = [];
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
+    for (let i = 1; i < allRows.length; i++) {
+      const cols = allRows[i];
+      if (cols.length === 1 && cols[0].trim() === '') continue; // blank line
 
-      const cols = this.parseCsvLine(line);
+      if (cols.length > headers.length) {
+        throw new BadRequestException(
+          `Row ${i + 1} has ${cols.length} column(s) but the header row has ${headers.length}. Check for an unescaped comma or unquoted value in that row.`,
+        );
+      }
+      // Excel/Sheets often drop trailing commas for empty trailing cells —
+      // pad those back out rather than rejecting a row that's only short
+      // at the end (e.g. blank CVE ID/CWE ID).
+      while (cols.length < headers.length) cols.push('');
       // Map by header position
       const get = (expectedHeader: string) => {
         const idx = headers.findIndex(h => normalize(h) === normalize(expectedHeader));
@@ -419,8 +426,13 @@ export class VulnerabilitiesService {
       const remediation = get('Remediation');
       const references = get('Reference');
 
-      if (!name || !severity || !description || !impact || !remediation || !references) {
-        throw new BadRequestException(`Row ${i + 1} is missing required fields (Name, Severity, Description, Impact, Remediation, Reference).`);
+      const requiredFields: [string, string][] = [
+        ['Name', name], ['Severity', severity], ['Description', description],
+        ['Impact', impact], ['Remediation', remediation], ['Reference', references],
+      ];
+      const emptyFields = requiredFields.filter(([, value]) => !value).map(([label]) => label);
+      if (emptyFields.length > 0) {
+        throw new BadRequestException(`Row ${i + 1} is missing required field(s): ${emptyFields.join(', ')}.`);
       }
 
       const cvssRaw = get('CVSS');
@@ -473,33 +485,11 @@ export class VulnerabilitiesService {
     return { message: `Successfully uploaded ${rows.length} vulnerabilities. The existing ${category.replace('_', '/')} database has been replaced.`, count: rows.length };
   }
 
-  // Simple CSV line parser handling quoted values
-  private parseCsvLine(line: string): string[] {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === ',' && !inQuotes) {
-        result.push(current);
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    result.push(current);
-    return result;
-  }
-
   private escapeCsv(value: string): string {
     if (!value) return '';
+    // Neutralize CSV/formula injection — a leading =, +, -, @, tab, or CR is
+    // interpreted as a formula by Excel/Sheets when the file is reopened.
+    if (/^[=+\-@\t\r]/.test(value)) value = `'${value}`;
     const needsQuotes = /[",\n]/.test(value);
     const escaped = value.replace(/"/g, '""');
     return needsQuotes ? `"${escaped}"` : escaped;
