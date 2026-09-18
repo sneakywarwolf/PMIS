@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
@@ -101,6 +101,158 @@ export class VulnerabilitiesService {
       });
     }
     return created;
+  }
+
+  // ─── Tester Edit Change Requests ───
+  // A Tester's edit to an already-approved record never applies directly —
+  // it's captured here and only takes effect once Admin or the tester's
+  // specific TL approves it (see approveChangeRequest below).
+  private readonly EDITABLE_FIELDS = [
+    'name', 'severity', 'cvssScore', 'cvssVector', 'description', 'impact',
+    'remediation', 'references', 'cveId', 'cweId', 'category',
+  ];
+
+  private snapshotEditableFields(vuln: any) {
+    const snapshot: any = {};
+    for (const field of this.EDITABLE_FIELDS) snapshot[field] = vuln[field];
+    return snapshot;
+  }
+
+  async createChangeRequest(vulnerabilityId: string, data: any, requesterId: string) {
+    const vuln = await this.prisma.vulnerability.findUnique({ where: { id: vulnerabilityId } });
+    if (!vuln || !vuln.isActive) {
+      throw new NotFoundException('Vulnerability not found');
+    }
+
+    const requester = await this.prisma.user.findUnique({
+      where: { id: requesterId },
+      select: { assignedTlId: true },
+    });
+
+    const afterData: any = {};
+    for (const field of this.EDITABLE_FIELDS) {
+      if (data[field] !== undefined) afterData[field] = data[field];
+    }
+
+    const changeRequest = await this.prisma.vulnerabilityChangeRequest.create({
+      data: {
+        vulnerabilityId,
+        requestedById: requesterId,
+        targetTlId: requester?.assignedTlId ?? null,
+        beforeData: this.snapshotEditableFields(vuln),
+        afterData,
+      },
+    });
+
+    // Notify Admins + only this tester's specific TL — never every TL.
+    const recipients = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { role: UserRole.ADMIN },
+          ...(requester?.assignedTlId ? [{ id: requester.assignedTlId }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    await Promise.all(recipients.map((r) =>
+      this.notificationsService.create({
+        userId: r.id,
+        type: NotificationType.VULNERABILITY_CHANGE_REQUESTED,
+        title: 'Vulnerability Edit Requested',
+        message: `An edit to "${vuln.name}" is pending approval.`,
+        relatedId: changeRequest.id,
+      }),
+    ));
+
+    return changeRequest;
+  }
+
+  /** Admin sees every pending edit request; a TL/AVP only sees requests routed to them. */
+  async findPendingChangeRequests(user: { id: string; role: UserRole }) {
+    const where: any = { status: 'PENDING' };
+    if (user.role !== UserRole.ADMIN) {
+      where.targetTlId = user.id;
+    }
+    return this.prisma.vulnerabilityChangeRequest.findMany({
+      where,
+      include: {
+        vulnerability: true,
+        requestedBy: { select: { id: true, username: true, fullName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  private assertCanReviewChangeRequest(cr: { targetTlId: string | null }, reviewer: { id: string; role: UserRole }) {
+    if (reviewer.role === UserRole.ADMIN) return;
+    if (cr.targetTlId && cr.targetTlId === reviewer.id) return;
+    throw new ForbiddenException('You are not authorized to review this request');
+  }
+
+  async approveChangeRequest(id: string, reviewer: { id: string; role: UserRole }) {
+    const cr = await this.prisma.vulnerabilityChangeRequest.findUnique({
+      where: { id },
+      include: { vulnerability: true },
+    });
+    if (!cr) throw new NotFoundException('Change request not found');
+    if (cr.status !== 'PENDING') throw new BadRequestException('This request has already been reviewed');
+    this.assertCanReviewChangeRequest(cr, reviewer);
+
+    const updated = await this.prisma.vulnerability.update({
+      where: { id: cr.vulnerabilityId },
+      data: cr.afterData as any,
+    });
+
+    await this.prisma.vulnerabilityChangeRequest.update({
+      where: { id },
+      data: { status: 'APPROVED', reviewedById: reviewer.id, reviewedAt: new Date() },
+    });
+
+    await this.auditService.log({
+      actorId: reviewer.id,
+      action: 'VULNERABILITY_UPDATED',
+      targetType: 'VULNERABILITY',
+      targetId: cr.vulnerabilityId,
+      ipAddress: 'unknown',
+      userAgent: 'unknown',
+      details: { before: cr.beforeData, after: cr.afterData, viaChangeRequest: id, requestedById: cr.requestedById },
+    });
+
+    await this.notificationsService.create({
+      userId: cr.requestedById,
+      type: NotificationType.VULNERABILITY_CHANGE_APPROVED,
+      title: 'Vulnerability Edit Approved',
+      message: `Your proposed edit to "${cr.vulnerability.name}" has been approved.`,
+      relatedId: cr.vulnerabilityId,
+    });
+
+    return updated;
+  }
+
+  async rejectChangeRequest(id: string, reviewer: { id: string; role: UserRole }) {
+    const cr = await this.prisma.vulnerabilityChangeRequest.findUnique({
+      where: { id },
+      include: { vulnerability: true },
+    });
+    if (!cr) throw new NotFoundException('Change request not found');
+    if (cr.status !== 'PENDING') throw new BadRequestException('This request has already been reviewed');
+    this.assertCanReviewChangeRequest(cr, reviewer);
+
+    await this.prisma.vulnerabilityChangeRequest.update({
+      where: { id },
+      data: { status: 'REJECTED', reviewedById: reviewer.id, reviewedAt: new Date() },
+    });
+
+    await this.notificationsService.create({
+      userId: cr.requestedById,
+      type: NotificationType.VULNERABILITY_CHANGE_REJECTED,
+      title: 'Vulnerability Edit Rejected',
+      message: `Your proposed edit to "${cr.vulnerability.name}" was rejected. Original data retained.`,
+      relatedId: cr.vulnerabilityId,
+    });
+
+    return { message: 'Change request rejected. Original data retained.' };
   }
 
   async update(id: string, data: any, actorId?: string) {

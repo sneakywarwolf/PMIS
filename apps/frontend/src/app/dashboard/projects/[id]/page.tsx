@@ -28,6 +28,7 @@ import {
 import { api, useAuth } from '@/contexts/auth-context';
 import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
+import { PasswordGeneratorButton } from '@/components/password-generator-button';
 import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
 
@@ -583,6 +584,7 @@ export default function ProjectDetailPage() {
               {generatingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
               {generatingReport ? 'Generating...' : 'Report'}
             </button>
+            <PasswordGeneratorButton />
           </div>
         </div>
 
@@ -1304,7 +1306,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-4xl max-h-[95vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between p-6 border-b border-gray-700 sticky top-0 bg-gray-900 z-10">
           <h2 className="text-lg font-semibold text-white">

@@ -168,9 +168,18 @@ export class AuthService {
       throw new UnauthorizedException('User not found');
     }
 
-    const isCurrentValid = await argon2.verify(user.passwordHash, dto.currentPassword);
-    if (!isCurrentValid) {
-      throw new BadRequestException('Current password is incorrect');
+    if (user.isForcePasswordChange) {
+      // Forced change (new-user default password or an admin-issued temp
+      // password) — the user already proved possession of it by logging
+      // in, so don't make them re-enter it here.
+    } else {
+      if (!dto.currentPassword) {
+        throw new BadRequestException('Current password is required');
+      }
+      const isCurrentValid = await argon2.verify(user.passwordHash, dto.currentPassword);
+      if (!isCurrentValid) {
+        throw new BadRequestException('Current password is incorrect');
+      }
     }
 
     const policyErrors = await this.settingsService.validatePassword(dto.newPassword);

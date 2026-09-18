@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw, Clock } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
 import { formatDateTime } from '@/lib/datetime';
@@ -35,6 +36,8 @@ export default function VulnerabilitiesPage() {
   const { user } = useAuth();
   const [vulnerabilities, setVulnerabilities] = useState<any[]>([]);
   const [pendingVulns, setPendingVulns] = useState<any[]>([]);
+  const [pendingChangeRequests, setPendingChangeRequests] = useState<any[]>([]);
+  const [viewingChangeRequest, setViewingChangeRequest] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [severity, setSeverity] = useState('');
@@ -100,12 +103,13 @@ export default function VulnerabilitiesPage() {
     if (isAdminOrTL) fetchPending();
   }, [search, severity, category, sort, activeTab]);
 
+  // Reuses the app-wide settings the branding provider already fetched once
+  // per session, instead of this page issuing its own duplicate GET /settings.
+  const { settings } = useBranding();
   useEffect(() => {
-    api.get('/settings').then((res) => {
-      const colors = res.data?.settings?.workflow?.severityColors;
-      if (colors) setSeverityColors({ ...DEFAULT_SEVERITY_COLORS, ...colors });
-    }).catch(() => {});
-  }, []);
+    const colors = settings?.workflow?.severityColors;
+    if (colors) setSeverityColors({ ...DEFAULT_SEVERITY_COLORS, ...colors });
+  }, [settings]);
 
   const fetchVulnerabilities = async () => {
     setLoading(true);
@@ -127,8 +131,12 @@ export default function VulnerabilitiesPage() {
 
   const fetchPending = async () => {
     try {
-      const response = await api.get('/vulnerabilities/pending');
-      setPendingVulns(response.data);
+      const [pendingRes, changeRes] = await Promise.all([
+        api.get('/vulnerabilities/pending'),
+        api.get('/vulnerabilities/change-requests/pending'),
+      ]);
+      setPendingVulns(pendingRes.data);
+      setPendingChangeRequests(changeRes.data);
     } catch (error) {
       console.error('Failed to fetch pending:', error);
     }
@@ -159,23 +167,23 @@ export default function VulnerabilitiesPage() {
     }
   };
 
-  const handleApprove = async (id: string) => {
+  const handleApprove = async (id: string, isChangeRequest?: boolean) => {
     try {
-      await api.put(`/vulnerabilities/${id}/approve`);
+      await api.put(`/vulnerabilities/${isChangeRequest ? `change-requests/${id}` : id}/approve`);
       fetchPending();
       fetchVulnerabilities();
-      toast('Vulnerability approved');
+      toast(isChangeRequest ? 'Edit approved and applied' : 'Vulnerability approved');
     } catch (error: any) {
       toast(error.response?.data?.message || 'Approval failed', 'error');
     }
   };
 
-  const handleReject = async (id: string) => {
+  const handleReject = async (id: string, isChangeRequest?: boolean) => {
     try {
-      await api.put(`/vulnerabilities/${id}/reject`);
+      await api.put(`/vulnerabilities/${isChangeRequest ? `change-requests/${id}` : id}/reject`);
       fetchPending();
       fetchVulnerabilities();
-      toast('Vulnerability rejected');
+      toast(isChangeRequest ? 'Edit rejected — original data retained' : 'Vulnerability rejected');
     } catch (error: any) {
       toast(error.response?.data?.message || 'Rejection failed', 'error');
     }
@@ -265,7 +273,30 @@ export default function VulnerabilitiesPage() {
   // Admin/AVP/TL fetch every vulnerability including soft-deleted ones (isActive:
   // false) — needed elsewhere (e.g. history), but the Total list/count must only
   // ever show live vulnerabilities.
-  const displayVulns = activeTab === 'pending' ? pendingVulns : vulnerabilities.filter((v) => v.isActive);
+  // Pending tab shows two different kinds of items side by side: brand-new
+  // vulnerability requests (status PENDING) and Testers' proposed edits to
+  // already-approved records (change requests) — normalized to the same
+  // row shape here so the table doesn't need to branch on rendering.
+  const pendingChangeRows = pendingChangeRequests.map((cr) => ({
+    id: cr.id,
+    name: cr.vulnerability.name,
+    severity: cr.afterData.severity ?? cr.vulnerability.severity,
+    cvssScore: cr.afterData.cvssScore ?? cr.vulnerability.cvssScore,
+    cvssVector: cr.afterData.cvssVector ?? cr.vulnerability.cvssVector,
+    category: cr.vulnerability.category,
+    cveId: cr.afterData.cveId ?? cr.vulnerability.cveId,
+    cweId: cr.afterData.cweId ?? cr.vulnerability.cweId,
+    description: cr.afterData.description ?? cr.vulnerability.description,
+    impact: cr.afterData.impact ?? cr.vulnerability.impact,
+    remediation: cr.afterData.remediation ?? cr.vulnerability.remediation,
+    references: cr.afterData.references ?? cr.vulnerability.references,
+    requestedBy: cr.requestedBy,
+    isChangeRequest: true,
+    _cr: cr,
+  }));
+  const displayVulns = activeTab === 'pending'
+    ? [...pendingVulns, ...pendingChangeRows]
+    : vulnerabilities.filter((v) => v.isActive);
 
   if (loading && displayVulns.length === 0) {
     return (
@@ -343,9 +374,9 @@ export default function VulnerabilitiesPage() {
             }`}
           >
             Pending Approval
-            {pendingVulns.length > 0 && (
+            {(pendingVulns.length + pendingChangeRequests.length) > 0 && (
               <span className="w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center">
-                {pendingVulns.length}
+                {pendingVulns.length + pendingChangeRequests.length}
               </span>
             )}
           </button>
@@ -450,33 +481,54 @@ export default function VulnerabilitiesPage() {
                     {vuln.cweId && <span className="text-violet-400 ml-2">{vuln.cweId}</span>}
                   </td>
                   {activeTab === 'pending' && (
-                    <td className="px-4 py-3 text-sm text-gray-400">{vuln.requestedBy?.username || 'Unknown'}</td>
+                    <td className="px-4 py-3 text-sm text-gray-400">
+                      <div className="flex items-center gap-2">
+                        <span>{vuln.requestedBy?.username || 'Unknown'}</span>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                          vuln.isChangeRequest
+                            ? 'border-blue-500/30 text-blue-400'
+                            : 'border-emerald-500/30 text-emerald-400'
+                        }`}>
+                          {vuln.isChangeRequest ? 'Edit' : 'New'}
+                        </span>
+                      </div>
+                    </td>
                   )}
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       {activeTab === 'pending' && isAdminOrTL ? (
                         <>
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleApprove(vuln.id); }}
+                            onClick={(e) => { e.stopPropagation(); handleApprove(vuln.id, vuln.isChangeRequest); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
                             title="Approve"
                           >
                             <CheckCircle className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleReject(vuln.id); }}
+                            onClick={(e) => { e.stopPropagation(); handleReject(vuln.id, vuln.isChangeRequest); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
                             title="Reject"
                           >
                             <XCircle className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openEditModal(vuln); }}
-                            className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
-                            title="Edit"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
+                          {vuln.isChangeRequest ? (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setViewingChangeRequest(vuln._cr); }}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
+                              title="View proposed changes"
+                            >
+                              <Search className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openEditModal(vuln); }}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
+                              title="Edit"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </>
                       ) : (
                         <>
@@ -665,6 +717,14 @@ export default function VulnerabilitiesPage() {
         />
       )}
 
+      {/* Change Request Diff Modal */}
+      {viewingChangeRequest && (
+        <ChangeRequestDiffModal
+          changeRequest={viewingChangeRequest}
+          onClose={() => setViewingChangeRequest(null)}
+        />
+      )}
+
       {/* Bulk Upload Confirmation Modal */}
       {showBulkConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -829,6 +889,8 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
   isRequest: boolean;
 }) {
   const toast = useToast();
+  const { user } = useAuth();
+  const isTesterEditingExisting = !!vuln && user?.role === 'TESTER';
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     name: vuln?.name || '',
@@ -866,7 +928,9 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
         cvssScore: form.cvssScore ? parseFloat(form.cvssScore) : undefined,
       };
 
-      if (vuln) {
+      if (vuln && isTesterEditingExisting) {
+        await api.post(`/vulnerabilities/${vuln.id}/change-request`, payload);
+      } else if (vuln) {
         await api.put(`/vulnerabilities/${vuln.id}`, payload);
       } else if (isRequest) {
         await api.post('/vulnerabilities/request', payload);
@@ -874,7 +938,11 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
         await api.post('/vulnerabilities', payload);
       }
       onSaved();
-      toast(isRequest && !vuln ? 'Vulnerability requested for approval' : 'Vulnerability saved');
+      toast(
+        isTesterEditingExisting
+          ? 'Edit submitted for approval — original data unchanged until reviewed'
+          : isRequest && !vuln ? 'Vulnerability requested for approval' : 'Vulnerability saved'
+      );
     } catch (error: any) {
       toast(error.response?.data?.message || 'Failed to save', 'error');
     } finally {
@@ -1002,6 +1070,64 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
             </button>
           </div>
         </form>
+      </motion.div>
+    </div>,
+    document.body
+  );
+}
+
+const CHANGE_REQUEST_FIELD_LABELS: Record<string, string> = {
+  name: 'Name', severity: 'Severity', cvssScore: 'CVSS', cvssVector: 'CVSS Vector',
+  description: 'Description', impact: 'Impact', remediation: 'Remediation',
+  references: 'Reference', cveId: 'CVE ID', cweId: 'CWE ID', category: 'Category',
+};
+
+function ChangeRequestDiffModal({ changeRequest, onClose }: { changeRequest: any; onClose: () => void }) {
+  const before = changeRequest.beforeData || {};
+  const after = changeRequest.afterData || {};
+  const changedFields = Object.keys(after).filter((key) => String(before[key] ?? '') !== String(after[key] ?? ''));
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between p-6 border-b border-gray-700 sticky top-0 bg-gray-900 z-10">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Proposed Changes</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Requested by {changeRequest.requestedBy?.fullName || changeRequest.requestedBy?.username || 'Unknown'}
+              {' · '}{formatDateTime(changeRequest.createdAt)}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-800 text-gray-400">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {changedFields.length === 0 ? (
+            <p className="text-sm text-gray-500">No field changes detected.</p>
+          ) : (
+            changedFields.map((field) => (
+              <div key={field} className="p-3 rounded-lg bg-gray-800/50 border border-gray-700">
+                <p className="text-xs font-medium text-gray-400 mb-2">{CHANGE_REQUEST_FIELD_LABELS[field] || field}</p>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-[10px] uppercase text-gray-600 mb-1">Current</p>
+                    <p className="text-red-300/90 whitespace-pre-wrap break-words">{String(before[field] ?? '—')}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase text-gray-600 mb-1">Proposed</p>
+                    <p className="text-emerald-300/90 whitespace-pre-wrap break-words">{String(after[field] ?? '—')}</p>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </motion.div>
     </div>,
     document.body

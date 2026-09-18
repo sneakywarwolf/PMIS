@@ -122,6 +122,34 @@ export class VulnerabilitiesController {
     return this.vulnerabilitiesService.update(id, body, userId);
   }
 
+  @Post(':id/change-request')
+  @Roles(UserRole.TESTER)
+  @ApiOperation({ summary: 'Propose an edit to an existing vulnerability (Tester) — requires Admin/TL approval' })
+  async createChangeRequest(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
+    return this.vulnerabilitiesService.createChangeRequest(id, body, userId);
+  }
+
+  @Get('change-requests/pending')
+  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @ApiOperation({ summary: 'List pending vulnerability edit requests (scoped to Admin or the requester\'s TL)' })
+  async findPendingChangeRequests(@CurrentUser() user: User) {
+    return this.vulnerabilitiesService.findPendingChangeRequests(user);
+  }
+
+  @Put('change-requests/:id/approve')
+  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @ApiOperation({ summary: 'Approve a pending vulnerability edit request' })
+  async approveChangeRequest(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.vulnerabilitiesService.approveChangeRequest(id, user);
+  }
+
+  @Put('change-requests/:id/reject')
+  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @ApiOperation({ summary: 'Reject a pending vulnerability edit request' })
+  async rejectChangeRequest(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.vulnerabilitiesService.rejectChangeRequest(id, user);
+  }
+
   @Delete(':id')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Soft delete vulnerability (Admin)' })

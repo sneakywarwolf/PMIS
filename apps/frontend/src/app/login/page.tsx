@@ -106,7 +106,6 @@ function LoginForm() {
                   className="w-full pl-10 pr-4 py-2.5 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all"
                   placeholder="Enter password"
                   required
-                  minLength={14}
                 />
               </div>
             </div>

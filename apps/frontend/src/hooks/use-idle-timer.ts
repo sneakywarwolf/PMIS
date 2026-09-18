@@ -33,7 +33,7 @@ export function useIdleTimer(enabled: boolean): IdleTimerState {
         timeoutMinutes: security?.sessionTimeoutMinutes ?? 15,
         action: security?.inactivityAction === 'warn' ? 'warn' : 'logout',
       };
-    });
+    }).catch(() => {});
     return () => {
       cancelled = true;
     };

@@ -9,6 +9,7 @@ import {
   Clock, AlertCircle, CheckCircle, FileText, ShieldAlert, HelpCircle,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
 import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
 import { api } from '@/contexts/auth-context';
@@ -29,6 +30,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const { settings, settingsLoaded } = useBranding();
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
   const [vulnTrends, setVulnTrends] = useState<any>(null);
@@ -43,19 +45,19 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return;
     fetchStats();
-
-    let interval: ReturnType<typeof setInterval> | undefined;
-    api.get('/settings').then((res) => {
-      const seconds = res.data?.settings?.appearance?.dashboardRefreshIntervalSeconds;
-      if (seconds && seconds > 0) {
-        interval = setInterval(fetchStats, seconds * 1000);
-      }
-    });
-    return () => {
-      if (interval) clearInterval(interval);
-    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Reuses the app-wide settings the branding provider already fetched once
+  // per session, instead of this page issuing its own duplicate GET /settings.
+  useEffect(() => {
+    if (!user || !settingsLoaded) return;
+    const seconds = settings?.appearance?.dashboardRefreshIntervalSeconds;
+    if (!seconds || seconds <= 0) return;
+    const interval = setInterval(fetchStats, seconds * 1000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, settingsLoaded, settings?.appearance?.dashboardRefreshIntervalSeconds]);
 
   const fetchStats = async () => {
     try {

@@ -9,6 +9,11 @@ import { User, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
 
+// Every newly created user (single or bulk) starts with this password and
+// must change it on first login — see isForcePasswordChange enforcement in
+// JwtAuthGuard.
+export const DEFAULT_NEW_USER_PASSWORD = 'Tester@12345';
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -106,12 +111,7 @@ export class UsersService {
       }
     }
 
-    const policyErrors = await this.settingsService.validatePassword(dto.password);
-    if (policyErrors.length > 0) {
-      throw new BadRequestException(policyErrors.join('; '));
-    }
-
-    const passwordHash = await argon2.hash(dto.password, {
+    const passwordHash = await argon2.hash(DEFAULT_NEW_USER_PASSWORD, {
       type: argon2.argon2id,
       memoryCost: 65536,
       timeCost: 3,
@@ -551,8 +551,7 @@ export class UsersService {
         if (mgr) managerId = mgr.id;
       }
 
-      const password = this.generateSecurePassword();
-      const passwordHash = await argon2.hash(password, {
+      const passwordHash = await argon2.hash(DEFAULT_NEW_USER_PASSWORD, {
         type: argon2.argon2id,
         memoryCost: 65536,
         timeCost: 3,

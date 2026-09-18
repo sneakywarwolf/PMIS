@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Users, Plus, Search, UserPlus, Key, Pencil, Trash2, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, Upload, Download, AlertTriangle, XCircle } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
@@ -27,7 +28,7 @@ export default function UsersPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
-  const [newUser, setNewUser] = useState({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', managerId: '', fullName: '', phone: '', designation: '' });
+  const [newUser, setNewUser] = useState({ username: '', email: '', role: 'TESTER', assignedTlId: '', managerId: '', fullName: '', phone: '', designation: '' });
   const [sortField, setSortField] = useState<string>('username');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [message, setMessage] = useState('');
@@ -80,10 +81,11 @@ export default function UsersPage() {
     try {
       await api.post('/users', newUser);
       setShowAddModal(false);
-      setNewUser({ username: '', email: '', password: '', role: 'TESTER', assignedTlId: '', managerId: '', fullName: '', phone: '', designation: '' });
+      setNewUser({ username: '', email: '', role: 'TESTER', assignedTlId: '', managerId: '', fullName: '', phone: '', designation: '' });
       fetchUsers();
-    } catch (error) {
-      console.error('Failed to create user:', error);
+      showToast('User created. Default password: Tester@12345 (must be changed on first login).');
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to create user', 'error');
     }
   };
 
@@ -420,11 +422,8 @@ export default function UsersPage() {
                   onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
                   className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
               </div>
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">Password</label>
-                <input type="password" required minLength={14} value={newUser.password}
-                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+              <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 px-3 py-2 text-xs text-emerald-300">
+                New users are created with the default password <span className="font-mono">Tester@12345</span> and must change it on first login.
               </div>
               <div>
                 <label className="block text-sm text-gray-300 mb-1">Full Name</label>
@@ -492,8 +491,10 @@ export default function UsersPage() {
         </div>
       )}
 
-      {/* Edit User Modal */}
-      {showEditModal && editingUser && (
+      {/* Edit User Modal — rendered via portal so it isn't clipped by the
+          page-transition wrapper's animated filter/transform, which creates
+          a containing block that breaks position:fixed centering/sizing. */}
+      {showEditModal && editingUser && createPortal(
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -586,7 +587,8 @@ export default function UsersPage() {
               </div>
             </form>
           </motion.div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Bulk Upload Error Modal */}

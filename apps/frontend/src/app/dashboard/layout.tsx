@@ -21,6 +21,9 @@ import {
   ChevronDown,
   HelpCircle,
   Clock,
+  Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useAuth, api } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
@@ -101,6 +104,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   if (!user) return null;
+  if (user.isForcePasswordChange) return <ForceChangePasswordGate />;
   if (!isRouteAllowed(pathname, user.role)) return null;
 
   const filteredNav = navItems.filter(item => item.roles.includes(user.role));
@@ -452,6 +456,108 @@ function UserDropdown({ user, logout, router }: { user: any; logout: () => Promi
           </>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function ForceChangePasswordGate() {
+  const { logout, refreshUser } = useAuth();
+  const router = useRouter();
+  const [form, setForm] = useState({ newPassword: '', confirmPassword: '' });
+  const [visibility, setVisibility] = useState({ new: false, confirm: false });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (form.newPassword !== form.confirmPassword) {
+      setError('New passwords do not match');
+      return;
+    }
+    if (form.newPassword.length < 14) {
+      setError('Password must be at least 14 characters');
+      return;
+    }
+    setSaving(true);
+    try {
+      // No current password required here — this is a forced change (new
+      // account or admin-issued temp password), and the user already
+      // proved possession of it by logging in with it.
+      await api.post('/auth/change-password', {
+        newPassword: form.newPassword,
+      });
+      await refreshUser();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Password change failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-cyber-bg flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="w-full max-w-md bg-cyber-surface border border-cyber-border rounded-2xl p-8"
+      >
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center">
+            <Lock className="w-5 h-5 text-amber-400" />
+          </div>
+          <h1 className="text-lg font-semibold text-white">Password Change Required</h1>
+        </div>
+        <p className="text-sm text-gray-400 mb-6">
+          For security, you must set a new password before continuing.
+        </p>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {(['new', 'confirm'] as const).map((field) => {
+            const key = field === 'new' ? 'newPassword' : 'confirmPassword';
+            const label = field === 'new' ? 'New Password' : 'Confirm New Password';
+            return (
+              <div key={field}>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">{label}</label>
+                <div className="relative">
+                  <input
+                    type={visibility[field] ? 'text' : 'password'}
+                    value={form[key]}
+                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                    required
+                    className="w-full px-3 py-2 pr-10 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setVisibility({ ...visibility, [field]: !visibility[field] })}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                  >
+                    {visibility[field] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-medium transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Updating...' : 'Change Password'}
+          </button>
+
+          <button
+            type="button"
+            onClick={async () => { await logout(); router.push('/login'); }}
+            className="w-full py-2 text-sm text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            Log out instead
+          </button>
+        </form>
+      </motion.div>
     </div>
   );
 }

@@ -6,6 +6,21 @@ import { IS_PUBLIC_KEY } from '../decorators/roles.decorator';
 import { RedisService } from '../../redis/redis.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
+// Endpoints a user with a pending forced password change may still reach —
+// everything else is blocked server-side so the requirement can't be
+// bypassed by skipping the frontend redirect.
+const FORCE_PASSWORD_CHANGE_ALLOWED_PATHS = new Set([
+  '/auth/me',
+  '/auth/change-password',
+  '/auth/logout',
+  '/auth/refresh',
+]);
+
+// GET-only, read-only config the app shell needs to even render the forced
+// change-password screen (branding, idle-timeout settings) — not "app
+// access", so safe to allow read access while blocking writes.
+const FORCE_PASSWORD_CHANGE_ALLOWED_GET_PATHS = new Set(['/settings']);
+
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
@@ -66,9 +81,21 @@ export class JwtAuthGuard implements CanActivate {
         throw new UnauthorizedException('User account is inactive or deleted');
       }
 
+      const isAllowedDuringForceChange =
+        FORCE_PASSWORD_CHANGE_ALLOWED_PATHS.has(request.path) ||
+        (request.method === 'GET' && FORCE_PASSWORD_CHANGE_ALLOWED_GET_PATHS.has(request.path));
+
+      if (user.isForcePasswordChange && !isAllowedDuringForceChange) {
+        throw new ForbiddenException({
+          message: 'Password change required before continuing',
+          code: 'PASSWORD_CHANGE_REQUIRED',
+        });
+      }
+
       request.user = user;
       return true;
     } catch (error) {
+      if (error instanceof ForbiddenException) throw error;
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

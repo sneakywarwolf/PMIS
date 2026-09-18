@@ -21,10 +21,6 @@ export class CreateUserDto {
   @IsEmail()
   email: string;
 
-  @IsString()
-  @MinLength(8)
-  password: string;
-
   @IsEnum(UserRole)
   role: UserRole;
 
@@ -81,8 +77,12 @@ export class UpdateUserDto {
 }
 
 export class ChangePasswordDto {
+  // Only required for a voluntary change (profile page) — a forced change
+  // (isForcePasswordChange) skips this since the user already proved
+  // possession of the current/temp password by logging in with it.
+  @IsOptional()
   @IsString()
-  currentPassword: string;
+  currentPassword?: string;
 
   @IsString()
   @MinLength(14)
