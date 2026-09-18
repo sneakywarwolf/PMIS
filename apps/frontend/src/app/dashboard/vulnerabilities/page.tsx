@@ -90,7 +90,7 @@ export default function VulnerabilitiesPage() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkCategory, setBulkCategory] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pendingFileRef = useRef<string | null>(null);
+  const pendingFileRef = useRef<File | null>(null);
 
   const isAdminOrTL = user?.role === 'ADMIN' || user?.role === 'AVP' || user?.role === 'TEAM_LEAD';
   const isAdmin = user?.role === 'ADMIN';
@@ -207,31 +207,32 @@ export default function VulnerabilitiesPage() {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = '';
     if (!file) return;
 
-    // Only CSV allowed
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      setBulkErrorMsg('Only .csv files are allowed. Please upload a valid CSV file.');
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.csv') && !name.endsWith('.xlsx')) {
+      setBulkErrorMsg('Only .csv and .xlsx files are allowed. Please upload a valid file.');
       setShowBulkError(true);
-      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const csv = event.target?.result as string;
-      pendingFileRef.current = csv;
-      setShowBulkConfirm(true);
-    };
-    reader.readAsText(file);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    // File content is validated and parsed server-side only — nothing here
+    // is read or executed client-side, it's just handed off as data.
+    pendingFileRef.current = file;
+    setShowBulkConfirm(true);
   };
 
   const confirmBulkUpload = async () => {
     if (!pendingFileRef.current || !bulkCategory) return;
     setBulkUploading(true);
     try {
-      const response = await api.post('/vulnerabilities/bulk-upload', { csv: pendingFileRef.current, category: bulkCategory });
+      const formData = new FormData();
+      formData.append('file', pendingFileRef.current);
+      formData.append('category', bulkCategory);
+      const response = await api.post('/vulnerabilities/bulk-upload', formData, {
+        headers: { 'Content-Type': undefined },
+      });
       toast(response.data.message || `Successfully uploaded ${response.data.count} vulnerabilities.`);
       setShowBulkConfirm(false);
       pendingFileRef.current = null;
@@ -293,7 +294,7 @@ export default function VulnerabilitiesPage() {
             <>
               <input
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx"
                 ref={fileInputRef}
                 onChange={handleFileSelect}
                 className="hidden"
@@ -728,7 +729,7 @@ export default function VulnerabilitiesPage() {
                   <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
                     <XCircle className="w-5 h-5 text-red-400" />
                   </div>
-                  <h2 className="text-lg font-semibold text-white">Invalid CSV Format</h2>
+                  <h2 className="text-lg font-semibold text-white">Upload Rejected</h2>
                 </div>
                 <button onClick={() => setShowBulkError(false)} className="p-1 rounded-lg hover:bg-gray-800 text-gray-400">
                   <X className="w-5 h-5" />
@@ -738,7 +739,7 @@ export default function VulnerabilitiesPage() {
                 {bulkErrorMsg}
               </p>
               <p className="text-gray-500 text-xs mb-6">
-                Please make sure your CSV file follows the exact format required. You can download a sample file below to see the correct structure.
+                Please make sure your file follows the exact format required (.csv or .xlsx, no macros/formulas). You can download a sample file below to see the correct structure.
               </p>
               <div className="flex justify-end gap-3">
                 <button

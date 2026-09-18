@@ -4,7 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SettingsService } from '../settings/settings.service';
 import { ProjectPurgeService } from '../common/project-purge.service';
-import { validateCsvHeaders } from '../common/csv-validation.util';
+import { validateCsvHeaders, parseCsv } from '../common/csv-validation.util';
 import { User, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
@@ -453,13 +453,12 @@ export class UsersService {
   }
 
   async bulkUpload(csvContent: string, adminId: string, ipAddress: string, userAgent: string) {
-    const lines = csvContent.trim().split(/\r?\n/);
-    if (lines.length < 2) {
+    const allRows = parseCsv(csvContent.trim());
+    if (allRows.length < 2) {
       throw new BadRequestException('CSV file is empty or missing data rows.');
     }
 
-    const headerLine = lines[0].trim();
-    const headers = this.parseCsvLine(headerLine).map(h => h.trim());
+    const headers = allRows[0].map(h => h.trim());
 
     // Validate headers by name before reading any data row — order doesn't
     // matter since `get()` below looks columns up by header name.
@@ -482,11 +481,18 @@ export class UsersService {
 
     const results = { added: 0, skipped: 0, errors: [] as string[] };
 
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
+    for (let i = 1; i < allRows.length; i++) {
+      const cols = allRows[i];
+      if (cols.length === 1 && cols[0].trim() === '') continue; // blank line
 
-      const cols = this.parseCsvLine(line);
+      if (cols.length > headers.length) {
+        results.errors.push(`Row ${i + 1}: has ${cols.length} column(s) but the header row has ${headers.length}. Check for an unescaped comma or unquoted value in that row.`);
+        continue;
+      }
+      // Excel/Sheets often drop trailing commas for empty trailing cells —
+      // pad those back out rather than rejecting a row that's only short
+      // at the end.
+      while (cols.length < headers.length) cols.push('');
       const fullName = get('Full Name', cols);
       const email = get('Email', cols);
       const mobile = get('Mobile', cols);
@@ -495,8 +501,10 @@ export class UsersService {
       const tlName = get('Team Lead', cols);
       const managerName = get('Manager', cols);
 
-      if (!fullName || !email || !roleStr) {
-        results.errors.push(`Row ${i + 1}: Missing required fields (Full Name, Email, Role).`);
+      const requiredFields: [string, string][] = [['Full Name', fullName], ['Email', email], ['Role', roleStr]];
+      const emptyFields = requiredFields.filter(([, value]) => !value).map(([label]) => label);
+      if (emptyFields.length > 0) {
+        results.errors.push(`Row ${i + 1}: Missing required field(s): ${emptyFields.join(', ')}.`);
         continue;
       }
 
@@ -596,32 +604,11 @@ export class UsersService {
     return null;
   }
 
-  private parseCsvLine(line: string): string[] {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
-        }
-      } else if (char === ',' && !inQuotes) {
-        result.push(current);
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    result.push(current);
-    return result;
-  }
-
   private escapeCsv(value: string): string {
     if (!value) return '';
+    // Neutralize CSV/formula injection — a leading =, +, -, @, tab, or CR is
+    // interpreted as a formula by Excel/Sheets when the file is reopened.
+    if (/^[=+\-@\t\r]/.test(value)) value = `'${value}`;
     const needsQuotes = /[",\n]/.test(value);
     const escaped = value.replace(/"/g, '""');
     return needsQuotes ? `"${escaped}"` : escaped;
