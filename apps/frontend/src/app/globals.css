@@ -97,6 +97,11 @@ html, body {
   pointer-events: none;
 }
 
+.ee-scanlines {
+  background: repeating-linear-gradient(to bottom, rgba(16, 185, 129, 0.035) 0 1px, transparent 1px 3px);
+  pointer-events: none;
+}
+
 /* Form inputs */
 input, textarea, select {
   background-color: var(--cyber-surface);

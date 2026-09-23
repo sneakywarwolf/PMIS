@@ -74,4 +74,11 @@ describe('SettingsService.getSystemHealth', () => {
     expect(health.storage.availableMb).toBeNull();
     expect(storage.getUsedBytes).not.toHaveBeenCalled();
   });
+
+  it('rejects out-of-range or wrongly typed easterEgg settings', async () => {
+    await expect(service.update({ easterEgg: { maxAttempts: 29 } }, 'a', 'ip', 'ua')).rejects.toThrow(/maxAttempts/);
+    await expect(service.update({ easterEgg: { maxAttempts: 40.5 } }, 'a', 'ip', 'ua')).rejects.toThrow(/maxAttempts/);
+    await expect(service.update({ easterEgg: { pasteCountsAsAttempt: 'yes' } }, 'a', 'ip', 'ua')).rejects.toThrow(/boolean/);
+    await expect(service.update({ easterEgg: { sneaky: true } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown setting/);
+  });
 });
