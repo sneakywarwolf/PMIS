@@ -6,6 +6,7 @@ import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, 
 import { useAuth } from '@/contexts/auth-context';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
+import { LiveMonitor } from '@/components/easter-egg/live-monitor';
 import { formatDateTime } from '@/lib/datetime';
 
 const TABS = [
@@ -462,6 +463,9 @@ function EasterEggTab({ settings, setCategory }: any) {
           className={inputCls}
         />
         <p className={hintCls}>30–50. The LULLZ YOU WISH finale plays on the last attempt.</p>
+      </div>
+      <div className="pt-4 border-t border-gray-800">
+        <LiveMonitor />
       </div>
     </div>
   );

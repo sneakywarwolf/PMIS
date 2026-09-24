@@ -1,7 +1,9 @@
-import { WebSocketGateway, WebSocketServer, SubscribeMessage, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
+import { WebSocketGateway, WebSocketServer, SubscribeMessage, OnGatewayConnection, OnGatewayDisconnect, ConnectedSocket, MessageBody } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger, UseGuards } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { RedisService } from '../redis/redis.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { authenticateSocket } from '../auth/verify-access-token';
 
 @WebSocketGateway({
   cors: {
@@ -14,40 +16,36 @@ export class DashboardGateway implements OnGatewayConnection, OnGatewayDisconnec
   @WebSocketServer()
   server: Server;
 
-  private readonly logger = new Logger(DashboardGateway.name);
-
-  constructor(private jwtService: JwtService) {}
+  constructor(
+    private jwtService: JwtService,
+    private redisService: RedisService,
+    private prismaService: PrismaService,
+  ) {}
 
   async handleConnection(client: Socket) {
-    try {
-      const token = client.handshake.auth.token || client.handshake.headers.cookie;
-      if (!token) {
-        client.disconnect();
-        return;
-      }
-      this.logger.log(`Client connected: ${client.id}`);
-    } catch (error) {
-      client.disconnect();
+    const user = await authenticateSocket(client.handshake.headers.cookie, this.jwtService, this.redisService, this.prismaService);
+    if (!user) {
+      client.disconnect(true);
+      return;
     }
+    client.data.user = user;
   }
 
-  handleDisconnect(client: Socket) {
-    this.logger.log(`Client disconnected: ${client.id}`);
-  }
+  handleDisconnect() {}
 
   @SubscribeMessage('join_team_room')
-  handleJoinTeamRoom(client: Socket, tlId: string) {
+  handleJoinTeamRoom(@ConnectedSocket() client: Socket, @MessageBody() tlId: unknown) {
+    const user = client.data.user;
+    if (!user || typeof tlId !== 'string') return;
+    if (user.role !== 'ADMIN' && user.id !== tlId && user.assignedTlId !== tlId) return;
     client.join(`team_${tlId}`);
-    this.logger.log(`Client ${client.id} joined team room: ${tlId}`);
   }
 
   @SubscribeMessage('leave_team_room')
-  handleLeaveTeamRoom(client: Socket, tlId: string) {
-    client.leave(`team_${tlId}`);
-    this.logger.log(`Client ${client.id} left team room: ${tlId}`);
+  handleLeaveTeamRoom(@ConnectedSocket() client: Socket, @MessageBody() tlId: unknown) {
+    if (typeof tlId === 'string') client.leave(`team_${tlId}`);
   }
 
-  // Method to broadcast updates to team rooms
   broadcastTeamUpdate(tlId: string, data: any) {
     this.server.to(`team_${tlId}`).emit('team_update', data);
   }

@@ -3,10 +3,12 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useAnimationControls } from 'framer-motion';
 import { ClipboardX, Lock } from 'lucide-react';
+import type { Socket } from 'socket.io-client';
 import { api } from '@/contexts/auth-context';
-import { BOOT_LINES, MAX_INPUT, PasteEffect, pastePick, respond } from '@/lib/easter-egg/terminal';
+import { BOOT_LINES, MAX_INPUT, PasteEffect, echoFor, pastePick, respond } from '@/lib/easter-egg/terminal';
+import type { LiveState } from '@/lib/easter-egg/socket';
 
-type LineKind = 'in' | 'out' | 'sys' | 'paste';
+type LineKind = 'in' | 'out' | 'sys' | 'paste' | 'admin';
 type Line = { id: number; kind: LineKind; text: string };
 
 const MAX_LINES = 200;
@@ -15,6 +17,7 @@ const LINE_CLS: Record<LineKind, string> = {
   out: 'text-emerald-300',
   sys: 'text-emerald-500/70',
   paste: 'text-amber-300',
+  admin: 'text-cyan-300',
 };
 const SCRAMBLE = 'アイウエオカキクケコ01<>/{}$#';
 
@@ -27,9 +30,11 @@ type Props = {
   matrixActive: boolean;
   onBoost: () => void;
   onExhausted: () => void;
+  socket: Socket | null;
+  live: LiveState;
 };
 
-export function BypassTerminal({ displayName, role, maxAttempts, pasteCountsAsAttempt, blockPaste, matrixActive, onBoost, onExhausted }: Props) {
+export function BypassTerminal({ displayName, role, maxAttempts, pasteCountsAsAttempt, blockPaste, matrixActive, onBoost, onExhausted, socket, live }: Props) {
   const [lines, setLines] = useState<Line[]>([]);
   const [value, setValue] = useState('');
   const [booting, setBooting] = useState(true);
@@ -44,9 +49,39 @@ export function BypassTerminal({ displayName, role, maxAttempts, pasteCountsAsAt
   const inputRef = useRef<HTMLInputElement>(null);
   const finishTimer = useRef<ReturnType<typeof setTimeout>>();
   const shake = useAnimationControls();
+  const liveRef = useRef(live);
+  liveRef.current = live;
+  const socketRef = useRef(socket);
+  socketRef.current = socket;
 
-  const push = (kind: LineKind, texts: string[]) =>
+  // Lines leave the browser only while an admin is visibly connected to this session.
+  const push = (kind: LineKind, texts: string[]) => {
     setLines((prev) => [...prev, ...texts.map((text) => ({ id: nextId.current++, kind, text }))].slice(-MAX_LINES));
+    if (kind !== 'admin' && liveRef.current.connected) texts.forEach((text) => socketRef.current?.emit('ee:line', { kind, text }));
+  };
+
+  useEffect(() => {
+    if (!socket) return;
+    const onReply = ({ text }: { text: unknown }) => typeof text === 'string' && push('admin', [`operator> ${text}`]);
+    const onConnect = () => socket.emit('ee:status', { attempts: attemptsRef.current });
+    socket.on('ee:reply', onReply);
+    socket.on('connect', onConnect);
+    return () => {
+      socket.off('ee:reply', onReply);
+      socket.off('connect', onConnect);
+    };
+  }, [socket]);
+
+  const prevLive = useRef(live);
+  useEffect(() => {
+    const prev = prevLive.current;
+    prevLive.current = live;
+    if (live.connected && !prev.connected) push('sys', ['Operator connected. This session is now monitored live.']);
+    else if (!live.connected && prev.connected) push('sys', ['Operator disconnected. Session no longer monitored.']);
+    if (live.connected && live.mode !== prev.mode) {
+      push('sys', [live.mode === 'MANUAL' ? 'Operator has taken the controls.' : 'Automated responses restored.']);
+    }
+  }, [live]);
 
   useEffect(() => {
     const timers = BOOT_LINES.map((l, i) => setTimeout(() => push('sys', [l]), i * 700));
@@ -75,6 +110,7 @@ export function BypassTerminal({ displayName, role, maxAttempts, pasteCountsAsAt
   const registerAttempt = () => {
     attemptsRef.current += 1;
     setAttempts(attemptsRef.current);
+    socketRef.current?.emit('ee:status', { attempts: attemptsRef.current });
     if (attemptsRef.current >= maxAttempts) {
       setDone(true);
       push('sys', ['Attempt limit reached.', 'Initiating final protocol...']);
@@ -85,6 +121,12 @@ export function BypassTerminal({ displayName, role, maxAttempts, pasteCountsAsAt
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (booting || done) return;
+    if (live.connected && live.mode === 'MANUAL') {
+      const echo = echoFor(value);
+      setValue('');
+      if (echo) push('in', [`$ ${echo}`]);
+      return;
+    }
     const uptimeSeconds = uptime.current ? Math.round(uptime.current.s + (Date.now() - uptime.current.at) / 1000) : null;
     const reply = respond(value, { displayName, role, uptimeSeconds });
     setValue('');
@@ -124,8 +166,14 @@ export function BypassTerminal({ displayName, role, maxAttempts, pasteCountsAsAt
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/70" />
           <span className="ml-3 text-xs font-mono text-emerald-500/70">pmis://bypass — tty0</span>
         </div>
-        <span className="text-[10px] font-mono tracking-widest text-emerald-500/60">
-          ATTEMPTS {attempts}/{maxAttempts}
+        <span className="flex items-center gap-3 text-[10px] font-mono tracking-widest">
+          {live.connected && (
+            <span className="flex items-center gap-1.5 text-cyan-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              LIVE{live.mode === 'MANUAL' ? ' · OPERATOR' : ''}
+            </span>
+          )}
+          <span className="text-emerald-500/60">ATTEMPTS {attempts}/{maxAttempts}</span>
         </span>
       </div>
 

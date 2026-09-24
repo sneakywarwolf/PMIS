@@ -1,6 +1,8 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import type { Socket } from 'socket.io-client';
+import { connectEasterEgg, LiveState, OFFLINE } from '@/lib/easter-egg/socket';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ShieldOff, Sparkles, Home } from 'lucide-react';
@@ -13,6 +15,7 @@ const TAKEOVER_MS = 1500;
 
 type EasterEggSettings = { enabled: boolean; maxAttempts: number; matrixEffects: boolean; pasteCountsAsAttempt: boolean };
 type Stage = 'idle' | 'takeover' | 'terminal' | 'revealed';
+const LIVE_STAGE: Record<Stage, string> = { idle: 'restricted', takeover: 'terminal', terminal: 'terminal', revealed: 'revealed' };
 
 export default function UnauthorizedPage() {
   return (
@@ -32,6 +35,31 @@ function UnauthorizedContent() {
   const [stage, setStage] = useState<Stage>('idle');
   const [matrixOn, setMatrixOn] = useState(true);
   const [boostAt, setBoostAt] = useState(0);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [live, setLive] = useState<LiveState>(OFFLINE);
+  const stageRef = useRef(stage);
+  stageRef.current = stage;
+
+  // Live monitoring is optional: if the socket never connects, the terminal still works locally.
+  const eggOn = !!egg?.enabled && !!user;
+  const maxAttempts = egg?.maxAttempts;
+  useEffect(() => {
+    if (!eggOn) return;
+    const s = connectEasterEgg();
+    s.on('connect', () => s.emit('ee:join', { stage: LIVE_STAGE[stageRef.current], max: maxAttempts }));
+    s.on('disconnect', () => setLive(OFFLINE));
+    s.on('ee:admin', (d: LiveState) => setLive({ connected: !!d?.connected, mode: d?.mode === 'MANUAL' ? 'MANUAL' : 'AUTO' }));
+    setSocket(s);
+    return () => {
+      s.disconnect();
+      setSocket(null);
+      setLive(OFFLINE);
+    };
+  }, [eggOn, maxAttempts]);
+
+  useEffect(() => {
+    socket?.emit('ee:status', { stage: LIVE_STAGE[stage] });
+  }, [socket, stage]);
 
   // Any failure here just leaves the plain Access Restricted page.
   useEffect(() => {
@@ -65,6 +93,22 @@ function UnauthorizedContent() {
               <p>NODE: PMIS-GW-01</p>
             </div>
             <div className="absolute bottom-4 right-4 font-mono text-[10px] tracking-widest text-emerald-500/50">SIGNAL ▮▮▮▯ // ROUTE: UNRESOLVED</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {live.connected && (
+          <motion.div
+            key="live-pill"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            role="status"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full glass border border-cyan-400/40 text-xs text-cyan-200"
+          >
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+            Admin connected · Live session{live.mode === 'MANUAL' ? ' · Operator responding' : ''}
           </motion.div>
         )}
       </AnimatePresence>
@@ -118,6 +162,8 @@ function UnauthorizedContent() {
               matrixActive={showMatrix}
               onBoost={boost}
               onExhausted={exhausted}
+              socket={socket}
+              live={live}
             />
           </motion.div>
         )}

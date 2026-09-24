@@ -1,6 +1,6 @@
 // Run: node src/lib/easter-egg/terminal.check.mjs
 import assert from 'node:assert/strict';
-import { respond, pastePick, MAX_INPUT, PASTE_LINES } from './terminal.ts';
+import { respond, pastePick, echoFor, MAX_INPUT, PASTE_LINES } from './terminal.ts';
 
 const ctx = { displayName: 'Jane Doe', role: 'TEAM_LEAD', uptimeSeconds: 90061 };
 const cat = (s) => respond(s, ctx).category;
@@ -37,6 +37,8 @@ assert.equal(respond('x', ctx).counts, true);
 // Credentials are never echoed back.
 const cred = respond('password=hunter2', ctx);
 assert.ok(!cred.echo.includes('hunter2') && /^█+$/.test(cred.echo));
+assert.match(echoFor('my token is abc'), /^█+$/);
+assert.equal(echoFor('  ls -la '), 'ls -la');
 
 // Input is capped (by code point, so surrogate pairs aren't split).
 const big = respond('a'.repeat(10_000), ctx);

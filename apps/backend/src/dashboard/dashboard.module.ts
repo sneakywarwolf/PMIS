@@ -4,9 +4,10 @@ import { DashboardService } from './dashboard.service';
 import { DashboardController } from './dashboard.controller';
 import { DashboardGateway } from './dashboard.gateway';
 import { PrismaModule } from '../prisma/prisma.module';
+import { RedisModule } from '../redis/redis.module';
 
 @Module({
-  imports: [PrismaModule, JwtModule.register({})],
+  imports: [PrismaModule, RedisModule, JwtModule.register({})],
   controllers: [DashboardController],
   providers: [DashboardService, DashboardGateway],
   exports: [DashboardService, DashboardGateway],

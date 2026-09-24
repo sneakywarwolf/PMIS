@@ -304,8 +304,17 @@ function command(name: string, ctx: TerminalCtx): string[] | null {
   }
 }
 
+const cap = (raw: string) => Array.from(raw).slice(0, MAX_INPUT).join('').trim();
+const redact = (input: string) => '█'.repeat(Math.min(Array.from(input).length, 24));
+
+// What may be shown (and mirrored to a live admin) for this input: credentials are never echoed.
+export function echoFor(raw: string): string {
+  const input = cap(raw);
+  return CATEGORIES[0].tests.some((re) => re.test(input)) ? redact(input) : input;
+}
+
 export function respond(raw: string, ctx: TerminalCtx): TerminalReply {
-  const input = Array.from(raw).slice(0, MAX_INPUT).join('').trim();
+  const input = cap(raw);
   if (!input) return { category: 'empty', echo: '', lines: ['Silence detected. Bold strategy.'], counts: false };
 
   const cmd = command(input.toLowerCase(), ctx);
@@ -314,7 +323,7 @@ export function respond(raw: string, ctx: TerminalCtx): TerminalReply {
   const cat = CATEGORIES.find((c) => c.tests.some((re) => re.test(input)));
   if (!cat) return { category: 'other', echo: input, lines: pick('other', OTHER).split('\n'), counts: true };
 
-  const echo = cat.id === 'credential' ? '█'.repeat(Math.min(Array.from(input).length, 24)) : input;
+  const echo = cat.id === 'credential' ? redact(input) : input;
   const line =
     cat.rare && Math.random() < RARE_CHANCE
       ? pick(`${cat.id}:rare`, cat.rare)
