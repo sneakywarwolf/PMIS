@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Response } from 'express';
 import { UsersService } from './users.service';
-import { parseUploadedFileToCsv } from '../common/bulk-upload-file.util';
+import { parseUploadedFileToCsv, UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
@@ -88,7 +88,7 @@ export class UsersController {
 
   @Post('bulk-upload')
   @Roles(UserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Bulk upload users from a .csv or .xlsx file (Admin only)' })
   async bulkUpload(

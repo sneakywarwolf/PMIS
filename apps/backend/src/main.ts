@@ -4,13 +4,25 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: ['error', 'warn', 'log', 'debug'],
   });
+
+  // Behind the Next.js proxy (loopback in dev, docker network in compose): take the client IP from
+  // X-Forwarded-For for per-IP rate limits.
+  // ponytail: Next only sets X-Forwarded-For when absent, so clients can spoof it and dodge the anonymous
+  // per-IP limit. Brute force is still stopped by the per-username login lockout. Put nginx/an LB in front
+  // that overwrites the header if per-IP limits must be strict.
+  app.set('trust proxy', 'loopback, uniquelocal');
+
+  // Payload size limits (uploads are capped separately via UPLOAD_LIMITS)
+  app.useBodyParser('json', { limit: '1mb' });
+  app.useBodyParser('urlencoded', { limit: '1mb', extended: true });
 
   // Security headers
   app.use(helmet({

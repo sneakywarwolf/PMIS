@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { FindingsService } from './findings.service';
 import { StorageService } from '../reports/storage.service';
@@ -16,7 +17,7 @@ export class FindingsController {
   ) {}
 
   @Post('upload-poc-image')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a POC screenshot, returns the storage path for use in a POC step' })
   async uploadPocImage(@UploadedFile() file: Express.Multer.File) {
