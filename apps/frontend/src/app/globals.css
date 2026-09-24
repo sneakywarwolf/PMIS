@@ -97,6 +97,18 @@ html, body {
   pointer-events: none;
 }
 
+/* Quiz glitch: RGB split + jitter. Visual only. */
+@keyframes ee-glitch {
+  0%, 100% { transform: none; text-shadow: none; }
+  20% { transform: translate(-2px, 1px) skewX(-1deg); text-shadow: 2px 0 rgba(255, 0, 80, 0.6), -2px 0 rgba(0, 255, 255, 0.6); }
+  40% { transform: translate(2px, -1px); text-shadow: -2px 0 rgba(255, 0, 80, 0.6), 2px 0 rgba(0, 255, 255, 0.6); }
+  60% { transform: translate(-1px, 0) skewX(1deg); text-shadow: 1px 0 rgba(255, 0, 80, 0.5), -1px 0 rgba(0, 255, 255, 0.5); }
+  80% { transform: translate(1px, 1px); }
+}
+.ee-glitch {
+  animation: ee-glitch 0.25s steps(2) infinite;
+}
+
 .ee-scanlines {
   background: repeating-linear-gradient(to bottom, rgba(16, 185, 129, 0.035) 0 1px, transparent 1px 3px);
   pointer-events: none;
