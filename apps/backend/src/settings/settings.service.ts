@@ -133,6 +133,15 @@ function validatePatch(patch: any) {
     if (typeof v !== 'number' || v < 1) errors.push('system.totalDatabaseQuotaMb must be a positive number');
   }
 
+  const egg = patch.easterEgg;
+  for (const key of ['enabled', 'matrixEffects', 'pasteCountsAsAttempt']) {
+    if (egg?.[key] !== undefined && typeof egg[key] !== 'boolean') errors.push(`easterEgg.${key} must be a boolean`);
+  }
+  if (egg?.maxAttempts !== undefined) {
+    const v = egg.maxAttempts;
+    if (!Number.isInteger(v) || v < 30 || v > 50) errors.push('easterEgg.maxAttempts must be an integer between 30 and 50');
+  }
+
   return errors;
 }
 

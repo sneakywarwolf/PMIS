@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -78,7 +79,7 @@ export class ProjectsController {
   }
 
   @Post(':id/nmap-import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Import an Nmap XML port scan into a Network project' })
   async importNmapScan(

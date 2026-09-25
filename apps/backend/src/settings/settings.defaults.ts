@@ -47,6 +47,12 @@ export const DEFAULT_SETTINGS = {
     timeFormat: '24h', // '12h' | '24h'
     numberFormat: 'en-IN',
   },
+  easterEgg: {
+    enabled: true,
+    maxAttempts: 40,
+    matrixEffects: true,
+    pasteCountsAsAttempt: false,
+  },
 };
 
 export type AppSettingsShape = typeof DEFAULT_SETTINGS;

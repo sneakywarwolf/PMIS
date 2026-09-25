@@ -1,19 +1,21 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import type { Socket } from 'socket.io-client';
+import { connectEasterEgg, LiveState, OFFLINE } from '@/lib/easter-egg/socket';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ShieldOff, Sparkles, Home } from 'lucide-react';
-
-const REQUEST_STAGES = [
-  'Submitting access request…',
-  'Escalating privileges…',
-  'Bribing the admin…',
-  'Consulting the RBAC gods…',
-  'Almost there…',
-];
+import { api, useAuth } from '@/contexts/auth-context';
+import { MatrixRain } from '@/components/easter-egg/matrix-rain';
+import { BypassTerminal } from '@/components/easter-egg/bypass-terminal';
 
 const EMOJI = ['🔒', '🙅', '🚫', '😂', '👀', '🎉'];
+const TAKEOVER_MS = 1500;
+
+type EasterEggSettings = { enabled: boolean; maxAttempts: number; matrixEffects: boolean; pasteCountsAsAttempt: boolean };
+type Stage = 'idle' | 'takeover' | 'terminal' | 'revealed';
+const LIVE_STAGE: Record<Stage, string> = { idle: 'restricted', takeover: 'terminal', terminal: 'terminal', revealed: 'revealed' };
 
 export default function UnauthorizedPage() {
   return (
@@ -27,45 +29,103 @@ function UnauthorizedContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const from = searchParams.get('from');
+  const { user } = useAuth();
 
-  const [stage, setStage] = useState<'idle' | 'input' | 'requesting' | 'revealed'>('idle');
-  const [stageIndex, setStageIndex] = useState(0);
-  const [attempt, setAttempt] = useState('');
+  const [egg, setEgg] = useState<EasterEggSettings | null>(null);
+  const [stage, setStage] = useState<Stage>('idle');
+  const [matrixOn, setMatrixOn] = useState(true);
+  const [boostAt, setBoostAt] = useState(0);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [live, setLive] = useState<LiveState>(OFFLINE);
+  const stageRef = useRef(stage);
+  stageRef.current = stage;
 
-  const showInput = () => setStage('input');
+  // Live monitoring is optional: if the socket never connects, the terminal still works locally.
+  const eggOn = !!egg?.enabled && !!user;
+  const maxAttempts = egg?.maxAttempts;
+  useEffect(() => {
+    if (!eggOn) return;
+    const s = connectEasterEgg();
+    s.on('connect', () => s.emit('ee:join', { stage: LIVE_STAGE[stageRef.current], max: maxAttempts }));
+    s.on('disconnect', () => setLive(OFFLINE));
+    s.on('ee:admin', (d: LiveState) => setLive({ connected: !!d?.connected, mode: d?.mode === 'MANUAL' ? 'MANUAL' : 'AUTO' }));
+    setSocket(s);
+    return () => {
+      s.disconnect();
+      setSocket(null);
+      setLive(OFFLINE);
+    };
+  }, [eggOn, maxAttempts]);
 
-  // The entered text is never read, evaluated, or sent anywhere — every
-  // submission (empty, garbage, or "clever") leads to the exact same
-  // animation. This is deliberate: input here is purely decorative.
-  const tryYourLuck = (e: React.FormEvent) => {
-    e.preventDefault();
-    setStage('requesting');
-    setStageIndex(0);
-    REQUEST_STAGES.forEach((_, i) => {
-      setTimeout(() => setStageIndex(i), i * 550);
-    });
-    setTimeout(() => setStage('revealed'), REQUEST_STAGES.length * 550 + 300);
-  };
+  useEffect(() => {
+    socket?.emit('ee:status', { stage: LIVE_STAGE[stage] });
+  }, [socket, stage]);
+
+  // Any failure here just leaves the plain Access Restricted page.
+  useEffect(() => {
+    if (!user) return;
+    api.get('/settings').then((r) => setEgg(r.data.settings?.easterEgg ?? null)).catch(() => setEgg(null));
+  }, [user]);
+
+  useEffect(() => {
+    if (stage !== 'takeover') return;
+    const t = setTimeout(() => setStage('terminal'), TAKEOVER_MS);
+    return () => clearTimeout(t);
+  }, [stage]);
+
+  const disableMatrix = useCallback(() => setMatrixOn(false), []);
+  const boost = useCallback(() => setBoostAt(performance.now()), []);
+  const exhausted = useCallback(() => setStage('revealed'), []);
+
+  const inEgg = stage === 'takeover' || stage === 'terminal';
+  const showMatrix = inEgg && !!egg?.matrixEffects && matrixOn;
 
   return (
     <div className="min-h-screen bg-cyber-bg flex items-center justify-center p-6 overflow-hidden relative">
+      <AnimatePresence>
+        {inEgg && (
+          <motion.div key="bg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.6 }} className="fixed inset-0 pointer-events-none">
+            {showMatrix ? <MatrixRain boostAt={boostAt} onDisable={disableMatrix} /> : <div className="absolute inset-0 cyber-grid" />}
+            <div className="absolute inset-0 ee-scanlines" />
+            <div className="absolute inset-0 scanline" />
+            <div className="absolute top-4 left-4 font-mono text-[10px] tracking-widest text-emerald-500/50 space-y-0.5">
+              <p>TRACE: ACTIVE</p>
+              <p>NODE: PMIS-GW-01</p>
+            </div>
+            <div className="absolute bottom-4 right-4 font-mono text-[10px] tracking-widest text-emerald-500/50">SIGNAL ▮▮▮▯ // ROUTE: UNRESOLVED</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {live.connected && (
+          <motion.div
+            key="live-pill"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            role="status"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full glass border border-cyan-400/40 text-xs text-cyan-200"
+          >
+            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+            Admin connected · Live session{live.mode === 'MANUAL' ? ' · Operator responding' : ''}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence mode="wait">
-        {stage !== 'revealed' ? (
+        {stage === 'idle' && (
           <motion.div
             key="gate"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.3 }}
-            className="text-center max-w-md"
+            exit={{ opacity: 0, skewX: [0, 12, -8, 0], filter: ['blur(0px)', 'blur(2px)', 'blur(6px)'] }}
+            transition={{ duration: 0.4 }}
+            className="text-center max-w-md relative"
           >
-            <motion.div
-              animate={stage === 'requesting' ? { rotate: [0, -8, 8, -8, 0] } : {}}
-              transition={{ duration: 0.5, repeat: stage === 'requesting' ? Infinity : 0 }}
-              className="mx-auto mb-6 w-20 h-20 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center"
-            >
+            <div className="mx-auto mb-6 w-20 h-20 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center">
               <ShieldOff className="w-9 h-9 text-red-400" />
-            </motion.div>
+            </div>
 
             <h1 className="text-2xl font-bold text-white mb-2">Access Restricted</h1>
             <p className="text-gray-400 text-sm mb-1">
@@ -73,54 +133,13 @@ function UnauthorizedContent() {
             </p>
             <p className="text-gray-500 text-xs mb-8">Your role doesn't include this feature. Contact an administrator if you believe this is a mistake.</p>
 
-            {stage === 'idle' && (
+            {egg?.enabled && (
               <button
-                onClick={showInput}
+                onClick={() => setStage('takeover')}
                 className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
               >
                 Bypass Access
               </button>
-            )}
-
-            {stage === 'input' && (
-              <motion.form
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                onSubmit={tryYourLuck}
-                className="flex flex-col items-center gap-3"
-              >
-                <input
-                  autoFocus
-                  type="text"
-                  value={attempt}
-                  onChange={(e) => setAttempt(e.target.value)}
-                  placeholder="Try your luck"
-                  className="w-full px-4 py-2.5 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white text-center placeholder:text-gray-500 outline-none transition-colors"
-                />
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium transition-colors"
-                >
-                  Submit
-                </button>
-              </motion.form>
-            )}
-
-            {(stage === 'requesting') && (
-              <div className="h-10 flex items-center justify-center">
-                <AnimatePresence mode="wait">
-                  <motion.p
-                    key={stageIndex}
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -6 }}
-                    transition={{ duration: 0.2 }}
-                    className="text-sm text-emerald-400 font-mono"
-                  >
-                    {REQUEST_STAGES[stageIndex]}
-                  </motion.p>
-                </AnimatePresence>
-              </div>
             )}
 
             <button
@@ -130,7 +149,26 @@ function UnauthorizedContent() {
               <Home className="w-3.5 h-3.5" /> Back to Dashboard
             </button>
           </motion.div>
-        ) : (
+        )}
+
+        {stage === 'terminal' && egg && user && (
+          <motion.div key="terminal" exit={{ opacity: 0, scale: 0.95 }} className="relative w-full flex justify-center">
+            <BypassTerminal
+              displayName={user.fullName || user.username}
+              role={user.role}
+              maxAttempts={egg.maxAttempts}
+              pasteCountsAsAttempt={egg.pasteCountsAsAttempt}
+              blockPaste={user.role !== 'ADMIN'}
+              matrixActive={showMatrix}
+              onBoost={boost}
+              onExhausted={exhausted}
+              socket={socket}
+              live={live}
+            />
+          </motion.div>
+        )}
+
+        {stage === 'revealed' && (
           <motion.div
             key="reveal"
             initial={{ opacity: 0 }}
@@ -185,7 +223,7 @@ function UnauthorizedContent() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 1 }}
-                onClick={() => router.push('/dashboard')}
+                onClick={() => setStage('idle')}
                 className="mt-8 px-6 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 border border-gray-700 text-gray-300 text-sm transition-colors"
               >
                 Fine, take me back

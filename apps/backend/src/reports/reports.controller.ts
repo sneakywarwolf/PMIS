@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseInterceptors, UploadedFile, Query, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -14,7 +15,7 @@ export class ReportsController {
   // Template Management
   @Post('templates')
   @Roles(UserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload report template with field extraction' })
   async uploadTemplate(

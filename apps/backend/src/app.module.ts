@@ -19,9 +19,11 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { SettingsModule } from './settings/settings.module';
 import { QuizModule } from './quiz/quiz.module';
 import { RetentionModule } from './retention/retention.module';
+import { EasterEggModule } from './easter-egg/easter-egg.module';
 
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
+import { RateLimitGuard } from './common/rate-limit.guard';
 
 @Module({
   imports: [
@@ -52,11 +54,16 @@ import { RolesGuard } from './auth/guards/roles.guard';
     SettingsModule,
     QuizModule,
     RetentionModule,
+    EasterEggModule,
   ],
   providers: [
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RateLimitGuard,
     },
     {
       provide: APP_GUARD,

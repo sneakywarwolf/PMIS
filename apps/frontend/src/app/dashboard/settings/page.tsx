@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, Save, Loader2, Clock, ServerCog } from 'lucide-react';
+import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, Save, Loader2, Clock, ServerCog, Egg } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
+import { LiveMonitor } from '@/components/easter-egg/live-monitor';
 import { formatDateTime } from '@/lib/datetime';
 
 const TABS = [
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'formatting', label: 'Formatting', icon: Calendar },
   { id: 'system', label: 'System', icon: ServerCog },
+  { id: 'easterEgg', label: 'Easter Egg', icon: Egg },
 ];
 
 const inputCls = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
@@ -131,6 +133,7 @@ function SettingsContent() {
         {activeTab === 'notifications' && <NotificationsTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'formatting' && <FormattingTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'system' && <SystemTab settings={settings} setCategory={setCategory} />}
+        {activeTab === 'easterEgg' && <EasterEggTab settings={settings} setCategory={setCategory} />}
 
         <div className="flex justify-end pt-6 mt-6 border-t border-gray-700">
           <button
@@ -426,6 +429,47 @@ function NotificationsTab({ settings, setCategory }: any) {
   );
 }
 
+function EasterEggTab({ settings, setCategory }: any) {
+  const egg = settings.easterEgg;
+  const toggles = [
+    { key: 'enabled', label: 'Enable Bypass Access terminal', hint: 'When off, Access Restricted shows no Bypass button.' },
+    { key: 'matrixEffects', label: 'Matrix background effects', hint: 'Auto-disables on slow devices and for reduced-motion users.' },
+    { key: 'pasteCountsAsAttempt', label: 'Paste attempts count toward the attempt limit', hint: 'Pastes are always blocked and never read, whatever this is set to.' },
+  ];
+  return (
+    <div className="space-y-4">
+      {toggles.map((t) => (
+        <label key={t.key} className="flex items-start gap-3 p-2 rounded hover:bg-white/5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={egg[t.key]}
+            onChange={(e) => setCategory('easterEgg', { [t.key]: e.target.checked })}
+            className="w-4 h-4 mt-0.5 accent-emerald-500"
+          />
+          <span>
+            <span className="block text-sm text-gray-300">{t.label}</span>
+            <span className={hintCls}>{t.hint}</span>
+          </span>
+        </label>
+      ))}
+      <div className="max-w-xs">
+        <label className={labelCls}>Max terminal attempts</label>
+        <input
+          type="number"
+          min={30}
+          max={50}
+          value={egg.maxAttempts}
+          onChange={(e) => setCategory('easterEgg', { maxAttempts: parseInt(e.target.value) || 0 })}
+          className={inputCls}
+        />
+        <p className={hintCls}>30–50. The LULLZ YOU WISH finale plays on the last attempt.</p>
+      </div>
+      <div className="pt-4 border-t border-gray-800">
+        <LiveMonitor />
+      </div>
+    </div>
+  );
+}
 
 function FormattingTab({ settings, setCategory }: any) {
   const f = settings.formatting;

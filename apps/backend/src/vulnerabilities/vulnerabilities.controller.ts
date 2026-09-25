@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Response } from 'express';
 import { VulnerabilitiesService } from './vulnerabilities.service';
-import { parseUploadedFileToCsv } from '../common/bulk-upload-file.util';
+import { parseUploadedFileToCsv, UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User, UserRole } from '@prisma/client';
@@ -100,7 +100,7 @@ export class VulnerabilitiesController {
 
   @Post('bulk-upload')
   @Roles(UserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Bulk upload vulnerabilities from a .csv or .xlsx file (Admin only)' })
   async bulkUpload(

@@ -5,6 +5,7 @@ import { Request } from 'express';
 import { IS_PUBLIC_KEY } from '../decorators/roles.decorator';
 import { RedisService } from '../../redis/redis.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { verifyAccessToken } from '../verify-access-token';
 
 // Endpoints a user with a pending forced password change may still reach —
 // everything else is blocked server-side so the requirement can't be
@@ -48,38 +49,7 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
-      const payload = this.jwtService.verify(token, {
-        secret: process.env.JWT_ACCESS_SECRET,
-      });
-
-      // Single-session enforcement: this token's session must still be the
-      // user's current one. A newer login elsewhere overwrites the pointer,
-      // which logs this session out on its very next request rather than
-      // waiting for the access token to naturally expire.
-      if (payload.sessionId) {
-        const activeSessionId = await this.redisService.getActiveSession(payload.sub);
-        if (activeSessionId !== payload.sessionId) {
-          throw new UnauthorizedException('Session has been signed in elsewhere');
-        }
-      }
-
-      // Check if user is still active
-      const user = await this.prismaService.user.findUnique({
-        where: { id: payload.sub },
-        select: {
-          id: true,
-          username: true,
-          email: true,
-          role: true,
-          assignedTlId: true,
-          isActive: true,
-          isForcePasswordChange: true,
-        },
-      });
-
-      if (!user || !user.isActive) {
-        throw new UnauthorizedException('User account is inactive or deleted');
-      }
+      const user = await verifyAccessToken(token, this.jwtService, this.redisService, this.prismaService);
 
       const isAllowedDuringForceChange =
         FORCE_PASSWORD_CHANGE_ALLOWED_PATHS.has(request.path) ||

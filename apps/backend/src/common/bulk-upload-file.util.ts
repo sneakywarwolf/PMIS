@@ -3,6 +3,9 @@ import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB
+
+// Multer cap for every file upload, so oversized files are rejected while streaming instead of buffered in memory.
+export const UPLOAD_LIMITS = { limits: { fileSize: 25 * 1024 * 1024, files: 1 } };
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]); // 'PK\x03\x04'
 
 // Zip entries that indicate macros, embedded objects, or external links —
