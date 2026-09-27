@@ -17,6 +17,18 @@ export class NetworkScopeRow {
   purpose: string;
 }
 
+// {Tool Name} / {Tool Version} / {Open Source/Licensed} table rows.
+export class ToolUsedRow {
+  @IsString()
+  name: string;
+
+  @IsString()
+  version: string;
+
+  @IsString()
+  licenseType: string;
+}
+
 export class CreateProjectDto {
   @IsString()
   name: string;
@@ -114,6 +126,12 @@ export class CreateProjectDto {
   @ValidateNested({ each: true })
   @Type(() => NetworkScopeRow)
   networkScope?: NetworkScopeRow[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ToolUsedRow)
+  toolsUsedTable?: ToolUsedRow[];
 
   @IsOptional()
   @IsString()
@@ -218,6 +236,12 @@ export class UpdateProjectDto {
   @ValidateNested({ each: true })
   @Type(() => NetworkScopeRow)
   networkScope?: NetworkScopeRow[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ToolUsedRow)
+  toolsUsedTable?: ToolUsedRow[];
 
   @IsOptional()
   @IsString()

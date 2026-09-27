@@ -31,7 +31,7 @@ export const CANONICAL_TEMPLATE_PARAMETERS: { key: string; label: string }[] = [
   { key: 'project.externalInternal', label: 'Scope Exposure (External/Internal)' },
   { key: 'project.totalScopeCount', label: 'Total Scope Count' },
   { key: 'project.quarter', label: 'Quarter' },
-  { key: 'report.generationDateIso', label: 'Report Date (ISO, YYYY-MM-DD)' },
+  { key: 'report.generationDateIso', label: 'Report Date (format set in Admin Settings)' },
   { key: 'manager.fullName', label: 'Manager Name' },
   { key: 'manager.designation', label: 'Manager Designation' },
   { key: 'manager.phone', label: 'Manager Phone' },
@@ -53,7 +53,7 @@ export const CANONICAL_PARAMETER_KEYS = new Set(CANONICAL_TEMPLATE_PARAMETERS.ma
  * than a static field, so it auto-increments across generations the same
  * way the report's own version number does.
  */
-export function resolveTemplateParameter(key: string, project: any, formatDate: (d: any) => string, version?: string): string {
+export function resolveTemplateParameter(key: string, project: any, formatDate: (d: any) => string, version?: string, reportDate?: string): string {
   const tl = project.tl;
   const tester = project.tester;
   const manager = project.tl?.manager;
@@ -99,7 +99,7 @@ export function resolveTemplateParameter(key: string, project: any, formatDate: 
     case 'project.externalInternal': return project.externalInternal || '';
     case 'project.totalScopeCount': return project.totalScopeCount != null ? String(project.totalScopeCount) : '';
     case 'project.quarter': return project.quarter || '';
-    case 'report.generationDateIso': return new Date().toISOString().slice(0, 10);
+    case 'report.generationDateIso': return reportDate ?? new Date().toISOString().slice(0, 10);
     default: return '';
   }
 }

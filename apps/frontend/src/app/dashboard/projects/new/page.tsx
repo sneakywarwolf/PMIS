@@ -61,6 +61,12 @@ export default function NewProjectPage() {
   const setScopeRow = (i: number, key: 'ip' | 'domainHostname' | 'purpose', value: string) =>
     setNetworkScope((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
 
+  const [toolsUsedTable, setToolsUsedTable] = useState<{ name: string; version: string; licenseType: string }[]>([]);
+  const addToolRow = () => setToolsUsedTable((rows) => [...rows, { name: '', version: '', licenseType: 'Open Source' }]);
+  const removeToolRow = (i: number) => setToolsUsedTable((rows) => rows.filter((_, idx) => idx !== i));
+  const setToolRow = (i: number, key: 'name' | 'version' | 'licenseType', value: string) =>
+    setToolsUsedTable((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
+
   const [customFields, setCustomFields] = useState<any[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const setCustomFieldValue = (name: string, value: string) =>
@@ -104,6 +110,7 @@ export default function NewProjectPage() {
       }
       if (form.totalScopeCount) payload.totalScopeCount = parseInt(form.totalScopeCount, 10);
       if (form.subType === 'NETWORK' && networkScope.length > 0) payload.networkScope = networkScope;
+      if (toolsUsedTable.length > 0) payload.toolsUsedTable = toolsUsedTable;
       if (Object.keys(customFieldValues).length > 0) payload.customFieldValues = customFieldValues;
 
       const res = await api.post('/projects', payload);
@@ -226,10 +233,6 @@ export default function NewProjectPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>Tools Used</label>
-              <input type="text" value={form.toolsUsed} onChange={(e) => set('toolsUsed', e.target.value)} className={inputCls} placeholder="e.g. Burp Suite Pro, Nmap, OWASP ZAP" />
-            </div>
-            <div>
               <label className={labelCls}>Testing Environment</label>
               <select value={form.testingEnvironment} onChange={(e) => set('testingEnvironment', e.target.value)} className={inputCls}>
                 <option value="">Select environment</option>
@@ -307,6 +310,27 @@ export default function NewProjectPage() {
               </div>
             </div>
           )}
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className={labelCls}>Tools Used</label>
+              <button type="button" onClick={addToolRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+            </div>
+            <div className="space-y-2">
+              {toolsUsedTable.map((row, i) => (
+                <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                  <input type="text" value={row.name || ''} onChange={(e) => setToolRow(i, 'name', e.target.value)} className={inputCls} placeholder="Name" />
+                  <input type="text" value={row.version || ''} onChange={(e) => setToolRow(i, 'version', e.target.value)} className={inputCls} placeholder="Version" />
+                  <select value={row.licenseType || 'Open Source'} onChange={(e) => setToolRow(i, 'licenseType', e.target.value)} className={inputCls}>
+                    <option value="Open Source">Open Source</option>
+                    <option value="Licensed">Licensed</option>
+                  </select>
+                  <button type="button" onClick={() => removeToolRow(i)} className="text-xs text-red-400 hover:text-red-300 px-2">Remove</button>
+                </div>
+              ))}
+              {toolsUsedTable.length === 0 && <p className="text-xs text-gray-500">No tools added yet.</p>}
+            </div>
+          </div>
 
           {form.subType !== 'NETWORK' && (
             <div>

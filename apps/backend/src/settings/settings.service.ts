@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
 import { StorageService } from '../reports/storage.service';
 import { DEFAULT_SETTINGS } from './settings.defaults';
+import { REPORT_DATE_FORMAT_OPTIONS } from '../common/report-date-format';
 
 const SETTINGS_ID = 'singleton';
 
@@ -113,6 +114,9 @@ function validatePatch(patch: any) {
   const formatting = patch.formatting;
   if (formatting?.timeFormat !== undefined && !TIME_FORMAT_OPTIONS.includes(formatting.timeFormat)) {
     errors.push(`formatting.timeFormat must be one of ${TIME_FORMAT_OPTIONS.join(', ')}`);
+  }
+  if (formatting?.reportDateFormat !== undefined && !REPORT_DATE_FORMAT_OPTIONS.includes(formatting.reportDateFormat)) {
+    errors.push(`formatting.reportDateFormat must be one of ${REPORT_DATE_FORMAT_OPTIONS.join(', ')}`);
   }
 
   const system = patch.system;
