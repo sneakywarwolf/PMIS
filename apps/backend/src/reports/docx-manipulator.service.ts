@@ -52,6 +52,12 @@ export interface NetworkScopeRow {
   purpose: string;
 }
 
+export interface ToolUsedRow {
+  name: string;
+  version: string;
+  licenseType: string;
+}
+
 export interface FindingData {
   no: number;
   title: string;
@@ -225,6 +231,7 @@ export class DocxManipulatorService {
     severityColors: Record<string, string> = DEFAULT_SEVERITY_COLORS,
     networkScope: NetworkScopeRow[] = [],
     nmapPorts: NmapPortRecord[] = [],
+    toolsUsed: ToolUsedRow[] = [],
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -254,6 +261,7 @@ export class DocxManipulatorService {
     // IP/Domain/Purpose entries stay independently associated.
     this.fillNetworkScopeTable(doc, networkScope);
     this.fillNmapPortsTable(doc, nmapPorts);
+    this.fillToolsUsedTable(doc, toolsUsed);
 
     // Step 3: replace {Parameter} placeholders (project-info / contact / date)
     // using the same rule set and match semantics as before — only the
@@ -683,6 +691,54 @@ export class DocxManipulatorService {
       if (n.includes('ip')) return entry.ip || 'NA';
       if (n.includes('domain')) return entry.domainHostname || 'NA';
       if (n.includes('purpose')) return entry.purpose || 'NA';
+      return undefined;
+    };
+    const paragraphs = Array.from(row.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+    for (const para of paragraphs) {
+      this.replacePlaceholdersInParagraph(para, resolver);
+    }
+  }
+
+  /**
+   * {Tool Name} / {Tool Version} / {Open Source/Licensed}: table of tools
+   * used, one row per tool. Same clone-per-record approach as the Network
+   * Scope table. A no-op when the template has no such table.
+   */
+  private fillToolsUsedTable(doc: Document, tools: ToolUsedRow[]): void {
+    const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
+    if (!body) return;
+
+    const tables = Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[];
+    const table = tables.find((t) => {
+      const x = this.getElementText(t).toLowerCase();
+      return x.includes('{tool name}') && x.includes('{tool version}');
+    });
+    if (!table) return;
+
+    const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
+    const placeholderRows = rows.filter((r) => this.getElementText(r).toLowerCase().includes('{tool name}'));
+    if (placeholderRows.length === 0) return;
+
+    const templateRow = placeholderRows[0];
+    const anchor = placeholderRows[0];
+
+    for (const entry of tools) {
+      const clone = templateRow.cloneNode(true) as Element;
+      this.fillToolsUsedRow(clone, entry);
+      table.insertBefore(clone, anchor);
+    }
+
+    for (const row of placeholderRows) {
+      table.removeChild(row);
+    }
+  }
+
+  /** Each of {Tool Name}/{Tool Version}/{Open Source/Licensed} falls back to "NA" independently, per row. */
+  private fillToolsUsedRow(row: Element, entry: ToolUsedRow): void {
+    const resolver = (n: string) => {
+      if (n.includes('tool_name')) return entry.name || 'NA';
+      if (n.includes('tool_version')) return entry.version || 'NA';
+      if (n.includes('open_source') || n.includes('licensed')) return entry.licenseType || 'NA';
       return undefined;
     };
     const paragraphs = Array.from(row.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];

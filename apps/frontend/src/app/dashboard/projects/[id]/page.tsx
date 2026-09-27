@@ -30,7 +30,9 @@ import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
 import { PasswordGeneratorButton } from '@/components/password-generator-button';
 import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
+import { formatReportDate } from '@/lib/report-date';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
+import { useBranding } from '@/contexts/branding-context';
 
 const severityColors: Record<string, string> = {
   Critical: 'bg-red-500/10 text-red-400 border-red-500/20',
@@ -124,6 +126,7 @@ interface Project {
   externalInternal?: string;
   totalScopeCount?: number;
   networkScope?: { ip: string; domainHostname: string; purpose: string }[];
+  toolsUsedTable?: { name: string; version: string; licenseType: string }[];
   nmapPorts?: { ip: string; port: string; protocol: string; service: string; status: string }[];
   quarter?: string;
   complianceType?: string;
@@ -137,6 +140,7 @@ export default function ProjectDetailPage() {
   const { id } = useParams();
   const router = useRouter();
   const { user } = useAuth();
+  const { settings: appSettings } = useBranding();
   const confirmDialog = useConfirm();
   const showToast = useToast();
   const [project, setProject] = useState<Project | null>(null);
@@ -213,7 +217,10 @@ export default function ProjectDetailPage() {
     link.href = url;
     // Issue-Log_{Compliance Category}_{Testing Type}_{Client Name}_v0.1_{Quarter}_{Report Date}
     const sanitize = (s: string) => (s || 'NA').trim().replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
-    const reportDate = new Date().toISOString().slice(0, 10);
+    // Some report date formats (e.g. DD/MM/YYYY) contain filesystem path
+    // separators — swap them for dashes rather than dropping them, so the
+    // date stays readable in the filename.
+    const reportDate = formatReportDate(new Date(), appSettings?.formatting?.reportDateFormat).replace(/[/.]/g, '-');
     const fileName = [
       'Issue-Log',
       sanitize(project.category),
@@ -433,7 +440,9 @@ export default function ProjectDetailPage() {
           <InfoField label="App Version" value={project.appVersion || 'N/A'} />
           <InfoField label="Location" value={project.location || 'N/A'} />
           <InfoField label="Document Version" value={project.documentVersion || 'N/A'} />
-          <InfoField label="Tools Used" value={project.toolsUsed || 'N/A'} />
+          {(!project.toolsUsedTable || project.toolsUsedTable.length === 0) && (
+            <InfoField label="Tools Used" value={project.toolsUsed || 'N/A'} />
+          )}
           <InfoField label="Testing Environment" value={project.testingEnvironment || 'N/A'} />
           <InfoField label="QA Reviewer" value={project.qaReviewerName || 'N/A'} />
           <InfoField label="Testing Type" value={project.testingType || 'N/A'} />
@@ -486,6 +495,29 @@ export default function ProjectDetailPage() {
                     <td className="py-1">{row.ip || 'NA'}</td>
                     <td className="py-1">{row.domainHostname || 'NA'}</td>
                     <td className="py-1">{row.purpose || 'NA'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {project.toolsUsedTable && project.toolsUsedTable.length > 0 && (
+          <div className="pt-3 border-t border-gray-700/50">
+            <p className="text-gray-500 text-xs mb-2">Tools Used</p>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-500 text-xs">
+                  <th className="text-left font-normal pb-1">Name</th>
+                  <th className="text-left font-normal pb-1">Version</th>
+                  <th className="text-left font-normal pb-1">Open Source/Licensed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {project.toolsUsedTable.map((row, i) => (
+                  <tr key={i} className="text-white border-t border-gray-800">
+                    <td className="py-1">{row.name || 'NA'}</td>
+                    <td className="py-1">{row.version || 'NA'}</td>
+                    <td className="py-1">{row.licenseType || 'NA'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -691,6 +723,18 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
   const setScopeRow = (i: number, key: 'ip' | 'domainHostname' | 'purpose', value: string) =>
     setNetworkScope((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
 
+  const [toolsUsedTable, setToolsUsedTable] = useState<{ name: string; version: string; licenseType: string }[]>(
+    (project.toolsUsedTable || []).map((r: any) => ({
+      name: r?.name || '',
+      version: r?.version || '',
+      licenseType: r?.licenseType || 'Open Source',
+    })),
+  );
+  const addToolRow = () => setToolsUsedTable((rows) => [...rows, { name: '', version: '', licenseType: 'Open Source' }]);
+  const removeToolRow = (i: number) => setToolsUsedTable((rows) => rows.filter((_, idx) => idx !== i));
+  const setToolRow = (i: number, key: 'name' | 'version' | 'licenseType', value: string) =>
+    setToolsUsedTable((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
+
   // Network projects have no "Project Name" field — the project still
   // needs an identifying name (project lists, file names), so derive one
   // from client + quarter instead of asking for it.
@@ -733,6 +777,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
       if (!payload.templateId) payload.templateId = undefined;
       payload.totalScopeCount = form.totalScopeCount ? parseInt(form.totalScopeCount, 10) : undefined;
       if (project.subType === 'NETWORK') payload.networkScope = networkScope;
+      payload.toolsUsedTable = toolsUsedTable;
       await api.put(`/projects/${project.id}`, payload);
       onSaved();
     } catch (error: any) {
@@ -813,10 +858,6 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
               <input type="date" value={form.endDate} onChange={(e) => set('endDate', e.target.value)} className={inputCls} />
             </div>
             <div>
-              <label className={labelCls}>Tools Used</label>
-              <input type="text" value={form.toolsUsed} onChange={(e) => set('toolsUsed', e.target.value)} className={inputCls} placeholder="Burp Suite Pro, Nmap..." />
-            </div>
-            <div>
               <label className={labelCls}>Testing Environment</label>
               <select value={form.testingEnvironment} onChange={(e) => set('testingEnvironment', e.target.value)} className={inputCls}>
                 <option value="">Select</option>
@@ -894,6 +935,27 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
               </div>
             </div>
           )}
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className={labelCls}>Tools Used</label>
+              <button type="button" onClick={addToolRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+            </div>
+            <div className="space-y-2">
+              {toolsUsedTable.map((row, i) => (
+                <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                  <input type="text" value={row.name || ''} onChange={(e) => setToolRow(i, 'name', e.target.value)} className={inputCls} placeholder="Name" />
+                  <input type="text" value={row.version || ''} onChange={(e) => setToolRow(i, 'version', e.target.value)} className={inputCls} placeholder="Version" />
+                  <select value={row.licenseType || 'Open Source'} onChange={(e) => setToolRow(i, 'licenseType', e.target.value)} className={inputCls}>
+                    <option value="Open Source">Open Source</option>
+                    <option value="Licensed">Licensed</option>
+                  </select>
+                  <button type="button" onClick={() => removeToolRow(i)} className="text-xs text-red-400 hover:text-red-300 px-2">Remove</button>
+                </div>
+              ))}
+              {toolsUsedTable.length === 0 && <p className="text-xs text-gray-500">No tools added yet.</p>}
+            </div>
+          </div>
 
           {project.subType !== 'NETWORK' && (
             <div>

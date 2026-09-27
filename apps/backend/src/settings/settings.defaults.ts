@@ -46,6 +46,9 @@ export const DEFAULT_SETTINGS = {
     dateFormat: 'DD/MM/YYYY',
     timeFormat: '24h', // '12h' | '24h'
     numberFormat: 'en-IN',
+    // Controls the {Report Date} template parameter specifically (reports,
+    // report filenames, Issue Log filenames, ...) — see common/report-date-format.ts.
+    reportDateFormat: 'YYYY-MM-DD',
   },
   easterEgg: {
     enabled: true,

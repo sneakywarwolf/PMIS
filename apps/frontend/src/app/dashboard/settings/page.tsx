@@ -494,7 +494,23 @@ function FormattingTab({ settings, setCategory }: any) {
         <label className={labelCls}>Number Format Locale</label>
         <input value={f.numberFormat} onChange={(e) => setCategory('formatting', { numberFormat: e.target.value })} className={inputCls} placeholder="e.g. en-IN" />
       </div>
-      <p className={`${hintCls} col-span-2`}>Not yet wired into date/number rendering across the app — stored centrally so a future pass can consume one source of truth.</p>
+      <div>
+        <label className={labelCls}>Report Date Format</label>
+        <select value={f.reportDateFormat} onChange={(e) => setCategory('formatting', { reportDateFormat: e.target.value })} className={inputCls}>
+          <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+          <option value="DD-MM-YYYY">DD-MM-YYYY</option>
+          <option value="MM-DD-YYYY">MM-DD-YYYY</option>
+          <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+          <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+          <option value="DD.MM.YYYY">DD.MM.YYYY</option>
+          <option value="YYYY/MM/DD">YYYY/MM/DD</option>
+        </select>
+        <p className={hintCls}>
+          Controls every {'{Report Date}'} placeholder — generated reports, report filenames, and Issue Log filenames.
+          Applies to reports/files generated after this is changed; already-generated files are unaffected.
+        </p>
+      </div>
+      <p className={`${hintCls} col-span-2`}>Date Format/Number Format above are not yet wired into rendering across the app — stored centrally so a future pass can consume one source of truth.</p>
     </div>
   );
 }

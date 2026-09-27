@@ -13,6 +13,7 @@ import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
 import { CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, resolveTemplateParameter } from './template-parameters';
+import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
 
 const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   WEB: 'Web',
@@ -501,6 +502,7 @@ export class ReportsService {
     const pocGateBlocked = project.findings.some((f) => getPocReadiness(f.pocSteps) !== 'ready');
 
     const nextVersion = await this.getNextReportVersion(projectId);
+    const reportDate = await this.getFormattedReportDateParam();
 
     return {
       ready: missing.length === 0,
@@ -509,7 +511,7 @@ export class ReportsService {
       pocGateBlocked,
       templateName: project.template?.name || null,
       nextVersion,
-      suggestedFileName: this.buildReportFileName(project, nextVersion, project.template),
+      suggestedFileName: this.buildReportFileName(project, nextVersion, project.template, reportDate),
     };
   }
 
@@ -555,8 +557,9 @@ export class ReportsService {
     // subsequent generation is 1.1, 1.2, ... and never resets. Computed
     // before the rules so Document Version can track it too.
     const version = await this.getNextReportVersion(projectId);
+    const reportDate = await this.getFormattedReportDateParam();
 
-    const rules = this.buildFieldRules(project, version);
+    const rules = this.buildFieldRules(project, version, reportDate);
     rules.push(...this.buildCustomFieldRules(project));
     const fieldDataSnapshot = Object.fromEntries(rules.map((r) => [r.match[0], r.value]));
 
@@ -705,12 +708,13 @@ export class ReportsService {
       }
 
       const { settings } = await this.settingsService.get();
+      const reportDate = formatReportDateByPattern(new Date(), settings.formatting?.reportDateFormat || DEFAULT_REPORT_DATE_FORMAT);
 
       this.logger.log(`Generating report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
       const reportBuffer = await this.docxManipulator.generateReport(
         templateBuffer,
-        this.buildMappedFieldRules(template, project, reportGeneration.version)
-          .concat(this.buildFieldRules(project, reportGeneration.version))
+        this.buildMappedFieldRules(template, project, reportGeneration.version, reportDate)
+          .concat(this.buildFieldRules(project, reportGeneration.version, reportDate))
           .concat(this.buildCustomFieldRules(project)),
         findingsData,
         images,
@@ -718,10 +722,11 @@ export class ReportsService {
         settings.workflow.severityColors,
         (project.networkScope as { ip: string; domainHostname: string; purpose: string }[] | null) || [],
         (project.nmapPorts as NmapPortRecord[] | null) || [],
+        (project.toolsUsedTable as { name: string; version: string; licenseType: string }[] | null) || [],
       );
 
-      // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{YYYY-MM-DD}_Non-Compliant.docx
-      const fileName = this.buildReportFileName(project, reportGeneration.version, template);
+      // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{ReportDate}_Non-Compliant.docx
+      const fileName = this.buildReportFileName(project, reportGeneration.version, template, reportDate);
       const docxName = `reports/${project.id}/${Date.now()}_${fileName}`;
       await this.storage.uploadFile(
         docxName,
@@ -905,8 +910,8 @@ export class ReportsService {
    * unmapped {Parameter}), never a reason to block generation. Logged for
    * developer diagnostics only — never surfaced to users or thrown.
    */
-  private buildMappedFieldRules(template: any, project: any, version?: string): FieldRule[] {
-    const { rules, unresolved } = this.resolveMappedFields(template, project, version);
+  private buildMappedFieldRules(template: any, project: any, version?: string, reportDate?: string): FieldRule[] {
+    const { rules, unresolved } = this.resolveMappedFields(template, project, version, reportDate);
     if (unresolved.length > 0) {
       this.logger.debug(
         `Unresolved mapped parameter(s) left as literal template text: ${unresolved
@@ -926,6 +931,7 @@ export class ReportsService {
     template: any,
     project: any,
     version?: string,
+    reportDate?: string,
   ): { rules: FieldRule[]; unresolved: { field: string; parameter: string }[] } {
     const fields = (template?.fields || []) as { name: string; normalizedName: string; mappedParameter: string | null }[];
     const rules: FieldRule[] = [];
@@ -933,7 +939,7 @@ export class ReportsService {
 
     for (const f of fields) {
       if (!f.mappedParameter) continue;
-      const value = resolveTemplateParameter(f.mappedParameter, project, (d) => this.formatReportDate(d), version);
+      const value = resolveTemplateParameter(f.mappedParameter, project, (d) => this.formatReportDate(d), version, reportDate);
       if (!value) {
         unresolved.push({ field: f.name, parameter: f.mappedParameter });
         continue;
@@ -944,7 +950,7 @@ export class ReportsService {
     return { rules, unresolved };
   }
 
-  private buildFieldRules(project: any, version?: string): FieldRule[] {
+  private buildFieldRules(project: any, version?: string, reportDate?: string): FieldRule[] {
     const tl = project.tl;
     const tester = project.tester;
     const manager = project.tl?.manager;
@@ -1004,7 +1010,7 @@ export class ReportsService {
       { match: ['sha_1', 'sha1'], value: project.sha1 || '' },
       { match: ['external_internal'], value: project.externalInternal || '' },
       { match: ['quarter'], value: project.quarter || '' },
-      { match: ['report_date'], value: new Date().toISOString().slice(0, 10) },
+      { match: ['report_date'], value: reportDate ?? new Date().toISOString().slice(0, 10) },
     ];
   }
 
@@ -1016,13 +1022,13 @@ export class ReportsService {
    * to a single "-" so the result never contains spaces. Falls back to the
    * old fixed pattern only for templates uploaded before this existed.
    */
-  private buildReportFileName(project: any, version: string, template?: any): string {
+  private buildReportFileName(project: any, version: string, template?: any, reportDate?: string): string {
     if (!template?.originalFileName) {
-      return this.buildLegacyReportFileName(project, version, template);
+      return this.buildLegacyReportFileName(project, version, template, reportDate);
     }
 
-    const rules = this.buildMappedFieldRules(template, project, version)
-      .concat(this.buildFieldRules(project, version))
+    const rules = this.buildMappedFieldRules(template, project, version, reportDate)
+      .concat(this.buildFieldRules(project, version, reportDate))
       .concat(this.buildCustomFieldRules(project));
 
     const resolved = template.originalFileName.replace(/\{([^{}]+)\}/g, (match: string, raw: string) => {
@@ -1045,14 +1051,16 @@ export class ReportsService {
     return `${sanitizedBase || 'Report'}${ext}`;
   }
 
-  private buildLegacyReportFileName(project: any, version: string, template?: any): string {
+  private buildLegacyReportFileName(project: any, version: string, template?: any, reportDate?: string): string {
     const subTypeLabel = SUB_TYPE_FILE_LABELS[(template?.subType ?? project.subType) as TemplateSubType] || 'Web';
     const safe = (s: string) =>
       (s || '')
         .trim()
         .replace(/[^a-zA-Z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '') || 'NA';
-    const date = new Date().toISOString().split('T')[0];
+    // safe() rather than raw — some report date formats (e.g. DD/MM/YYYY)
+    // contain filesystem path separators.
+    const date = safe(reportDate ?? new Date().toISOString().split('T')[0]);
     return `App-Security-Test_${safe(project.clientName)}-${safe(project.name)}_${subTypeLabel}_v${version}_${date}_Non-Compliant.docx`;
   }
 
@@ -1081,6 +1089,17 @@ export class ReportsService {
     const d = new Date(date);
     if (isNaN(d.getTime())) return '';
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: '2-digit' });
+  }
+
+  /**
+   * The {Report Date} parameter's value, in the admin-configured format —
+   * the single place this gets computed, so report content, report
+   * filenames, and Issue Log filenames all stay in sync with the setting.
+   */
+  private async getFormattedReportDateParam(): Promise<string> {
+    const { settings } = await this.settingsService.get();
+    const pattern = settings.formatting?.reportDateFormat || DEFAULT_REPORT_DATE_FORMAT;
+    return formatReportDateByPattern(new Date(), pattern);
   }
 
   private severityFromScore(score: number): string {

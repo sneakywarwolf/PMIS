@@ -220,6 +220,10 @@ model Project {
   networkScope       Json?    @map("network_scope")
   quarter            String?  @map("quarter")
   nmapPorts          Json?    @map("nmap_ports")
+  // Structured rows for {Tool Name}/{Tool Version}/{Open Source/Licensed} —
+  // toolsUsed (free text) is kept in sync as a derived summary so the
+  // existing {Tools Used} single-line placeholder keeps working.
+  toolsUsedTable     Json?    @map("tools_used_table")
 
   // Next report generation for this project is "1.{reportVersionCounter}".
   // Only incremented when a generation actually COMPLETEs (never on

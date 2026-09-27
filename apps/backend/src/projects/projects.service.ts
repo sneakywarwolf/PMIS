@@ -7,6 +7,19 @@ import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/pr
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
 import { parseNmapScan, NmapPortRecord } from '../common/nmap-parser.util';
 
+/**
+ * Derives the legacy single-line {Tools Used} value from the structured
+ * table rows, so existing templates using that one placeholder keep
+ * working without any template changes.
+ */
+function deriveToolsUsedSummary(rows?: { name: string; version: string; licenseType: string }[]): string {
+  if (!rows || rows.length === 0) return '';
+  return rows
+    .map((r) => [r.name, r.version].filter(Boolean).join(' ') + (r.licenseType ? ` (${r.licenseType})` : ''))
+    .filter(Boolean)
+    .join(', ');
+}
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -138,7 +151,8 @@ export class ProjectsService {
         appVersion: dto.appVersion,
         location: dto.location,
         documentVersion: dto.documentVersion,
-        toolsUsed: dto.toolsUsed,
+        toolsUsed: dto.toolsUsedTable ? deriveToolsUsedSummary(dto.toolsUsedTable) : dto.toolsUsed,
+        toolsUsedTable: dto.toolsUsedTable as any,
         testingEnvironment: dto.testingEnvironment,
         qaReviewerName: dto.qaReviewerName,
         applicationDetails: dto.applicationDetails,
@@ -189,6 +203,7 @@ export class ProjectsService {
       'qaReviewerName', 'applicationDetails', 'testingType', 'loginSystemTypes',
       'applicationNature', 'testingLimitation', 'complianceType',
       'mobilePlatform', 'sha1', 'externalInternal', 'totalScopeCount', 'networkScope', 'quarter',
+      'toolsUsedTable',
     ] as const;
 
     const updateData: any = {
@@ -208,6 +223,9 @@ export class ProjectsService {
       if (dto[field] !== undefined) {
         updateData[field] = dto[field];
       }
+    }
+    if (dto.toolsUsedTable !== undefined) {
+      updateData.toolsUsed = deriveToolsUsedSummary(dto.toolsUsedTable);
     }
 
     const project = await this.prisma.project.update({
