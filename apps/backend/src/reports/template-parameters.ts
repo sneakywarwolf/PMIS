@@ -48,7 +48,7 @@ export const CANONICAL_TEMPLATE_PARAMETERS: { key: string; label: string }[] = [
 
 export const CANONICAL_PARAMETER_KEYS = new Set(CANONICAL_TEMPLATE_PARAMETERS.map((p) => p.key));
 
-const PLATFORM_TYPE_LABELS: Record<string, string> = {
+export const PLATFORM_TYPE_LABELS: Record<string, string> = {
   WEB: 'Web Application',
   API: 'API',
   MOBILE: 'Mobile Application',

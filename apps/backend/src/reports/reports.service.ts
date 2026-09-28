@@ -12,7 +12,7 @@ import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, Repor
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
-import { CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, resolveTemplateParameter } from './template-parameters';
+import { CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
 
 const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
@@ -208,6 +208,7 @@ export class ReportsService {
     'tester_designation', 'tester_phone', 'tester_email',
     'android_ios', 'sha_1', 'sha1', 'report_date',
     'external_internal', 'total_scope_count', 'quarter',
+    'testing_type', 'platform_type', 'testing_approach', 'location',
   ];
 
   /** Slug: lowercase, spaces/dashes → underscore, strip anything else. */
@@ -1006,7 +1007,7 @@ export class ReportsService {
       { match: ['total_scope_count'], value: project.totalScopeCount != null ? String(project.totalScopeCount) : '' },
       { match: ['scope'], value: project.scope || '' },
       { match: ['staging_uat', 'testing_environment'], value: project.testingEnvironment || '' },
-      { match: ['black_box', 'grey_box'], value: project.testingType || '' },
+      { match: ['black_box', 'grey_box', 'testing_approach'], value: project.testingType || '' },
       { match: ['login_role_types'], value: project.loginSystemTypes || '' },
       { match: ['nature_or_purpose'], value: project.applicationNature || '' },
       { match: ['testing_limitation'], value: project.testingLimitation || 'N/A' },
@@ -1016,6 +1017,8 @@ export class ReportsService {
       { match: ['external_internal'], value: project.externalInternal || '' },
       { match: ['quarter'], value: project.quarter || '' },
       { match: ['report_date'], value: reportDate ?? new Date().toISOString().slice(0, 10) },
+      { match: ['testing_type', 'platform_type'], value: PLATFORM_TYPE_LABELS[project.subType] || project.subType || '' },
+      { match: ['location'], value: project.location || '' },
     ];
   }
 
