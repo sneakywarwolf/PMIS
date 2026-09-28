@@ -21,6 +21,7 @@ const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   MOBILE: 'Mobile',
   THICK_CLIENT: 'Thick-Client',
   NETWORK: 'Network',
+  APPLICATION: 'Application',
 };
 
 @Injectable()
@@ -710,10 +711,14 @@ export class ReportsService {
       const { settings } = await this.settingsService.get();
       const reportDate = formatReportDateByPattern(new Date(), settings.formatting?.reportDateFormat || DEFAULT_REPORT_DATE_FORMAT);
 
+      // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{ReportDate}_Non-Compliant.docx
+      // Computed before content generation so {Report Name} can resolve to the final filename.
+      const fileName = this.buildReportFileName(project, reportGeneration.version, template, reportDate);
+
       this.logger.log(`Generating report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
       const reportBuffer = await this.docxManipulator.generateReport(
         templateBuffer,
-        this.buildMappedFieldRules(template, project, reportGeneration.version, reportDate)
+        this.buildMappedFieldRules(template, project, reportGeneration.version, reportDate, fileName)
           .concat(this.buildFieldRules(project, reportGeneration.version, reportDate))
           .concat(this.buildCustomFieldRules(project)),
         findingsData,
@@ -723,10 +728,9 @@ export class ReportsService {
         (project.networkScope as { ip: string; domainHostname: string; purpose: string }[] | null) || [],
         (project.nmapPorts as NmapPortRecord[] | null) || [],
         (project.toolsUsedTable as { name: string; version: string; licenseType: string }[] | null) || [],
+        fileName,
       );
 
-      // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{ReportDate}_Non-Compliant.docx
-      const fileName = this.buildReportFileName(project, reportGeneration.version, template, reportDate);
       const docxName = `reports/${project.id}/${Date.now()}_${fileName}`;
       await this.storage.uploadFile(
         docxName,
@@ -910,8 +914,8 @@ export class ReportsService {
    * unmapped {Parameter}), never a reason to block generation. Logged for
    * developer diagnostics only — never surfaced to users or thrown.
    */
-  private buildMappedFieldRules(template: any, project: any, version?: string, reportDate?: string): FieldRule[] {
-    const { rules, unresolved } = this.resolveMappedFields(template, project, version, reportDate);
+  private buildMappedFieldRules(template: any, project: any, version?: string, reportDate?: string, reportName?: string): FieldRule[] {
+    const { rules, unresolved } = this.resolveMappedFields(template, project, version, reportDate, reportName);
     if (unresolved.length > 0) {
       this.logger.debug(
         `Unresolved mapped parameter(s) left as literal template text: ${unresolved
@@ -932,6 +936,7 @@ export class ReportsService {
     project: any,
     version?: string,
     reportDate?: string,
+    reportName?: string,
   ): { rules: FieldRule[]; unresolved: { field: string; parameter: string }[] } {
     const fields = (template?.fields || []) as { name: string; normalizedName: string; mappedParameter: string | null }[];
     const rules: FieldRule[] = [];
@@ -939,7 +944,7 @@ export class ReportsService {
 
     for (const f of fields) {
       if (!f.mappedParameter) continue;
-      const value = resolveTemplateParameter(f.mappedParameter, project, (d) => this.formatReportDate(d), version, reportDate);
+      const value = resolveTemplateParameter(f.mappedParameter, project, (d) => this.formatReportDate(d), version, reportDate, reportName);
       if (!value) {
         unresolved.push({ field: f.name, parameter: f.mappedParameter });
         continue;

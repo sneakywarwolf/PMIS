@@ -22,6 +22,7 @@ function detectSubType(filename: string): TemplateSubType {
   if (lower.includes('_api_')) return 'API';
   if (lower.includes('_mobile_')) return 'MOBILE';
   if (lower.includes('_thick-client_') || lower.includes('_thick_client_')) return 'THICK_CLIENT';
+  if (lower.includes('_application_')) return 'APPLICATION';
   if (lower.includes('_web_')) return 'WEB';
   return 'WEB';
 }

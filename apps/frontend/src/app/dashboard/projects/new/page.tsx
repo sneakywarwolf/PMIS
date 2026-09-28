@@ -156,16 +156,6 @@ export default function NewProjectPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>Testing Type (Platform) *</label>
-              <select value={form.subType} onChange={(e) => set('subType', e.target.value)} className={inputCls}>
-                <option value="WEB">Web Application</option>
-                <option value="API">API</option>
-                <option value="MOBILE">Mobile Application</option>
-                <option value="THICK_CLIENT">Thick Client</option>
-                <option value="NETWORK">Network</option>
-              </select>
-            </div>
-            <div>
               <label className={labelCls}>Compliance Category *</label>
               <select
                 value={form.category}
@@ -176,6 +166,17 @@ export default function NewProjectPage() {
                 <option value="PCI">PCI</option>
                 <option value="CERT_IN">Cert-IN</option>
                 <option value="ASV">ASV</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Testing Type (Platform) *</label>
+              <select value={form.subType} onChange={(e) => set('subType', e.target.value)} className={inputCls}>
+                <option value="WEB">Web Application</option>
+                <option value="API">API</option>
+                <option value="MOBILE">Mobile Application</option>
+                <option value="THICK_CLIENT">Thick Client</option>
+                <option value="NETWORK">Network</option>
+                <option value="APPLICATION">Application</option>
               </select>
             </div>
             {form.subType !== 'NETWORK' && (

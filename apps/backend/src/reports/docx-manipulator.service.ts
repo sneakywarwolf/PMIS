@@ -232,6 +232,7 @@ export class DocxManipulatorService {
     networkScope: NetworkScopeRow[] = [],
     nmapPorts: NmapPortRecord[] = [],
     toolsUsed: ToolUsedRow[] = [],
+    reportName?: string,
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -247,6 +248,15 @@ export class DocxManipulatorService {
 
     // Step 1: merge split highlighted runs so placeholders are whole
     this.mergeAllHighlightedRuns(doc);
+
+    // Step 1.5: {Report Name} resolves to the final generated filename and,
+    // unlike the generic project-info rules below, must populate every
+    // occurrence regardless of whether it sits inside a table cell (cover
+    // page / footer layouts commonly use tables) — so it runs first, over
+    // every paragraph in the document, ahead of all other placeholder passes.
+    if (reportName) {
+      this.fillReportNamePlaceholder(doc, reportName);
+    }
 
     // Step 2: fill the contact table row-aware (AVP / TL / Tester each get
     // their own phone/email/title — a generic rule cannot distinguish rows).
@@ -419,6 +429,20 @@ export class DocxManipulatorService {
    * paragraphs. Unresolved placeholders (no rule matches) are left as
    * literal text, untouched — never silently blanked or guessed.
    */
+  /**
+   * {Report Name}: the final generated filename, resolved everywhere it
+   * appears — including inside tables — unlike the generic project-info
+   * pass below, which intentionally skips table paragraphs (those are
+   * handled by their own dedicated table fillers).
+   */
+  private fillReportNamePlaceholder(doc: Document, reportName: string): void {
+    const paragraphs = Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+    const resolver = (n: string) => (n === 'report_name' ? reportName : undefined);
+    for (const para of paragraphs) {
+      this.replacePlaceholdersInParagraph(para, resolver);
+    }
+  }
+
   private replacePlaceholders(doc: Document, resolveValue: (normalizedName: string) => string | undefined): void {
     const paragraphs = Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
     for (const para of paragraphs) {
@@ -722,20 +746,21 @@ export class DocxManipulatorService {
     const templateRow = placeholderRows[0];
     const anchor = placeholderRows[0];
 
-    for (const entry of tools) {
+    tools.forEach((entry, i) => {
       const clone = templateRow.cloneNode(true) as Element;
-      this.fillToolsUsedRow(clone, entry);
+      this.fillToolsUsedRow(clone, entry, i + 1);
       table.insertBefore(clone, anchor);
-    }
+    });
 
     for (const row of placeholderRows) {
       table.removeChild(row);
     }
   }
 
-  /** Each of {Tool Name}/{Tool Version}/{Open Source/Licensed} falls back to "NA" independently, per row. */
-  private fillToolsUsedRow(row: Element, entry: ToolUsedRow): void {
+  /** Each of {S.No}/{Tool Name}/{Tool Version}/{Open Source/Licensed} falls back to "NA" independently, per row. */
+  private fillToolsUsedRow(row: Element, entry: ToolUsedRow, sNo: number): void {
     const resolver = (n: string) => {
+      if (n.includes('s_no') || n === 'sno') return String(sNo);
       if (n.includes('tool_name')) return entry.name || 'NA';
       if (n.includes('tool_version')) return entry.version || 'NA';
       if (n.includes('open_source') || n.includes('licensed')) return entry.licenseType || 'NA';

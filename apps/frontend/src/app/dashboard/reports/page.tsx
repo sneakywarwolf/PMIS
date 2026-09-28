@@ -19,6 +19,7 @@ const subTypeIcons: any = {
   MOBILE: Smartphone,
   THICK_CLIENT: Monitor,
   NETWORK: Server,
+  APPLICATION: FileText,
 };
 
 const subTypeLabels: any = {
@@ -27,6 +28,7 @@ const subTypeLabels: any = {
   MOBILE: 'Mobile Application',
   THICK_CLIENT: 'Thick Client',
   NETWORK: 'Network',
+  APPLICATION: 'Application',
 };
 
 export default function ReportsPage() {
@@ -784,11 +786,16 @@ function TemplateUploader() {
               <label className="block text-sm text-gray-300 mb-1">Category</label>
               <select
                 value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                onChange={(e) => {
+                  const category = e.target.value;
+                  const subType = category === 'CERT_IN' ? 'APPLICATION' : 'WEB';
+                  setFormData({ ...formData, category, subType });
+                }}
                 className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700"
               >
                 <option value="PCI">PCI</option>
                 <option value="VAPT">VAPT</option>
+                <option value="CERT_IN">Cert-In</option>
               </select>
             </div>
             <div>
@@ -798,11 +805,21 @@ function TemplateUploader() {
                 onChange={(e) => setFormData({ ...formData, subType: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700"
               >
-                <option value="WEB">Web</option>
-                <option value="API">API</option>
-                <option value="MOBILE">Mobile</option>
-                <option value="THICK_CLIENT">Thick Client</option>
-                <option value="NETWORK">Network</option>
+                {formData.category === 'CERT_IN' ? (
+                  <>
+                    <option value="APPLICATION">Application</option>
+                    <option value="NETWORK">Network</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="WEB">Web</option>
+                    <option value="API">API</option>
+                    <option value="MOBILE">Mobile</option>
+                    <option value="THICK_CLIENT">Thick Client</option>
+                    <option value="NETWORK">Network</option>
+                    <option value="APPLICATION">Application</option>
+                  </>
+                )}
               </select>
             </div>
           </div>
