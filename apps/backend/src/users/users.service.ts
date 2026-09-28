@@ -3,7 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SettingsService } from '../settings/settings.service';
-import { ProjectPurgeService } from '../common/project-purge.service';
 import { validateCsvHeaders, parseCsv } from '../common/csv-validation.util';
 import { User, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
@@ -21,7 +20,6 @@ export class UsersService {
     private auditService: AuditService,
     private notificationsService: NotificationsService,
     private settingsService: SettingsService,
-    private projectPurge: ProjectPurgeService,
   ) {}
 
   async findAll(requestingUser: User) {
@@ -339,20 +337,9 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    const ownedProjects = await this.prisma.project.findMany({
-      where: { testerId: id },
-      include: {
-        reportGenerations: true,
-        findings: { include: { pocSteps: true } },
-      },
-    });
-
-    let filesDeleted = 0;
-    for (const project of ownedProjects) {
-      const result = await this.projectPurge.purgeProject(project);
-      filesDeleted += result.filesDeleted;
-    }
-
+    // Data is purged by the retention cron after the 24h grace period expires
+    // (see RetentionService.deleteExpiredUsers), not here — reactivating
+    // within the window must restore the user with data fully intact.
     await this.prisma.user.update({
       where: { id },
       data: { isActive: false, deletedAt: new Date() },
@@ -365,12 +352,11 @@ export class UsersService {
       targetId: id,
       ipAddress,
       userAgent,
-      details: { projectsDeleted: ownedProjects.length, filesDeleted },
+      details: { gracePeriodHours: 24 },
     });
 
     return {
-      message: 'User deleted successfully',
-      projectsDeleted: ownedProjects.length,
+      message: 'User deactivated. Data will be permanently deleted in 24 hours unless reactivated.',
     };
   }
 
