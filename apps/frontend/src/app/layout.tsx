@@ -4,6 +4,7 @@ import { MotionConfig } from 'framer-motion';
 import './globals.css';
 import { AuthProvider } from '@/contexts/auth-context';
 import { BrandingProvider } from '@/contexts/branding-context';
+import { ThemeProvider } from '@/contexts/theme-context';
 import { ToastProvider } from '@/components/toast-provider';
 import { ConfirmProvider } from '@/components/confirm-provider';
 
@@ -22,6 +23,18 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  const theme = localStorage.getItem('pmis-theme-override');
+                  if (theme) document.documentElement.dataset.theme = theme;
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -46,11 +59,13 @@ export default function RootLayout({
         <MotionConfig reducedMotion="user">
           <AuthProvider>
             <BrandingProvider>
-              <ToastProvider>
-                <ConfirmProvider>
-                {children}
-                </ConfirmProvider>
-              </ToastProvider>
+              <ThemeProvider>
+                <ToastProvider>
+                  <ConfirmProvider>
+                  {children}
+                  </ConfirmProvider>
+                </ToastProvider>
+              </ThemeProvider>
             </BrandingProvider>
           </AuthProvider>
         </MotionConfig>

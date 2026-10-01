@@ -8,6 +8,7 @@ import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
 import { LiveMonitor } from '@/components/easter-egg/live-monitor';
 import { formatDateTime } from '@/lib/datetime';
+import { THEMES } from '@/lib/themes';
 
 const TABS = [
   { id: 'general', label: 'General & Branding', icon: Palette },
@@ -240,14 +241,27 @@ function AppearanceTab({ settings, setCategory }: any) {
   const a = settings.appearance;
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
+      <div className="md:col-span-2">
         <label className={labelCls}>Default Theme</label>
-        <select value={a.defaultTheme} onChange={(e) => setCategory('appearance', { defaultTheme: e.target.value })} className={inputCls}>
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-          <option value="auto">Auto (follow system)</option>
-        </select>
-        <p className={hintCls}>Note: the app currently ships dark-only styling — Light/Auto are stored for future theming work, not yet rendered.</p>
+        <p className={hintCls + ' mb-2 mt-0'}>Applies to every user unless they pick a personal theme from the header.</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {THEMES.map((t) => {
+            const selected = a.defaultTheme === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setCategory('appearance', { defaultTheme: t.id })}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-sm transition-colors ${
+                  selected ? 'border-emerald-500 bg-emerald-500/10 text-white' : 'border-gray-700 bg-gray-800/50 text-gray-300 hover:border-gray-600'
+                }`}
+              >
+                <span className="w-3.5 h-3.5 rounded-full shrink-0 border border-white/10" style={{ backgroundColor: t.swatch }} />
+                <span className="truncate">{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
       <div>
         <label className={labelCls}>Table Density</label>

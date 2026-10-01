@@ -8,7 +8,9 @@ import { REPORT_DATE_FORMAT_OPTIONS } from '../common/report-date-format';
 
 const SETTINGS_ID = 'singleton';
 
-const THEME_OPTIONS = ['light', 'dark', 'auto'];
+// Keep in sync with apps/frontend/src/lib/themes.ts (THEME_IDS) — the
+// single source of truth for the actual token values per theme.
+const THEME_OPTIONS = ['dark', 'midnight-azure', 'obsidian-turquoise', 'copper-noir', 'titanium-flux', 'quantum-emerald', 'holographic-noir'];
 const DENSITY_OPTIONS = ['compact', 'comfortable', 'spacious'];
 const INACTIVITY_OPTIONS = ['logout', 'warn'];
 const TIME_FORMAT_OPTIONS = ['12h', '24h'];

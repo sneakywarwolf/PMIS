@@ -4,13 +4,121 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
+/* Theme token layer: every theme sets the same custom-property names (see
+   src/lib/themes.ts, the single source of truth ThemeProvider reads from at
+   runtime). :root holds the "dark" defaults so there's no flash before
+   ThemeProvider mounts; switching themes only ever rewrites these variables
+   — never touches component markup/classes. */
 :root {
-  --cyber-bg: #0a0f1a;
-  --cyber-surface: #111827;
-  --cyber-card: #1a2236;
-  --cyber-border: #1f2937;
-  --cyber-primary: #10b981;
-  --cyber-secondary: #06b6d4;
+  --color-bg: #0a0f1a;
+  --color-surface: #111827;
+  --color-surface-hover: #1f2937;
+  --color-sidebar: #111827;
+  --color-sidebar-hover: #1f2937;
+  --color-primary: #10b981;
+  --color-primary-hover: #059669;
+  --color-secondary: #06b6d4;
+  --color-accent: #34d399;
+  --color-accent-secondary: #22d3ee;
+  --color-border: #1f2937;
+  --color-border-active: #10b981;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #9ca3af;
+  --color-text-muted: #6b7280;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #38bdf8;
+  --color-primary-rgb: 16, 185, 129;
+
+  /* Legacy aliases: pre-theming code (and Tailwind's cyber-* classes,
+     tailwind.config.ts) referenced these names directly. */
+  --cyber-bg: var(--color-bg);
+  --cyber-surface: var(--color-surface);
+  --cyber-card: var(--color-surface);
+  --cyber-border: var(--color-border);
+  --cyber-primary: var(--color-primary);
+  --cyber-secondary: var(--color-secondary);
+}
+
+/* One block per theme, selected via <html data-theme="..."> (see
+   ThemeProvider in src/contexts/theme-context.tsx). Keep this in sync with
+   src/lib/themes.ts — it's the single source of truth for theme values;
+   this duplication only exists so the browser can apply the right theme
+   from a blocking <head> script, before any JS framework code runs. */
+[data-theme='midnight-azure'] {
+  --color-bg: #0A1628; --color-surface: #122544; --color-surface-hover: #1A3358;
+  --color-sidebar: #08111F; --color-sidebar-hover: #16294A;
+  --color-primary: #3B82F6; --color-primary-hover: #2563EB; --color-secondary: #1D4ED8;
+  --color-accent: #00D4FF; --color-accent-secondary: #38BDF8;
+  --color-border: #2C4A73; --color-border-active: #00D4FF;
+  --color-text-primary: #F8FAFC; --color-text-secondary: #CBD5E1; --color-text-muted: #94A3B8;
+  --color-success: #22C55E; --color-warning: #F59E0B; --color-danger: #EF4444; --color-info: #38BDF8;
+  --color-primary-rgb: 59, 130, 246;
+}
+
+[data-theme='obsidian-turquoise'] {
+  --color-bg: #060B0B; --color-surface: #0E1717; --color-surface-hover: #172424;
+  --color-sidebar: #050909; --color-sidebar-hover: #142020;
+  --color-primary: #14B8A6; --color-primary-hover: #0D9488; --color-secondary: #0F766E;
+  --color-accent: #2DD4BF; --color-accent-secondary: #22D3EE;
+  --color-border: #2C4443; --color-border-active: #14B8A6;
+  --color-text-primary: #F1F5F5; --color-text-secondary: #CBD5D5; --color-text-muted: #9CA3AF;
+  --color-success: #22C55E; --color-warning: #F59E0B; --color-danger: #EF4444; --color-info: #22D3EE;
+  --color-primary-rgb: 20, 184, 166;
+}
+
+[data-theme='copper-noir'] {
+  --color-bg: #0A0908; --color-surface: #16120D; --color-surface-hover: #241C13;
+  --color-sidebar: #090807; --color-sidebar-hover: #201A12;
+  --color-primary: #F59E0B; --color-primary-hover: #D97706; --color-secondary: #B45309;
+  --color-accent: #FB923C; --color-accent-secondary: #FBBF24;
+  --color-border: #4A3823; --color-border-active: #F59E0B;
+  --color-text-primary: #F5F5F4; --color-text-secondary: #D6D3D1; --color-text-muted: #A8A29E;
+  --color-success: #22C55E; --color-warning: #FBBF24; --color-danger: #EF4444; --color-info: #38BDF8;
+  --color-primary-rgb: 245, 158, 11;
+}
+
+[data-theme='titanium-flux'] {
+  --color-bg: #0D1117; --color-surface: #161B22; --color-surface-hover: #21262D;
+  --color-sidebar: #0A0D12; --color-sidebar-hover: #1C2128;
+  --color-primary: #58A6FF; --color-primary-hover: #388BFD; --color-secondary: #6E7681;
+  --color-accent: #A5D6FF; --color-accent-secondary: #79C0FF;
+  --color-border: #30363D; --color-border-active: #58A6FF;
+  --color-text-primary: #F0F6FC; --color-text-secondary: #C9D1D9; --color-text-muted: #8B949E;
+  --color-success: #3FB950; --color-warning: #D29922; --color-danger: #F85149; --color-info: #58A6FF;
+  --color-primary-rgb: 88, 166, 255;
+}
+
+[data-theme='quantum-emerald'] {
+  --color-bg: #000000; --color-surface: #0D1410; --color-surface-hover: #16211A;
+  --color-sidebar: #000000; --color-sidebar-hover: #101712;
+  --color-primary: #00FF9C; --color-primary-hover: #00D482; --color-secondary: #00B368;
+  --color-accent: #39FF14; --color-accent-secondary: #00FFF0;
+  --color-border: #24382E; --color-border-active: #00FF9C;
+  --color-text-primary: #E8FFF5; --color-text-secondary: #A8FFDB; --color-text-muted: #6B9C87;
+  --color-success: #00FF9C; --color-warning: #FFD60A; --color-danger: #FF3B3B; --color-info: #00FFF0;
+  --color-primary-rgb: 0, 255, 156;
+}
+
+[data-theme='holographic-noir'] {
+  --color-bg: #0A0912; --color-surface: #161325; --color-surface-hover: #221D38;
+  --color-sidebar: #08070F; --color-sidebar-hover: #1D1830;
+  --color-primary: #A855F7; --color-primary-hover: #9333EA; --color-secondary: #7C3AED;
+  --color-accent: #22D3EE; --color-accent-secondary: #C084FC;
+  --color-border: #453A66; --color-border-active: #A855F7;
+  --color-text-primary: #F8FAFC; --color-text-secondary: #DDD6FE; --color-text-muted: #A1A1AA;
+  --color-success: #22C55E; --color-warning: #F59E0B; --color-danger: #EF4444; --color-info: #22D3EE;
+  --color-primary-rgb: 168, 85, 247;
+}
+
+/* Smooth, instant (no-reload) theme switching: only color-ish properties
+   transition, so layout/animation-heavy elements (scanline, glitch, motion)
+   are unaffected. */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+  transition-duration: 200ms;
+  transition-timing-function: ease;
 }
 
 /* Global reduced-motion safety net: framer-motion components that check
@@ -32,8 +140,8 @@
 }
 
 html, body {
-  background-color: var(--cyber-bg);
-  color: #e5e7eb;
+  background-color: var(--color-bg);
+  color: var(--color-text-secondary);
   font-family: 'Inter', sans-serif;
 }
 
@@ -44,38 +152,38 @@ html, body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--cyber-surface);
+  background: var(--color-surface);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: var(--color-border);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+  background: var(--color-border-active);
 }
 
 /* Glassmorphism */
 .glass {
-  background: rgba(17, 24, 39, 0.7);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(31, 41, 55, 0.5);
+  border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
 }
 
 .glass-card {
-  background: rgba(26, 34, 54, 0.8);
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(31, 41, 55, 0.6);
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
 }
 
 /* Cyber grid pattern */
 .cyber-grid {
-  background-image: 
-    linear-gradient(rgba(16, 185, 129, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(16, 185, 129, 0.03) 1px, transparent 1px);
+  background-image:
+    linear-gradient(rgba(var(--color-primary-rgb), 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--color-primary-rgb), 0.03) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 
@@ -92,7 +200,7 @@ html, body {
   left: 0;
   width: 100%;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.3), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--color-primary-rgb), 0.3), transparent);
   animation: scanline 6s linear infinite;
   pointer-events: none;
 }
@@ -116,23 +224,23 @@ html, body {
 
 /* Form inputs */
 input, textarea, select {
-  background-color: var(--cyber-surface);
-  border: 1px solid var(--cyber-border);
-  color: #e5e7eb;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
   transition: all 0.2s;
 }
 
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: var(--cyber-primary);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.1);
 }
 
 /* The closed <select> box picks up the dark theme above, but its dropdown
    list defaults to browser/OS white unless <option> is styled explicitly. */
 select option {
-  background-color: var(--cyber-surface);
-  color: #e5e7eb;
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
 }
 
 /* Status badges */
