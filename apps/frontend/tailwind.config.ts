@@ -11,76 +11,82 @@ const config: Config = {
       colors: {
         // Semantic theme tokens — the only colors new code should reach
         // for (see src/lib/themes.ts for the token set / values per theme).
+        // Values use the rgb(var(...) / <alpha-value>) form (not a plain
+        // var(--hex) string) so opacity-modifier utilities like
+        // `bg-cyber-primary/10` or `hover:border-cyber-border-active/30`
+        // actually work — Tailwind can only inject an alpha channel into a
+        // color it can decompose into R/G/B, not an opaque CSS variable.
         cyber: {
-          bg: 'var(--color-bg)',
-          surface: 'var(--color-surface)',
-          'surface-hover': 'var(--color-surface-hover)',
-          sidebar: 'var(--color-sidebar)',
-          'sidebar-hover': 'var(--color-sidebar-hover)',
-          card: 'var(--color-surface)',
-          border: 'var(--color-border)',
-          'border-active': 'var(--color-border-active)',
-          primary: 'var(--color-primary)',
-          'primary-hover': 'var(--color-primary-hover)',
-          secondary: 'var(--color-secondary)',
-          accent: 'var(--color-accent)',
-          'accent-secondary': 'var(--color-accent-secondary)',
-          danger: 'var(--color-danger)',
-          warning: 'var(--color-warning)',
-          info: 'var(--color-info)',
-          success: 'var(--color-success)',
-          muted: 'var(--color-text-muted)',
+          bg: 'rgb(var(--color-bg-rgb) / <alpha-value>)',
+          surface: 'rgb(var(--color-surface-rgb) / <alpha-value>)',
+          'surface-hover': 'rgb(var(--color-surface-hover-rgb) / <alpha-value>)',
+          sidebar: 'rgb(var(--color-sidebar-rgb) / <alpha-value>)',
+          'sidebar-hover': 'rgb(var(--color-sidebar-hover-rgb) / <alpha-value>)',
+          card: 'rgb(var(--color-surface-rgb) / <alpha-value>)',
+          border: 'rgb(var(--color-border-rgb) / <alpha-value>)',
+          'border-active': 'rgb(var(--color-border-active-rgb) / <alpha-value>)',
+          primary: 'rgb(var(--color-primary-rgb) / <alpha-value>)',
+          'primary-hover': 'rgb(var(--color-primary-hover-rgb) / <alpha-value>)',
+          secondary: 'rgb(var(--color-secondary-rgb) / <alpha-value>)',
+          accent: 'rgb(var(--color-accent-rgb) / <alpha-value>)',
+          'accent-secondary': 'rgb(var(--color-accent-secondary-rgb) / <alpha-value>)',
+          danger: 'rgb(var(--color-danger-rgb) / <alpha-value>)',
+          warning: 'rgb(var(--color-warning-rgb) / <alpha-value>)',
+          info: 'rgb(var(--color-info-rgb) / <alpha-value>)',
+          success: 'rgb(var(--color-success-rgb) / <alpha-value>)',
+          muted: 'rgb(var(--color-text-muted-rgb) / <alpha-value>)',
         },
         // Retrofit bridge: the app was built almost entirely with raw
         // Tailwind gray/emerald/red/blue/cyan/amber/purple utility classes
         // instead of the cyber-* tokens above. Rather than rewriting every
         // component, the exact shades those classes use are pointed at the
-        // same theme variables — so bg-gray-900, text-emerald-400, etc.
-        // retheme for free. New code should prefer the cyber-* tokens
-        // directly; this bridge only exists so themes reach the *existing*
-        // UI without a full rewrite. Only shades actually used in the app
-        // are remapped — table below is 1:1 with the CSS vars.
+        // same theme variables (via the rgb(.../<alpha-value>) form above,
+        // so bg-emerald-500/10, hover:bg-gray-700/50 etc keep working) —
+        // so bg-gray-900, text-emerald-400, etc. retheme for free. New code
+        // should prefer the cyber-* tokens directly; this bridge only
+        // exists so themes reach the *existing* UI without a full rewrite.
+        // Only shades actually used in the app are remapped.
         gray: {
-          100: 'var(--color-text-primary)',
-          200: 'var(--color-text-primary)',
-          300: 'var(--color-text-secondary)',
-          400: 'var(--color-text-secondary)',
-          500: 'var(--color-text-muted)',
-          600: 'var(--color-border-active)',
-          700: 'var(--color-border)',
-          800: 'var(--color-surface-hover)',
-          900: 'var(--color-surface)',
-          950: 'var(--color-bg)',
+          100: 'rgb(var(--color-text-primary-rgb) / <alpha-value>)',
+          200: 'rgb(var(--color-text-primary-rgb) / <alpha-value>)',
+          300: 'rgb(var(--color-text-secondary-rgb) / <alpha-value>)',
+          400: 'rgb(var(--color-text-secondary-rgb) / <alpha-value>)',
+          500: 'rgb(var(--color-text-muted-rgb) / <alpha-value>)',
+          600: 'rgb(var(--color-border-active-rgb) / <alpha-value>)',
+          700: 'rgb(var(--color-border-rgb) / <alpha-value>)',
+          800: 'rgb(var(--color-surface-hover-rgb) / <alpha-value>)',
+          900: 'rgb(var(--color-surface-rgb) / <alpha-value>)',
+          950: 'rgb(var(--color-bg-rgb) / <alpha-value>)',
         },
         emerald: {
-          300: 'var(--color-accent-secondary)',
-          400: 'var(--color-accent)',
-          500: 'var(--color-primary)',
-          600: 'var(--color-primary-hover)',
+          300: 'rgb(var(--color-accent-secondary-rgb) / <alpha-value>)',
+          400: 'rgb(var(--color-accent-rgb) / <alpha-value>)',
+          500: 'rgb(var(--color-primary-rgb) / <alpha-value>)',
+          600: 'rgb(var(--color-primary-hover-rgb) / <alpha-value>)',
         },
         blue: {
-          400: 'var(--color-info)',
-          500: 'var(--color-secondary)',
-          600: 'var(--color-secondary)',
+          400: 'rgb(var(--color-info-rgb) / <alpha-value>)',
+          500: 'rgb(var(--color-secondary-rgb) / <alpha-value>)',
+          600: 'rgb(var(--color-secondary-rgb) / <alpha-value>)',
         },
         cyan: {
-          300: 'var(--color-accent-secondary)',
-          400: 'var(--color-accent-secondary)',
+          300: 'rgb(var(--color-accent-secondary-rgb) / <alpha-value>)',
+          400: 'rgb(var(--color-accent-secondary-rgb) / <alpha-value>)',
         },
         red: {
-          300: 'var(--color-danger)',
-          400: 'var(--color-danger)',
-          500: 'var(--color-danger)',
-          600: 'var(--color-danger)',
+          300: 'rgb(var(--color-danger-rgb) / <alpha-value>)',
+          400: 'rgb(var(--color-danger-rgb) / <alpha-value>)',
+          500: 'rgb(var(--color-danger-rgb) / <alpha-value>)',
+          600: 'rgb(var(--color-danger-rgb) / <alpha-value>)',
         },
         yellow: {
-          400: 'var(--color-warning)',
+          400: 'rgb(var(--color-warning-rgb) / <alpha-value>)',
         },
         amber: {
-          400: 'var(--color-warning)',
+          400: 'rgb(var(--color-warning-rgb) / <alpha-value>)',
         },
         purple: {
-          600: 'var(--color-accent-secondary)',
+          600: 'rgb(var(--color-accent-secondary-rgb) / <alpha-value>)',
         },
       },
       fontFamily: {
