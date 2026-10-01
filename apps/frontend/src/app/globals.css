@@ -243,6 +243,29 @@ select option {
   color: var(--color-text-primary);
 }
 
+/* Baseline hover affordance for every native clickable element that
+   doesn't already define its own hover state via a Tailwind `hover:`
+   utility (the attribute selector checks for that literal substring in
+   class="...") — so nothing is ever hoverable with zero visual feedback,
+   in any theme, without doubling up on elements that already have
+   bespoke hover styling. Does not touch .glass/.glass-card, which have
+   their own established look. */
+button:not(:disabled), a, select, [role='button'], summary {
+  cursor: pointer;
+}
+
+button:not(:disabled):not([class*='hover:']):not(.glass):not(.glass-card):hover,
+a:not([class*='hover:']):not(.glass):not(.glass-card):hover,
+select:not([class*='hover:']):hover,
+[role='button']:not([class*='hover:']):not(.glass):not(.glass-card):hover,
+summary:not([class*='hover:']):hover {
+  filter: brightness(1.15);
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
 /* Status badges */
 .status-badge {
   @apply px-2 py-0.5 rounded-full text-xs font-medium;

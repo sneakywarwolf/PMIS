@@ -617,8 +617,8 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
                       onChange={(e) => setEditLabel(e.target.value)}
                       className="flex-1 px-2 py-1 rounded bg-gray-800 border border-gray-600 text-sm text-white"
                     />
-                    <button onClick={() => saveEditedLabel(field.id)} className="text-xs text-emerald-400 px-2">Save</button>
-                    <button onClick={() => setEditingFieldId(null)} className="text-xs text-gray-400 px-2">Cancel</button>
+                    <button onClick={() => saveEditedLabel(field.id)} className="text-xs text-emerald-400 px-2 hover:text-emerald-300 transition-colors">Save</button>
+                    <button onClick={() => setEditingFieldId(null)} className="text-xs text-gray-400 px-2 hover:text-white transition-colors">Cancel</button>
                   </div>
                 ) : (
                   <>
