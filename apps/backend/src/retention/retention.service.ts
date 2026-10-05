@@ -26,6 +26,47 @@ export class RetentionService {
     const systemActor = await this.prisma.user.findFirst({ where: { role: UserRole.ADMIN }, select: { id: true } });
     await this.deleteExpiredPocAttachments(systemActor?.id ?? null);
     await this.deleteExpiredCompletedProjects(systemActor?.id ?? null);
+    await this.deleteExpiredUsers(systemActor?.id ?? null);
+  }
+
+  // Users deleted by an admin get a 24h grace period (isActive: false,
+  // deletedAt set) during which reactivating restores them with data intact.
+  // Once the window lapses without reactivation, purge their owned projects.
+  private async deleteExpiredUsers(systemActorId: string | null): Promise<void> {
+    const cutoff = new Date(Date.now() - DAY_MS);
+
+    const expiredUsers = await this.prisma.user.findMany({
+      where: { isActive: false, deletedAt: { lt: cutoff } },
+      include: {
+        projectsOwned: {
+          include: { reportGenerations: true, findings: { include: { pocSteps: true } } },
+        },
+      },
+    });
+
+    for (const user of expiredUsers) {
+      let filesDeleted = 0;
+      for (const project of user.projectsOwned) {
+        const result = await this.projectPurge.purgeProject(project);
+        filesDeleted += result.filesDeleted;
+      }
+
+      if (systemActorId) {
+        await this.auditService.log({
+          actorId: systemActorId,
+          action: 'USER_RETENTION_PURGED',
+          targetType: 'USER',
+          targetId: user.id,
+          ipAddress: 'system',
+          userAgent: 'retention-cron',
+          details: { username: user.username, projectsDeleted: user.projectsOwned.length, filesDeleted },
+        });
+      }
+    }
+
+    if (expiredUsers.length > 0) {
+      this.logger.log(`User retention: purged data for ${expiredUsers.length} deleted user(s)`);
+    }
   }
 
   private async deleteExpiredPocAttachments(systemActorId: string | null): Promise<void> {

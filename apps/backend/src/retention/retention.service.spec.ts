@@ -14,7 +14,7 @@ function makeSettings(attachmentRetentionDays: number, projectRetentionDays: num
 describe('RetentionService.runRetentionSweep', () => {
   let service: RetentionService;
   let prisma: {
-    user: { findFirst: jest.Mock };
+    user: { findFirst: jest.Mock; findMany: jest.Mock };
     pocStep: { findMany: jest.Mock; update: jest.Mock };
     project: { findMany: jest.Mock };
   };
@@ -25,7 +25,7 @@ describe('RetentionService.runRetentionSweep', () => {
 
   beforeEach(async () => {
     prisma = {
-      user: { findFirst: jest.fn().mockResolvedValue({ id: 'admin1' }) },
+      user: { findFirst: jest.fn().mockResolvedValue({ id: 'admin1' }), findMany: jest.fn().mockResolvedValue([]) },
       pocStep: { findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
       project: { findMany: jest.fn().mockResolvedValue([]) },
     };
@@ -67,6 +67,26 @@ describe('RetentionService.runRetentionSweep', () => {
     expect(projectPurge.purgeProject).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'PROJECT_RETENTION_DELETED', targetId: 'p1', details: { name: 'Old Project', filesDeleted: 3 } }),
+    );
+  });
+
+  it('purges owned projects for a user whose 24h deletion grace period has expired', async () => {
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'u1', username: 'deleted.user', projectsOwned: [{ id: 'p1' }] },
+    ]);
+
+    await service.runRetentionSweep();
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { isActive: false, deletedAt: { lt: expect.any(Date) } } }),
+    );
+    expect(projectPurge.purgeProject).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'USER_RETENTION_PURGED',
+        targetId: 'u1',
+        details: { username: 'deleted.user', projectsDeleted: 1, filesDeleted: 3 },
+      }),
     );
   });
 

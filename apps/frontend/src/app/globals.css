@@ -4,13 +4,182 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
+/* Theme token layer: every theme sets the same custom-property names (see
+   src/lib/themes.ts, the single source of truth ThemeProvider reads from at
+   runtime). :root holds the "dark" defaults so there's no flash before
+   ThemeProvider mounts; switching themes only ever rewrites these variables
+   — never touches component markup/classes. */
 :root {
-  --cyber-bg: #0a0f1a;
-  --cyber-surface: #111827;
-  --cyber-card: #1a2236;
-  --cyber-border: #1f2937;
-  --cyber-primary: #10b981;
-  --cyber-secondary: #06b6d4;
+  --color-bg: #0a0f1a;
+  --color-surface: #111827;
+  --color-surface-hover: #1f2937;
+  --color-sidebar: #111827;
+  --color-sidebar-hover: #1f2937;
+  --color-primary: #10b981;
+  --color-primary-hover: #059669;
+  --color-secondary: #06b6d4;
+  --color-accent: #34d399;
+  --color-accent-secondary: #22d3ee;
+  --color-border: #1f2937;
+  --color-border-active: #10b981;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #9ca3af;
+  --color-text-muted: #6b7280;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #38bdf8;
+
+  /* RGB channels for every token, feeding Tailwind's `rgb(var(...) /
+     <alpha-value>)` color format (see tailwind.config.ts) — required for
+     opacity-modifier utilities like bg-emerald-500/10 or
+     hover:border-emerald-500/30 to work against a themeable color. Keep
+     in sync with the hex values above (and themes.ts / the matching
+     [data-theme] block below) if a token ever changes. */
+  --color-bg-rgb: 10 15 26;
+  --color-surface-rgb: 17 24 39;
+  --color-surface-hover-rgb: 31 41 55;
+  --color-sidebar-rgb: 17 24 39;
+  --color-sidebar-hover-rgb: 31 41 55;
+  --color-primary-rgb: 16 185 129;
+  --color-primary-hover-rgb: 5 150 105;
+  --color-secondary-rgb: 6 182 212;
+  --color-accent-rgb: 52 211 153;
+  --color-accent-secondary-rgb: 34 211 238;
+  --color-border-rgb: 31 41 55;
+  --color-border-active-rgb: 16 185 129;
+  --color-text-primary-rgb: 248 250 252;
+  --color-text-secondary-rgb: 156 163 175;
+  --color-text-muted-rgb: 107 114 128;
+  --color-success-rgb: 34 197 94;
+  --color-warning-rgb: 245 158 11;
+  --color-danger-rgb: 239 68 68;
+  --color-info-rgb: 56 189 248;
+
+  /* Legacy aliases: pre-theming code (and Tailwind's cyber-* classes,
+     tailwind.config.ts) referenced these names directly. */
+  --cyber-bg: var(--color-bg);
+  --cyber-surface: var(--color-surface);
+  --cyber-card: var(--color-surface);
+  --cyber-border: var(--color-border);
+  --cyber-primary: var(--color-primary);
+  --cyber-secondary: var(--color-secondary);
+}
+
+/* One block per theme, selected via <html data-theme="..."> (see
+   ThemeProvider in src/contexts/theme-context.tsx). Keep this in sync with
+   src/lib/themes.ts — it's the single source of truth for theme values;
+   this duplication only exists so the browser can apply the right theme
+   from a blocking <head> script, before any JS framework code runs. */
+[data-theme='midnight-azure'] {
+  --color-bg: #0A1628; --color-surface: #122544; --color-surface-hover: #1A3358;
+  --color-sidebar: #08111F; --color-sidebar-hover: #16294A;
+  --color-primary: #3B82F6; --color-primary-hover: #2563EB; --color-secondary: #1D4ED8;
+  --color-accent: #00D4FF; --color-accent-secondary: #38BDF8;
+  --color-border: #2C4A73; --color-border-active: #00D4FF;
+  --color-text-primary: #F8FAFC; --color-text-secondary: #CBD5E1; --color-text-muted: #94A3B8;
+  --color-success: #22C55E; --color-warning: #F59E0B; --color-danger: #EF4444; --color-info: #38BDF8;
+  --color-bg-rgb: 10 22 40; --color-surface-rgb: 18 37 68; --color-surface-hover-rgb: 26 51 88;
+  --color-sidebar-rgb: 8 17 31; --color-sidebar-hover-rgb: 22 41 74;
+  --color-primary-rgb: 59 130 246; --color-primary-hover-rgb: 37 99 235; --color-secondary-rgb: 29 78 216;
+  --color-accent-rgb: 0 212 255; --color-accent-secondary-rgb: 56 189 248;
+  --color-border-rgb: 44 74 115; --color-border-active-rgb: 0 212 255;
+  --color-text-primary-rgb: 248 250 252; --color-text-secondary-rgb: 203 213 225; --color-text-muted-rgb: 148 163 184;
+  --color-success-rgb: 34 197 94; --color-warning-rgb: 245 158 11; --color-danger-rgb: 239 68 68; --color-info-rgb: 56 189 248;
+}
+
+[data-theme='obsidian-turquoise'] {
+  --color-bg: #060B0B; --color-surface: #0E1717; --color-surface-hover: #172424;
+  --color-sidebar: #050909; --color-sidebar-hover: #142020;
+  --color-primary: #14B8A6; --color-primary-hover: #0D9488; --color-secondary: #0F766E;
+  --color-accent: #2DD4BF; --color-accent-secondary: #22D3EE;
+  --color-border: #2C4443; --color-border-active: #14B8A6;
+  --color-text-primary: #F1F5F5; --color-text-secondary: #CBD5D5; --color-text-muted: #9CA3AF;
+  --color-success: #22C55E; --color-warning: #F59E0B; --color-danger: #EF4444; --color-info: #22D3EE;
+  --color-bg-rgb: 6 11 11; --color-surface-rgb: 14 23 23; --color-surface-hover-rgb: 23 36 36;
+  --color-sidebar-rgb: 5 9 9; --color-sidebar-hover-rgb: 20 32 32;
+  --color-primary-rgb: 20 184 166; --color-primary-hover-rgb: 13 148 136; --color-secondary-rgb: 15 118 110;
+  --color-accent-rgb: 45 212 191; --color-accent-secondary-rgb: 34 211 238;
+  --color-border-rgb: 44 68 67; --color-border-active-rgb: 20 184 166;
+  --color-text-primary-rgb: 241 245 245; --color-text-secondary-rgb: 203 213 213; --color-text-muted-rgb: 156 163 175;
+  --color-success-rgb: 34 197 94; --color-warning-rgb: 245 158 11; --color-danger-rgb: 239 68 68; --color-info-rgb: 34 211 238;
+}
+
+[data-theme='copper-noir'] {
+  --color-bg: #0A0908; --color-surface: #16120D; --color-surface-hover: #241C13;
+  --color-sidebar: #090807; --color-sidebar-hover: #201A12;
+  --color-primary: #F59E0B; --color-primary-hover: #D97706; --color-secondary: #B45309;
+  --color-accent: #FB923C; --color-accent-secondary: #FBBF24;
+  --color-border: #4A3823; --color-border-active: #F59E0B;
+  --color-text-primary: #F5F5F4; --color-text-secondary: #D6D3D1; --color-text-muted: #A8A29E;
+  --color-success: #22C55E; --color-warning: #FBBF24; --color-danger: #EF4444; --color-info: #38BDF8;
+  --color-bg-rgb: 10 9 8; --color-surface-rgb: 22 18 13; --color-surface-hover-rgb: 36 28 19;
+  --color-sidebar-rgb: 9 8 7; --color-sidebar-hover-rgb: 32 26 18;
+  --color-primary-rgb: 245 158 11; --color-primary-hover-rgb: 217 119 6; --color-secondary-rgb: 180 83 9;
+  --color-accent-rgb: 251 146 60; --color-accent-secondary-rgb: 251 191 36;
+  --color-border-rgb: 74 56 35; --color-border-active-rgb: 245 158 11;
+  --color-text-primary-rgb: 245 245 244; --color-text-secondary-rgb: 214 211 209; --color-text-muted-rgb: 168 162 158;
+  --color-success-rgb: 34 197 94; --color-warning-rgb: 251 191 36; --color-danger-rgb: 239 68 68; --color-info-rgb: 56 189 248;
+}
+
+[data-theme='titanium-flux'] {
+  --color-bg: #0D1117; --color-surface: #161B22; --color-surface-hover: #21262D;
+  --color-sidebar: #0A0D12; --color-sidebar-hover: #1C2128;
+  --color-primary: #58A6FF; --color-primary-hover: #388BFD; --color-secondary: #6E7681;
+  --color-accent: #A5D6FF; --color-accent-secondary: #79C0FF;
+  --color-border: #30363D; --color-border-active: #58A6FF;
+  --color-text-primary: #F0F6FC; --color-text-secondary: #C9D1D9; --color-text-muted: #8B949E;
+  --color-success: #3FB950; --color-warning: #D29922; --color-danger: #F85149; --color-info: #58A6FF;
+  --color-bg-rgb: 13 17 23; --color-surface-rgb: 22 27 34; --color-surface-hover-rgb: 33 38 45;
+  --color-sidebar-rgb: 10 13 18; --color-sidebar-hover-rgb: 28 33 40;
+  --color-primary-rgb: 88 166 255; --color-primary-hover-rgb: 56 139 253; --color-secondary-rgb: 110 118 129;
+  --color-accent-rgb: 165 214 255; --color-accent-secondary-rgb: 121 192 255;
+  --color-border-rgb: 48 54 61; --color-border-active-rgb: 88 166 255;
+  --color-text-primary-rgb: 240 246 252; --color-text-secondary-rgb: 201 209 217; --color-text-muted-rgb: 139 148 158;
+  --color-success-rgb: 63 185 80; --color-warning-rgb: 210 153 34; --color-danger-rgb: 248 81 73; --color-info-rgb: 88 166 255;
+}
+
+[data-theme='quantum-emerald'] {
+  --color-bg: #000000; --color-surface: #0D1410; --color-surface-hover: #16211A;
+  --color-sidebar: #000000; --color-sidebar-hover: #101712;
+  --color-primary: #00FF9C; --color-primary-hover: #00D482; --color-secondary: #00B368;
+  --color-accent: #39FF14; --color-accent-secondary: #00FFF0;
+  --color-border: #24382E; --color-border-active: #00FF9C;
+  --color-text-primary: #E8FFF5; --color-text-secondary: #A8FFDB; --color-text-muted: #6B9C87;
+  --color-success: #00FF9C; --color-warning: #FFD60A; --color-danger: #FF3B3B; --color-info: #00FFF0;
+  --color-bg-rgb: 0 0 0; --color-surface-rgb: 13 20 16; --color-surface-hover-rgb: 22 33 26;
+  --color-sidebar-rgb: 0 0 0; --color-sidebar-hover-rgb: 16 23 18;
+  --color-primary-rgb: 0 255 156; --color-primary-hover-rgb: 0 212 130; --color-secondary-rgb: 0 179 104;
+  --color-accent-rgb: 57 255 20; --color-accent-secondary-rgb: 0 255 240;
+  --color-border-rgb: 36 56 46; --color-border-active-rgb: 0 255 156;
+  --color-text-primary-rgb: 232 255 245; --color-text-secondary-rgb: 168 255 219; --color-text-muted-rgb: 107 156 135;
+  --color-success-rgb: 0 255 156; --color-warning-rgb: 255 214 10; --color-danger-rgb: 255 59 59; --color-info-rgb: 0 255 240;
+}
+
+[data-theme='holographic-noir'] {
+  --color-bg: #0A0912; --color-surface: #161325; --color-surface-hover: #221D38;
+  --color-sidebar: #08070F; --color-sidebar-hover: #1D1830;
+  --color-primary: #A855F7; --color-primary-hover: #9333EA; --color-secondary: #7C3AED;
+  --color-accent: #22D3EE; --color-accent-secondary: #C084FC;
+  --color-border: #453A66; --color-border-active: #A855F7;
+  --color-text-primary: #F8FAFC; --color-text-secondary: #DDD6FE; --color-text-muted: #A1A1AA;
+  --color-success: #22C55E; --color-warning: #F59E0B; --color-danger: #EF4444; --color-info: #22D3EE;
+  --color-bg-rgb: 10 9 18; --color-surface-rgb: 22 19 37; --color-surface-hover-rgb: 34 29 56;
+  --color-sidebar-rgb: 8 7 15; --color-sidebar-hover-rgb: 29 24 48;
+  --color-primary-rgb: 168 85 247; --color-primary-hover-rgb: 147 51 234; --color-secondary-rgb: 124 58 237;
+  --color-accent-rgb: 34 211 238; --color-accent-secondary-rgb: 192 132 252;
+  --color-border-rgb: 69 58 102; --color-border-active-rgb: 168 85 247;
+  --color-text-primary-rgb: 248 250 252; --color-text-secondary-rgb: 221 214 254; --color-text-muted-rgb: 161 161 170;
+  --color-success-rgb: 34 197 94; --color-warning-rgb: 245 158 11; --color-danger-rgb: 239 68 68; --color-info-rgb: 34 211 238;
+}
+
+/* Smooth, instant (no-reload) theme switching: only color-ish properties
+   transition, so layout/animation-heavy elements (scanline, glitch, motion)
+   are unaffected. */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+  transition-duration: 200ms;
+  transition-timing-function: ease;
 }
 
 /* Global reduced-motion safety net: framer-motion components that check
@@ -32,8 +201,8 @@
 }
 
 html, body {
-  background-color: var(--cyber-bg);
-  color: #e5e7eb;
+  background-color: var(--color-bg);
+  color: var(--color-text-secondary);
   font-family: 'Inter', sans-serif;
 }
 
@@ -44,38 +213,38 @@ html, body {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--cyber-surface);
+  background: var(--color-surface);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: var(--color-border);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+  background: var(--color-border-active);
 }
 
 /* Glassmorphism */
 .glass {
-  background: rgba(17, 24, 39, 0.7);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(31, 41, 55, 0.5);
+  border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
 }
 
 .glass-card {
-  background: rgba(26, 34, 54, 0.8);
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(31, 41, 55, 0.6);
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
 }
 
 /* Cyber grid pattern */
 .cyber-grid {
-  background-image: 
-    linear-gradient(rgba(16, 185, 129, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(16, 185, 129, 0.03) 1px, transparent 1px);
+  background-image:
+    linear-gradient(rgb(var(--color-primary-rgb) / 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--color-primary-rgb) / 0.03) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 
@@ -92,7 +261,7 @@ html, body {
   left: 0;
   width: 100%;
   height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.3), transparent);
+  background: linear-gradient(90deg, transparent, rgb(var(--color-primary-rgb) / 0.3), transparent);
   animation: scanline 6s linear infinite;
   pointer-events: none;
 }
@@ -116,23 +285,46 @@ html, body {
 
 /* Form inputs */
 input, textarea, select {
-  background-color: var(--cyber-surface);
-  border: 1px solid var(--cyber-border);
-  color: #e5e7eb;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
   transition: all 0.2s;
 }
 
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: var(--cyber-primary);
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgb(var(--color-primary-rgb) / 0.1);
 }
 
 /* The closed <select> box picks up the dark theme above, but its dropdown
    list defaults to browser/OS white unless <option> is styled explicitly. */
 select option {
-  background-color: var(--cyber-surface);
-  color: #e5e7eb;
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+/* Baseline hover affordance for every native clickable element that
+   doesn't already define its own hover state via a Tailwind `hover:`
+   utility (the attribute selector checks for that literal substring in
+   class="...") — so nothing is ever hoverable with zero visual feedback,
+   in any theme, without doubling up on elements that already have
+   bespoke hover styling. Does not touch .glass/.glass-card, which have
+   their own established look. */
+button:not(:disabled), a, select, [role='button'], summary {
+  cursor: pointer;
+}
+
+button:not(:disabled):not([class*='hover:']):not(.glass):not(.glass-card):hover,
+a:not([class*='hover:']):not(.glass):not(.glass-card):hover,
+select:not([class*='hover:']):hover,
+[role='button']:not([class*='hover:']):not(.glass):not(.glass-card):hover,
+summary:not([class*='hover:']):hover {
+  filter: brightness(1.15);
+}
+
+button:disabled {
+  cursor: not-allowed;
 }
 
 /* Status badges */

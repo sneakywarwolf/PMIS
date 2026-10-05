@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FolderKanban, Plus, Search, FileText, Edit, AlertTriangle, X, Loader2, CheckCircle, Eye, LayoutGrid, Table2, Trash2 } from 'lucide-react';
 import { toDateInputValue, formatDate } from '@/lib/datetime';
 import { api, useAuth } from '@/contexts/auth-context';
+import { triggerDownload } from '@/lib/download';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
 
@@ -107,6 +108,7 @@ function ProjectsPageContent() {
         status = poll.data.status;
         if (status === 'COMPLETED') {
           setReportResult(poll.data);
+          if (poll.data.docxUrl) triggerDownload(poll.data.docxUrl, poll.data.fileName);
           toast('Report generated successfully');
         } else if (status === 'FAILED') {
           toast(poll.data.error || 'Report generation failed', 'error');
@@ -121,30 +123,11 @@ function ProjectsPageContent() {
 
   const handleGenerateIssueLog = async (projectId: string) => {
     try {
-      const response = await api.get(`/projects/${projectId}`);
-      const project = response.data;
-      const findings = project.findings || [];
-      const headers = ['S.No', 'Vulnerability', 'Severity', 'CVSS', 'Status', 'Tester Notes', 'Evidence'];
-      let csv = headers.join(',') + '\n';
-      findings.forEach((f: any, i: number) => {
-        const v = f.vulnerability || {};
-        const row = [
-          i + 1,
-          `"${(v.name || '').replace(/"/g, '""')}"`,
-          v.severity || '',
-          v.cvssScore ?? '',
-          f.status || '',
-          `"${(f.testerNotes || '').replace(/"/g, '""')}"`,
-          `"${(f.evidencePaths || []).join('; ')}"`,
-        ];
-        csv += row.join(',') + '\n';
-      });
-
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = window.URL.createObjectURL(blob);
+      const { data } = await api.get(`/reports/issue-log/${projectId}`);
+      const url = window.URL.createObjectURL(new Blob([data.csv], { type: 'text/csv;charset=utf-8' }));
       const link = document.createElement('a');
       link.href = url;
-      link.download = `issue-log-${project.name.replace(/\s+/g, '-').toLowerCase()}.csv`;
+      link.download = data.fileName;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

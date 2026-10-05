@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, Save, Loader2, Clock, ServerCog, Egg } from 'lucide-react';
+import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, ListOrdered, ArrowUp, ArrowDown, Save, Loader2, Clock, ServerCog, Egg } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
 import { LiveMonitor } from '@/components/easter-egg/live-monitor';
 import { formatDateTime } from '@/lib/datetime';
+import { THEMES } from '@/lib/themes';
 
 const TABS = [
   { id: 'general', label: 'General & Branding', icon: Palette },
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'attachments', label: 'Attachments', icon: Paperclip },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'formatting', label: 'Formatting', icon: Calendar },
+  { id: 'issueLog', label: 'Issue Log Parameters', icon: ListOrdered },
   { id: 'system', label: 'System', icon: ServerCog },
   { id: 'easterEgg', label: 'Easter Egg', icon: Egg },
 ];
@@ -132,7 +134,8 @@ function SettingsContent() {
         {activeTab === 'attachments' && <AttachmentsTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'notifications' && <NotificationsTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'formatting' && <FormattingTab settings={settings} setCategory={setCategory} />}
-        {activeTab === 'system' && <SystemTab settings={settings} setCategory={setCategory} />}
+        {activeTab === 'issueLog' && <IssueLogTab settings={settings} setCategory={setCategory} />}
+      {activeTab === 'system' && <SystemTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'easterEgg' && <EasterEggTab settings={settings} setCategory={setCategory} />}
 
         <div className="flex justify-end pt-6 mt-6 border-t border-gray-700">
@@ -240,14 +243,27 @@ function AppearanceTab({ settings, setCategory }: any) {
   const a = settings.appearance;
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
+      <div className="md:col-span-2">
         <label className={labelCls}>Default Theme</label>
-        <select value={a.defaultTheme} onChange={(e) => setCategory('appearance', { defaultTheme: e.target.value })} className={inputCls}>
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-          <option value="auto">Auto (follow system)</option>
-        </select>
-        <p className={hintCls}>Note: the app currently ships dark-only styling — Light/Auto are stored for future theming work, not yet rendered.</p>
+        <p className={hintCls + ' mb-2 mt-0'}>Applies to every user unless they pick a personal theme from the header.</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {THEMES.map((t) => {
+            const selected = a.defaultTheme === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setCategory('appearance', { defaultTheme: t.id })}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-left text-sm transition-colors ${
+                  selected ? 'border-emerald-500 bg-emerald-500/10 text-white' : 'border-gray-700 bg-gray-800/50 text-gray-300 hover:border-gray-600'
+                }`}
+              >
+                <span className="w-3.5 h-3.5 rounded-full shrink-0 border border-white/10" style={{ backgroundColor: t.swatch }} />
+                <span className="truncate">{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
       <div>
         <label className={labelCls}>Table Density</label>
@@ -511,6 +527,31 @@ function FormattingTab({ settings, setCategory }: any) {
         </p>
       </div>
       <p className={`${hintCls} col-span-2`}>Date Format/Number Format above are not yet wired into rendering across the app — stored centrally so a future pass can consume one source of truth.</p>
+    </div>
+  );
+}
+
+function IssueLogTab({ settings, setCategory }: any) {
+  const cols: { key: string; label: string; enabled: boolean }[] = settings.issueLog.columns;
+  const set = (next: typeof cols) => setCategory('issueLog', { columns: next });
+  const move = (i: number, d: number) => {
+    const next = [...cols];
+    [next[i], next[i + d]] = [next[i + d], next[i]];
+    set(next);
+  };
+  return (
+    <div className="space-y-3">
+      <p className={hintCls}>
+        Columns included in generated Issue Logs, in this order. Applies to future Issue Logs only; already-downloaded files are unchanged.
+      </p>
+      {cols.map((c, i) => (
+        <div key={c.key} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+          <input type="checkbox" checked={c.enabled} onChange={(e) => set(cols.map((x) => (x.key === c.key ? { ...x, enabled: e.target.checked } : x)))} />
+          <span className="flex-1 text-sm text-white">{c.label}</span>
+          <button type="button" disabled={i === 0} onClick={() => move(i, -1)} className="text-gray-400 hover:text-white disabled:opacity-30" aria-label={`Move ${c.label} up`}><ArrowUp className="w-4 h-4" /></button>
+          <button type="button" disabled={i === cols.length - 1} onClick={() => move(i, 1)} className="text-gray-400 hover:text-white disabled:opacity-30" aria-label={`Move ${c.label} down`}><ArrowDown className="w-4 h-4" /></button>
+        </div>
+      ))}
     </div>
   );
 }

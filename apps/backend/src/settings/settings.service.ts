@@ -4,11 +4,14 @@ import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
 import { StorageService } from '../reports/storage.service';
 import { DEFAULT_SETTINGS } from './settings.defaults';
+import { validateIssueLogColumns } from '../reports/issue-log';
 import { REPORT_DATE_FORMAT_OPTIONS } from '../common/report-date-format';
 
 const SETTINGS_ID = 'singleton';
 
-const THEME_OPTIONS = ['light', 'dark', 'auto'];
+// Keep in sync with apps/frontend/src/lib/themes.ts (THEME_IDS) — the
+// single source of truth for the actual token values per theme.
+const THEME_OPTIONS = ['dark', 'midnight-azure', 'obsidian-turquoise', 'copper-noir', 'titanium-flux', 'quantum-emerald', 'holographic-noir'];
 const DENSITY_OPTIONS = ['compact', 'comfortable', 'spacious'];
 const INACTIVITY_OPTIONS = ['logout', 'warn'];
 const TIME_FORMAT_OPTIONS = ['12h', '24h'];
@@ -135,6 +138,11 @@ function validatePatch(patch: any) {
   if (system?.totalDatabaseQuotaMb !== undefined) {
     const v = system.totalDatabaseQuotaMb;
     if (typeof v !== 'number' || v < 1) errors.push('system.totalDatabaseQuotaMb must be a positive number');
+  }
+
+  if (patch.issueLog?.columns !== undefined) {
+    const err = validateIssueLogColumns(patch.issueLog.columns);
+    if (err) errors.push(err);
   }
 
   const egg = patch.easterEgg;

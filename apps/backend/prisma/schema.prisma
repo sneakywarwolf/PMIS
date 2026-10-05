@@ -102,6 +102,7 @@ enum TemplateSubType {
   MOBILE
   THICK_CLIENT
   NETWORK
+  APPLICATION
 }
 
 enum TemplateFieldCategory {

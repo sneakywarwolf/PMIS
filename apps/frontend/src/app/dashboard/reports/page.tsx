@@ -9,6 +9,7 @@ import {
   AlertTriangle, XCircle, Check, ArrowLeftRight, CheckCircle2, Trash2,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { triggerDownload } from '@/lib/download';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
 import { toDateInputValue } from '@/lib/datetime';
@@ -19,6 +20,7 @@ const subTypeIcons: any = {
   MOBILE: Smartphone,
   THICK_CLIENT: Monitor,
   NETWORK: Server,
+  APPLICATION: FileText,
 };
 
 const subTypeLabels: any = {
@@ -27,6 +29,7 @@ const subTypeLabels: any = {
   MOBILE: 'Mobile Application',
   THICK_CLIENT: 'Thick Client',
   NETWORK: 'Network',
+  APPLICATION: 'Application',
 };
 
 export default function ReportsPage() {
@@ -189,6 +192,7 @@ function ReportGenerator() {
         status = poll.data.status;
         if (status === 'COMPLETED') {
           setResult({ ...poll.data, findingsCount: preflight?.approvedFindings ?? 0 });
+          if (poll.data.docxUrl) triggerDownload(poll.data.docxUrl, poll.data.fileName);
           setStep(3);
           toast('Report generated successfully');
         } else if (status === 'FAILED') {
@@ -615,8 +619,8 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
                       onChange={(e) => setEditLabel(e.target.value)}
                       className="flex-1 px-2 py-1 rounded bg-gray-800 border border-gray-600 text-sm text-white"
                     />
-                    <button onClick={() => saveEditedLabel(field.id)} className="text-xs text-emerald-400 px-2">Save</button>
-                    <button onClick={() => setEditingFieldId(null)} className="text-xs text-gray-400 px-2">Cancel</button>
+                    <button onClick={() => saveEditedLabel(field.id)} className="text-xs text-emerald-400 px-2 hover:text-emerald-300 transition-colors">Save</button>
+                    <button onClick={() => setEditingFieldId(null)} className="text-xs text-gray-400 px-2 hover:text-white transition-colors">Cancel</button>
                   </div>
                 ) : (
                   <>
@@ -784,11 +788,16 @@ function TemplateUploader() {
               <label className="block text-sm text-gray-300 mb-1">Category</label>
               <select
                 value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                onChange={(e) => {
+                  const category = e.target.value;
+                  const subType = category === 'CERT_IN' ? 'APPLICATION' : 'WEB';
+                  setFormData({ ...formData, category, subType });
+                }}
                 className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700"
               >
                 <option value="PCI">PCI</option>
                 <option value="VAPT">VAPT</option>
+                <option value="CERT_IN">Cert-In</option>
               </select>
             </div>
             <div>
@@ -798,11 +807,21 @@ function TemplateUploader() {
                 onChange={(e) => setFormData({ ...formData, subType: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700"
               >
-                <option value="WEB">Web</option>
-                <option value="API">API</option>
-                <option value="MOBILE">Mobile</option>
-                <option value="THICK_CLIENT">Thick Client</option>
-                <option value="NETWORK">Network</option>
+                {formData.category === 'CERT_IN' ? (
+                  <>
+                    <option value="APPLICATION">Application</option>
+                    <option value="NETWORK">Network</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="WEB">Web</option>
+                    <option value="API">API</option>
+                    <option value="MOBILE">Mobile</option>
+                    <option value="THICK_CLIENT">Thick Client</option>
+                    <option value="NETWORK">Network</option>
+                    <option value="APPLICATION">Application</option>
+                  </>
+                )}
               </select>
             </div>
           </div>

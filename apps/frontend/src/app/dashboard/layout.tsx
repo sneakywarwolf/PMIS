@@ -28,6 +28,7 @@ import {
 import { useAuth, api } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { useIdleTimer } from '@/hooks/use-idle-timer';
+import { ThemeSelector } from '@/components/theme-selector';
 import { isRouteAllowed } from '@/lib/rbac';
 
 interface NavItem {
@@ -204,6 +205,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       >
         {/* Top bar */}
         <div className="flex items-center justify-end px-6 pt-4 gap-3">
+          <ThemeSelector />
           <NotificationBell />
           <UserDropdown user={user} logout={logout} router={router} />
         </div>
