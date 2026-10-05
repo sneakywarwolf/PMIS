@@ -9,8 +9,10 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
+  // ponytail: 'debug'/'verbose' log every request lifecycle event to stdout,
+  // which adds noticeable latency in dev. Opt in with NEST_DEBUG_LOGS=1.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    logger: ['error', 'warn', 'log', 'debug'],
+    logger: process.env.NEST_DEBUG_LOGS === '1' ? ['error', 'warn', 'log', 'debug'] : ['error', 'warn', 'log'],
   });
 
   // Behind the Next.js proxy (loopback in dev, docker network in compose): take the client IP from
