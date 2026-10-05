@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, RefreshCw, Users, User as UserIcon } from 'lucide-react';
+import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, RefreshCw, User as UserIcon, Users, X } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { formatDate } from '@/lib/datetime';
 
@@ -36,11 +36,47 @@ const COMPLIANCE_LABEL: Record<string, string> = { CERT_IN: 'Cert-In', PCI: 'PCI
 const titleCase = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 const person = (u: { username: string; fullName: string | null }) => u.fullName || u.username;
 
+const NO_FILTERS = { q: '', tester: '', tl: '', testingType: '', subType: '', compliance: '', status: '', from: '', to: '' };
+
+type SortKey = 'client' | 'scope' | 'tester' | 'tl' | 'testing' | 'activity' | 'start' | 'end' | 'vulns' | 'compliance' | 'status';
+const COLUMNS: [SortKey, string][] = [
+  ['client', 'Client'], ['scope', 'Scope'], ['tester', 'Tester'], ['tl', 'Team Lead'], ['testing', 'Testing'],
+  ['activity', 'Activity'], ['start', 'Start'], ['end', 'End'], ['vulns', 'Vulnerabilities'],
+  ['compliance', 'Compliance'], ['status', 'Status'],
+];
+// Comparable value per column; '' means "no value" and always sorts last.
+const SORT_VALUE: Record<SortKey, (r: Row) => string | number> = {
+  client: (r) => r.clientName.toLowerCase(),
+  scope: (r) => (r.scope ?? '').toLowerCase(),
+  tester: (r) => person(r.tester).toLowerCase(),
+  tl: (r) => person(r.tl).toLowerCase(),
+  testing: (r) => (r.testingType ?? '').toLowerCase(),
+  activity: (r) => r.subType,
+  start: (r) => r.startDate,
+  end: (r) => r.endDate ?? '',
+  // severity-weighted: more criticals outrank any number of highs, etc.
+  vulns: (r) => { const c = r.vulnCounts; return c.critical * 1e12 + c.high * 1e8 + c.medium * 1e4 + c.low * 1e2 + c.info; },
+  compliance: (r) => r.complianceType ?? '',
+  status: (r) => r.status,
+};
+
+function FilterSelect({ label, value, onChange, options, format = (v) => v }: {
+  label: string; value: string; onChange: (v: string) => void; options: string[]; format?: (v: string) => string;
+}) {
+  return (
+    <select aria-label={`Filter by ${label}`} value={value} onChange={(e) => onChange(e.target.value)} className="w-auto text-sm">
+      <option value="">{label}: all</option>
+      {options.map((o) => <option key={o} value={o}>{format(o)}</option>)}
+    </select>
+  );
+}
+
 export function DashboardEngagements() {
   const { user } = useAuth();
   const orgWide = user?.role === 'ADMIN' || user?.role === 'AVP';
   const [view, setView] = useState<'team' | 'self'>('team');
-  const [compliance, setCompliance] = useState('ALL');
+  const [filters, setFilters] = useState(NO_FILTERS);
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'start', dir: -1 });
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState(false);
 
@@ -58,7 +94,36 @@ export function DashboardEngagements() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, view]);
 
-  const shown = rows?.filter((r) => compliance === 'ALL' || r.complianceType === compliance) ?? [];
+  const setFilter = (k: keyof typeof NO_FILTERS, v: string) => setFilters((f) => ({ ...f, [k]: v }));
+  const filtersActive = JSON.stringify(filters) !== JSON.stringify(NO_FILTERS);
+  const options = (pick: (r: Row) => string | null) =>
+    [...new Set((rows ?? []).map(pick).filter((v): v is string => !!v))].sort();
+
+  const q = filters.q.trim().toLowerCase();
+  const shown = (rows ?? [])
+    .filter((r) => {
+      const start = r.startDate.slice(0, 10);
+      return (
+        (!q || `${r.clientName} ${r.scope ?? ''}`.toLowerCase().includes(q)) &&
+        (!filters.tester || person(r.tester) === filters.tester) &&
+        (!filters.tl || person(r.tl) === filters.tl) &&
+        (!filters.testingType || r.testingType === filters.testingType) &&
+        (!filters.subType || r.subType === filters.subType) &&
+        (!filters.compliance || r.complianceType === filters.compliance) &&
+        (!filters.status || r.status === filters.status) &&
+        (!filters.from || start >= filters.from) &&
+        (!filters.to || start <= filters.to)
+      );
+    })
+    .sort((a, b) => {
+      const [x, y] = [SORT_VALUE[sort.key](a), SORT_VALUE[sort.key](b)];
+      // Empty values (no end date etc.) always sink to the bottom regardless of direction.
+      if (x === '' || y === '') return x === y ? 0 : x === '' ? 1 : -1;
+      return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
+    });
+
+  const toggleSort = (key: SortKey) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 1 ? -1 : 1 } : { key, dir: 1 }));
 
   return (
     <div className="glass-card rounded-xl p-6">
@@ -70,17 +135,6 @@ export function DashboardEngagements() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            aria-label="Filter by compliance type"
-            value={compliance}
-            onChange={(e) => setCompliance(e.target.value)}
-            className="w-auto text-sm"
-          >
-            <option value="ALL">All compliance</option>
-            {Object.entries(COMPLIANCE_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
           {!orgWide && (
             <div role="group" aria-label="Engagement view" className="flex rounded-lg border border-gray-700 p-0.5">
               {([['team', 'Team', Users], ['self', 'Self', UserIcon]] as const).map(([v, label, Icon]) => (
@@ -104,6 +158,35 @@ export function DashboardEngagements() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <input
+          type="search"
+          aria-label="Search client or scope"
+          placeholder="Search client / scope"
+          value={filters.q}
+          onChange={(e) => setFilter('q', e.target.value)}
+          className="w-auto text-sm"
+        />
+        <FilterSelect label="Tester" value={filters.tester} onChange={(v) => setFilter('tester', v)} options={options((r) => person(r.tester))} />
+        <FilterSelect label="Team Lead" value={filters.tl} onChange={(v) => setFilter('tl', v)} options={options((r) => person(r.tl))} />
+        <FilterSelect label="Testing" value={filters.testingType} onChange={(v) => setFilter('testingType', v)} options={options((r) => r.testingType)} />
+        <FilterSelect label="Activity" value={filters.subType} onChange={(v) => setFilter('subType', v)} options={options((r) => r.subType)} format={titleCase} />
+        <FilterSelect label="Compliance" value={filters.compliance} onChange={(v) => setFilter('compliance', v)} options={Object.keys(COMPLIANCE_LABEL)} format={(v) => COMPLIANCE_LABEL[v]} />
+        <FilterSelect label="Status" value={filters.status} onChange={(v) => setFilter('status', v)} options={options((r) => r.status)} format={titleCase} />
+        <label className="flex items-center gap-1.5 text-xs text-gray-500">
+          Start
+          <input type="date" aria-label="Start date from" value={filters.from} max={filters.to || undefined} onChange={(e) => setFilter('from', e.target.value)} className="w-auto text-sm" />
+          –
+          <input type="date" aria-label="Start date to" value={filters.to} min={filters.from || undefined} onChange={(e) => setFilter('to', e.target.value)} className="w-auto text-sm" />
+        </label>
+        {filtersActive && (
+          <button type="button" onClick={() => setFilters(NO_FILTERS)} className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none">
+            <X className="w-4 h-4" /> Clear
+          </button>
+        )}
+        {rows && <span className="ml-auto text-xs text-gray-500 tabular-nums">{shown.length} of {rows.length}</span>}
+      </div>
+
       {error ? (
         <div className="flex items-center justify-between gap-3 rounded-lg bg-red-500/10 border border-red-500/30 px-4 py-3 text-sm text-red-400">
           <span className="flex items-center gap-2"><AlertCircle className="w-4 h-4" /> Couldn&apos;t load engagements.</span>
@@ -122,8 +205,25 @@ export function DashboardEngagements() {
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500">
-                {['Client', 'Scope', 'Tester', 'Team Lead', 'Testing', 'Activity', 'Start', 'End', 'Vulnerabilities', 'Compliance', 'Status'].map((h) => (
-                  <th key={h} className="px-3 py-2 font-medium whitespace-nowrap">{h}</th>
+                {COLUMNS.map(([key, label]) => (
+                  <th
+                    key={key}
+                    aria-sort={sort.key === key ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}
+                    className="px-3 py-2 font-medium whitespace-nowrap"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(key)}
+                      className={`flex items-center gap-1 uppercase tracking-wide hover:text-white focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none rounded ${sort.key === key ? 'text-emerald-400' : ''}`}
+                    >
+                      {label}
+                      {sort.key === key ? (
+                        sort.dir === 1 ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      )}
+                    </button>
+                  </th>
                 ))}
               </tr>
             </thead>
