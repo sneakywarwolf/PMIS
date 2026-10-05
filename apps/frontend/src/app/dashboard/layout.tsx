@@ -200,7 +200,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Main content */}
       <main
-        className="flex-1 transition-all duration-300"
+        className="flex-1 min-w-0 transition-all duration-300"
         style={{ marginLeft: collapsed ? 72 : 256 }}
       >
         {/* Top bar */}
@@ -212,7 +212,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* grid-stack: entering and exiting pages share one cell so they can
             overlap and cross-dissolve, instead of a hard cut between them */}
-        <div className="grid">
+        <div className="grid grid-cols-[minmax(0,1fr)]">
           <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
               key={pathname}

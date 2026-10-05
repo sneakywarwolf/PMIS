@@ -21,7 +21,14 @@ import {
 } from 'recharts';
 
 const TOOLTIP_STYLE = { backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' };
-const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#6b7280'];
+// Keyed by status so the donut matches the .status-* badges (not by array order).
+const STATUS_COLORS: Record<string, string> = {
+  NOT_STARTED: '#6b7280',
+  IN_PROGRESS: '#3b82f6',
+  AWAITING_REVIEW: '#f59e0b',
+  COMPLETED: '#10b981',
+};
+const statusColor = (name: string) => STATUS_COLORS[name.toUpperCase().replace(/\s+/g, '_')] ?? '#6b7280';
 const SEVERITY_COLORS: Record<string, string> = {
   Critical: '#ef4444',
   High: '#f97316',
@@ -217,8 +224,8 @@ export default function DashboardPage() {
                   stroke="none"
                   dataKey="value"
                 >
-                  {projectStatusData.map((_: any, index: number) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  {projectStatusData.map((d: any) => (
+                    <Cell key={d.name} fill={statusColor(d.name)} />
                   ))}
                 </Pie>
                 <text x="50%" y="45%" textAnchor="middle" dominantBaseline="middle" fill="#fff" className="text-2xl font-bold tabular-nums">

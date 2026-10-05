@@ -36,7 +36,8 @@ const COMPLIANCE_LABEL: Record<string, string> = { CERT_IN: 'Cert-In', PCI: 'PCI
 const titleCase = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 const person = (u: { username: string; fullName: string | null }) => u.fullName || u.username;
 
-const NO_FILTERS = { q: '', tester: '', tl: '', testingType: '', subType: '', compliance: '', status: '', from: '', to: '' };
+const CONTROL_CLS = 'w-auto px-3 py-2 rounded-lg text-sm';
+const NO_FILTERS ={ q: '', tester: '', tl: '', testingType: '', subType: '', compliance: '', status: '', from: '', to: '' };
 
 type SortKey = 'client' | 'scope' | 'tester' | 'tl' | 'testing' | 'activity' | 'start' | 'end' | 'vulns' | 'compliance' | 'status';
 const COLUMNS: [SortKey, string][] = [
@@ -64,7 +65,7 @@ function FilterSelect({ label, value, onChange, options, format = (v) => v }: {
   label: string; value: string; onChange: (v: string) => void; options: string[]; format?: (v: string) => string;
 }) {
   return (
-    <select aria-label={`Filter by ${label}`} value={value} onChange={(e) => onChange(e.target.value)} className="w-auto text-sm">
+    <select aria-label={`Filter by ${label}`} value={value} onChange={(e) => onChange(e.target.value)} className={CONTROL_CLS}>
       <option value="">{label}: all</option>
       {options.map((o) => <option key={o} value={o}>{format(o)}</option>)}
     </select>
@@ -165,7 +166,7 @@ export function DashboardEngagements() {
           placeholder="Search client / scope"
           value={filters.q}
           onChange={(e) => setFilter('q', e.target.value)}
-          className="w-auto text-sm"
+          className={CONTROL_CLS}
         />
         <FilterSelect label="Tester" value={filters.tester} onChange={(v) => setFilter('tester', v)} options={options((r) => person(r.tester))} />
         <FilterSelect label="Team Lead" value={filters.tl} onChange={(v) => setFilter('tl', v)} options={options((r) => person(r.tl))} />
@@ -175,9 +176,9 @@ export function DashboardEngagements() {
         <FilterSelect label="Status" value={filters.status} onChange={(v) => setFilter('status', v)} options={options((r) => r.status)} format={titleCase} />
         <label className="flex items-center gap-1.5 text-xs text-gray-500">
           Start
-          <input type="date" aria-label="Start date from" value={filters.from} max={filters.to || undefined} onChange={(e) => setFilter('from', e.target.value)} className="w-auto text-sm" />
+          <input type="date" aria-label="Start date from" value={filters.from} max={filters.to || undefined} onChange={(e) => setFilter('from', e.target.value)} className={CONTROL_CLS} />
           –
-          <input type="date" aria-label="Start date to" value={filters.to} min={filters.from || undefined} onChange={(e) => setFilter('to', e.target.value)} className="w-auto text-sm" />
+          <input type="date" aria-label="Start date to" value={filters.to} min={filters.from || undefined} onChange={(e) => setFilter('to', e.target.value)} className={CONTROL_CLS} />
         </label>
         {filtersActive && (
           <button type="button" onClick={() => setFilters(NO_FILTERS)} className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none">
@@ -249,7 +250,7 @@ export function DashboardEngagements() {
                         <span
                           key={key}
                           title={`${titleCase(key)}: ${r.vulnCounts[key]}`}
-                          className={`rounded-md border px-1.5 py-0.5 text-xs font-mono tabular-nums ${cls} ${r.vulnCounts[key] === 0 ? 'opacity-40' : ''}`}
+                          className={`rounded-md border px-1.5 py-0.5 text-xs font-mono tabular-nums whitespace-nowrap ${cls} ${r.vulnCounts[key] === 0 ? 'opacity-40' : ''}`}
                         >
                           {label} {r.vulnCounts[key]}
                         </span>
