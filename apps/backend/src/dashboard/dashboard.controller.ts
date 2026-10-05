@@ -24,6 +24,12 @@ export class DashboardController {
     return this.dashboardService.getVulnerabilityTrends(user);
   }
 
+  @Get('engagements')
+  @ApiOperation({ summary: 'Engagement table rows (team/self view; org-wide for ADMIN/AVP)' })
+  async getEngagements(@CurrentUser() user: User, @Query('view') view?: string) {
+    return this.dashboardService.getEngagements(user, view === 'self' ? 'self' : 'team');
+  }
+
   @Get('admin')
   @Roles(UserRole.ADMIN, UserRole.AVP)
   @ApiOperation({ summary: 'Get global admin statistics' })

@@ -5,6 +5,12 @@ import { buildCompletionStats, CompletionStatsBase, isCompletedProjectRow } from
 import { ComplianceType } from '@prisma/client';
 import { CompletionStatsGranularity } from './dto/completion-stats-query.dto';
 
+// Vulnerability.severity is a free-form string; fold "Informational"/"Info" together.
+function severityKey(raw: string): 'critical' | 'high' | 'medium' | 'low' | 'info' {
+  const s = raw.trim().toLowerCase();
+  return s === 'critical' || s === 'high' || s === 'medium' || s === 'low' ? s : 'info';
+}
+
 @Injectable()
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
@@ -209,6 +215,72 @@ export class DashboardService {
     }, {});
 
     return { bySeverity, total: findings.length };
+  }
+
+  /**
+   * Engagement rows for the dashboard table. ADMIN/AVP see every team's
+   * projects; TESTER/TEAM_LEAD get `team` (their TL's whole team) or `self`.
+   */
+  async getEngagements(user: Pick<User, 'id' | 'role' | 'assignedTlId'>, view: 'team' | 'self') {
+    const isOrgWide = user.role === UserRole.ADMIN || user.role === UserRole.AVP;
+    let where: any = {};
+
+    if (!isOrgWide) {
+      if (view === 'self') {
+        where = { OR: [{ testerId: user.id }, { tlId: user.id }] };
+      } else {
+        const tlId = user.role === UserRole.TEAM_LEAD ? user.id : user.assignedTlId;
+        if (!tlId) {
+          where = { testerId: user.id };
+        } else {
+          const members = await this.prisma.user.findMany({
+            where: { assignedTlId: tlId },
+            select: { id: true },
+          });
+          where = { OR: [{ tlId }, { testerId: { in: members.map((m) => m.id) } }] };
+        }
+      }
+    }
+
+    const projects = await this.prisma.project.findMany({
+      where,
+      orderBy: { startDate: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        clientName: true,
+        scope: true,
+        totalScopeCount: true,
+        testingType: true,
+        subType: true,
+        complianceType: true,
+        status: true,
+        startDate: true,
+        endDate: true,
+        tester: { select: { id: true, username: true, fullName: true } },
+        tl: { select: { id: true, username: true, fullName: true } },
+      },
+    });
+
+    const findings = projects.length
+      ? await this.prisma.finding.findMany({
+          where: { projectId: { in: projects.map((p) => p.id) } },
+          select: { projectId: true, vulnerability: { select: { severity: true } } },
+        })
+      : [];
+
+    const counts = new Map<string, Record<string, number>>();
+    for (const f of findings) {
+      const sev = severityKey(f.vulnerability.severity);
+      const row = counts.get(f.projectId) ?? { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+      row[sev] += 1;
+      counts.set(f.projectId, row);
+    }
+
+    return projects.map((p) => ({
+      ...p,
+      vulnCounts: counts.get(p.id) ?? { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+    }));
   }
 
   async getAdminStats() {

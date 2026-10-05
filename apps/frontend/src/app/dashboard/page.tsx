@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { animate, motion, useReducedMotion } from 'framer-motion';
 import {
   Activity, FolderOpen, ShieldCheck, Users, TrendingUp,
   Clock, AlertCircle, CheckCircle, FileText, ShieldAlert, HelpCircle,
@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
+import { DashboardEngagements } from '@/components/dashboard-engagements';
 import { api } from '@/contexts/auth-context';
 import { formatDateTime } from '@/lib/datetime';
 import {
@@ -19,6 +20,7 @@ import {
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 
+const TOOLTIP_STYLE = { backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' };
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#6b7280'];
 const SEVERITY_COLORS: Record<string, string> = {
   Critical: '#ef4444',
@@ -192,13 +194,15 @@ export default function DashboardPage() {
         </div>
       </RevealSection>
 
-      {/* Project Health */}
+      {/* Engagements */}
       <RevealSection delay={0.05}>
-        <SectionHeading>Project Health</SectionHeading>
-        <motion.div
-          whileHover={{ y: -2 }}
-          className="glass-card rounded-xl p-6"
-        >
+        <SectionHeading>Engagements</SectionHeading>
+        <DashboardEngagements />
+      </RevealSection>
+
+      {/* Charts */}
+      <RevealSection delay={0.1} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="glass-card rounded-xl p-6">
           <h2 className="text-lg font-semibold text-white mb-4">Projects by Status</h2>
           {projectStatusData.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
@@ -206,17 +210,22 @@ export default function DashboardPage() {
                 <Pie
                   data={projectStatusData}
                   cx="50%"
-                  cy="50%"
-                  outerRadius={80}
+                  cy="45%"
+                  innerRadius={55}
+                  outerRadius={85}
+                  paddingAngle={2}
+                  stroke="none"
                   dataKey="value"
-                  label={({ name, value }) => `${name}: ${value}`}
                 >
                   {projectStatusData.map((_: any, index: number) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
+                <text x="50%" y="45%" textAnchor="middle" dominantBaseline="middle" fill="#fff" className="text-2xl font-bold tabular-nums">
+                  {projectStatusData.reduce((n: number, d: any) => n + d.value, 0)}
+                </text>
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
+                  contentStyle={TOOLTIP_STYLE}
                   itemStyle={{ color: '#fff' }}
                 />
                 <Legend />
@@ -225,25 +234,18 @@ export default function DashboardPage() {
           ) : (
             <p className="text-gray-500 text-sm text-center py-12">No project data</p>
           )}
-        </motion.div>
-      </RevealSection>
+        </div>
 
-      {/* Vulnerabilities */}
-      <RevealSection delay={0.1}>
-        <SectionHeading>Vulnerabilities</SectionHeading>
-        <motion.div
-          whileHover={{ y: -2 }}
-          className="glass-card rounded-xl p-6"
-        >
+        <div className="glass-card rounded-xl p-6">
           <h2 className="text-lg font-semibold text-white mb-4">Findings by Severity</h2>
           {severityData.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={severityData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                 <XAxis dataKey="name" stroke="#9ca3af" />
-                <YAxis stroke="#9ca3af" />
+                <YAxis stroke="#9ca3af" allowDecimals={false} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
+                  contentStyle={TOOLTIP_STYLE}
                   itemStyle={{ color: '#fff' }}
                 />
                 <Bar dataKey="value" radius={[4, 4, 0, 0]}>
@@ -256,7 +258,7 @@ export default function DashboardPage() {
           ) : (
             <p className="text-gray-500 text-sm text-center py-12">No findings data</p>
           )}
-        </motion.div>
+        </div>
       </RevealSection>
 
       {/* Main Content Grid */}
@@ -351,6 +353,18 @@ export default function DashboardPage() {
   );
 }
 
+/** Counts 0 → `to` over 0.8s; skipped under prefers-reduced-motion. */
+function CountUp({ to }: { to: number }) {
+  const reduce = useReducedMotion();
+  const [n, setN] = useState(reduce ? to : 0);
+  useEffect(() => {
+    if (reduce) return setN(to);
+    const controls = animate(0, to, { duration: 0.8, ease: 'easeOut', onUpdate: (v) => setN(Math.round(v)) });
+    return () => controls.stop();
+  }, [to, reduce]);
+  return <>{n}</>;
+}
+
 function StatCard({ title, value, icon: Icon, color, href, context }: any) {
   const colorMap: any = {
     emerald: 'text-emerald-400 bg-emerald-500/10',
@@ -367,16 +381,14 @@ function StatCard({ title, value, icon: Icon, color, href, context }: any) {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-400">{title}</p>
-          <p className="text-2xl font-bold text-white mt-1">{value}</p>
+          <p className="text-2xl font-bold text-white mt-1 tabular-nums"><CountUp to={Number(value) || 0} /></p>
         </div>
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${colorMap[color]}`}>
           <Icon className="w-5 h-5" />
         </div>
       </div>
       {context && (
-        <p className="text-xs text-gray-500 mt-3 h-0 opacity-0 group-hover:h-4 group-hover:opacity-100 transition-all duration-200 overflow-hidden">
-          {context}
-        </p>
+        <p className="text-xs text-gray-500 mt-3 group-hover:text-gray-300 transition-colors">{context}</p>
       )}
     </motion.div>
   );
