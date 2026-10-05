@@ -1,3 +1,5 @@
+import { ISSUE_LOG_DEFAULT_COLUMNS } from '../reports/issue-log';
+
 export const DEFAULT_SETTINGS = {
   general: {
     appName: 'VAPT Command Center',
@@ -49,6 +51,10 @@ export const DEFAULT_SETTINGS = {
     // Controls the {Report Date} template parameter specifically (reports,
     // report filenames, Issue Log filenames, ...) — see common/report-date-format.ts.
     reportDateFormat: 'YYYY-MM-DD',
+  },
+  // Issue Log columns (order = array order) — see reports/issue-log.ts.
+  issueLog: {
+    columns: ISSUE_LOG_DEFAULT_COLUMNS,
   },
   easterEgg: {
     enabled: true,

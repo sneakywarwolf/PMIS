@@ -173,6 +173,12 @@ export class ReportsController {
     return this.reportsService.preflight(projectId, user);
   }
 
+  @Get('issue-log/:projectId')
+  @ApiOperation({ summary: 'Generate the Issue Log CSV (columns per Admin Settings > Issue Log Parameters)' })
+  async issueLog(@Param('projectId') projectId: string, @CurrentUser() user: User) {
+    return this.reportsService.generateIssueLog(projectId, user);
+  }
+
   @Get('history/:projectId')
   @ApiOperation({ summary: 'Get report generation history for a project' })
   async getReportHistory(

@@ -26,6 +26,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { triggerDownload } from '@/lib/download';
 import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
 import { PasswordGeneratorButton } from '@/components/password-generator-button';
@@ -194,47 +195,19 @@ export default function ProjectDetailPage() {
 
   const handleGenerateIssueLog = async () => {
     if (!project) return;
-    const findings = project.findings || [];
-    const headers = ['S.No', 'Vulnerability', 'Severity', 'CVSS', 'Status', 'Tester Notes', 'Evidence'];
-    let csv = headers.join(',') + '\n';
-    findings.forEach((f: any, i: number) => {
-      const v = f.vulnerability || {};
-      const row = [
-        i + 1,
-        `"${(v.name || '').replace(/"/g, '""')}"`,
-        v.severity || '',
-        v.cvssScore ?? '',
-        f.status || '',
-        `"${(f.testerNotes || '').replace(/"/g, '""')}"`,
-        `"${(f.evidencePaths || []).join('; ')}"`,
-      ];
-      csv += row.join(',') + '\n';
-    });
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    // Issue-Log_{Compliance Category}_{Testing Type}_{Client Name}_v0.1_{Quarter}_{Report Date}
-    const sanitize = (s: string) => (s || 'NA').trim().replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-]/g, '');
-    // Some report date formats (e.g. DD/MM/YYYY) contain filesystem path
-    // separators — swap them for dashes rather than dropping them, so the
-    // date stays readable in the filename.
-    const reportDate = formatReportDate(new Date(), appSettings?.formatting?.reportDateFormat).replace(/[/.]/g, '-');
-    const fileName = [
-      'Issue-Log',
-      sanitize(project.category),
-      sanitize(project.subType),
-      sanitize(project.clientName),
-      'v0.1',
-      sanitize(project.quarter || 'NA'),
-      reportDate,
-    ].join('_');
-    link.download = `${fileName}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+    try {
+      const { data } = await api.get(`/reports/issue-log/${project.id}`);
+      const url = window.URL.createObjectURL(new Blob([data.csv], { type: 'text/csv;charset=utf-8' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = data.fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to generate issue log', 'error');
+    }
   };
 
   const nmapInputRef = useRef<HTMLInputElement>(null);
@@ -275,6 +248,7 @@ export default function ProjectDetailPage() {
         status = poll.data.status;
         if (status === 'COMPLETED') {
           setReportResult(poll.data);
+          if (poll.data.docxUrl) triggerDownload(poll.data.docxUrl, poll.data.fileName);
         } else if (status === 'FAILED') {
           alert(poll.data.error || 'Report generation failed');
         }
@@ -1199,6 +1173,11 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
   const [searchResults, setSearchResults] = useState<Vulnerability[]>([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedVuln, setSelectedVuln] = useState<Vulnerability | null>(finding?.vulnerability || null);
+  // Batch-add: pick several vulnerabilities at once, each created as a bare
+  // finding (no CVSS override / POC yet) — tester fills those in later via
+  // the existing Edit Finding flow, same as any other incomplete finding.
+  const [batchVulns, setBatchVulns] = useState<Vulnerability[]>([]);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   // New findings walk through Search -> Preview -> Configure as distinct steps
   // instead of one long scrolling form. Editing an existing finding skips
@@ -1280,6 +1259,33 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
   const goToConfigure = () => {
     if (!selectedVuln) return;
     setStep('configure');
+  };
+
+  const toggleBatchVuln = (vuln: Vulnerability) => {
+    setBatchVulns((prev) =>
+      prev.some((v) => v.id === vuln.id) ? prev.filter((v) => v.id !== vuln.id) : [...prev, vuln]
+    );
+  };
+
+  const handleBatchAdd = async () => {
+    if (batchVulns.length === 0) return;
+    setBatchSubmitting(true);
+    try {
+      for (const vuln of batchVulns) {
+        await api.post('/findings', {
+          projectId,
+          vulnId: vuln.id,
+          testerNotes: '',
+          affectedInstances: [],
+          reportStatus: 'Open',
+        });
+      }
+      onSaved();
+    } catch (error: any) {
+      alert(error.response?.data?.message || 'Failed to add findings');
+    } finally {
+      setBatchSubmitting(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1368,7 +1374,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-4xl max-h-[95vh] overflow-y-auto"
+        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-5xl min-h-[600px] max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between p-6 border-b border-gray-700 sticky top-0 bg-gray-900 z-10">
           <h2 className="text-lg font-semibold text-white">
@@ -1423,34 +1429,74 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                   </div>
                   {showDropdown && searchResults.length > 0 && (
                     <div className="absolute z-20 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl max-h-96 overflow-y-auto">
-                      {searchResults.map((vuln) => (
-                        <button
-                          key={vuln.id}
-                          type="button"
-                          onClick={() => selectVulnerability(vuln)}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-700 transition-colors border-b border-gray-700/50 last:border-0"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-white">{vuln.name}</span>
-                            <div className="flex items-center gap-1.5">
-                              <span className="px-1.5 py-0.5 rounded text-xs border border-gray-600 text-gray-400">
-                                {vuln.category === 'NETWORK' ? 'Network' : 'App/API'}
-                              </span>
-                              <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
-                                {vuln.severity}
-                              </span>
-                            </div>
+                      {searchResults.map((vuln) => {
+                        const inBatch = batchVulns.some((v) => v.id === vuln.id);
+                        return (
+                          <div
+                            key={vuln.id}
+                            className="flex items-center gap-1 px-2 hover:bg-gray-700 transition-colors border-b border-gray-700/50 last:border-0"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => selectVulnerability(vuln)}
+                              className="flex-1 min-w-0 text-left py-2"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm text-white">{vuln.name}</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="px-1.5 py-0.5 rounded text-xs border border-gray-600 text-gray-400">
+                                    {vuln.category === 'NETWORK' ? 'Network' : 'App/API'}
+                                  </span>
+                                  <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
+                                    {vuln.severity}
+                                  </span>
+                                </div>
+                              </div>
+                              <p className="text-xs text-gray-500 truncate">CVSS: {vuln.cvssScore ?? '-'} {vuln.cveId}</p>
+                            </button>
+                            {!finding && (
+                              <button
+                                type="button"
+                                title={inBatch ? 'Remove from batch' : 'Add to batch'}
+                                onClick={() => toggleBatchVuln(vuln)}
+                                className={`shrink-0 p-1.5 rounded-lg transition-colors ${
+                                  inBatch ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-700/50 text-gray-400 hover:text-white'
+                                }`}
+                              >
+                                {inBatch ? <CheckCircle className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                              </button>
+                            )}
                           </div>
-                          <p className="text-xs text-gray-500 truncate">CVSS: {vuln.cvssScore ?? '-'} {vuln.cveId}</p>
-                        </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
 
+                {/* Vulnerabilities queued for batch-add — each becomes a bare
+                    finding on submit, filled in individually later via Edit */}
+                {batchVulns.length > 0 && (
+                  <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700 space-y-2">
+                    <p className="text-xs text-gray-400">Selected for batch add ({batchVulns.length})</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {batchVulns.map((vuln) => (
+                        <span
+                          key={vuln.id}
+                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400"
+                        >
+                          {vuln.name}
+                          <button type="button" onClick={() => toggleBatchVuln(vuln)} className="hover:text-white">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Preview of the selected canonical vulnerability, before it
                     becomes a project-specific finding */}
-                {selectedVuln && (
+                {batchVulns.length === 0 && selectedVuln && (
                   <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 space-y-3">
                     <div>
                       <p className="text-sm text-emerald-400 font-medium">{selectedVuln.name}</p>
@@ -1481,14 +1527,25 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                   >
                     Cancel
                   </button>
-                  <button
-                    type="button"
-                    onClick={goToConfigure}
-                    disabled={!selectedVuln}
-                    className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50"
-                  >
-                    Continue
-                  </button>
+                  {batchVulns.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleBatchAdd}
+                      disabled={batchSubmitting}
+                      className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50"
+                    >
+                      {batchSubmitting ? 'Adding...' : `Add ${batchVulns.length} Finding${batchVulns.length > 1 ? 's' : ''}`}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={goToConfigure}
+                      disabled={!selectedVuln}
+                      className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50"
+                    >
+                      Continue
+                    </button>
+                  )}
                 </div>
               </motion.div>
             )}

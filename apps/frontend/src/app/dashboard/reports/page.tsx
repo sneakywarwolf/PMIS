@@ -9,6 +9,7 @@ import {
   AlertTriangle, XCircle, Check, ArrowLeftRight, CheckCircle2, Trash2,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { triggerDownload } from '@/lib/download';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
 import { toDateInputValue } from '@/lib/datetime';
@@ -191,6 +192,7 @@ function ReportGenerator() {
         status = poll.data.status;
         if (status === 'COMPLETED') {
           setResult({ ...poll.data, findingsCount: preflight?.approvedFindings ?? 0 });
+          if (poll.data.docxUrl) triggerDownload(poll.data.docxUrl, poll.data.fileName);
           setStep(3);
           toast('Report generated successfully');
         } else if (status === 'FAILED') {

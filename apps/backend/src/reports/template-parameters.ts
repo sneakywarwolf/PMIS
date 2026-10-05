@@ -46,6 +46,27 @@ export const CANONICAL_TEMPLATE_PARAMETERS: { key: string; label: string }[] = [
   { key: 'tester.email', label: 'Tester Email' },
 ];
 
+/**
+ * Splits a project's inclusive duration (End - Start + 1 days) across the
+ * four audit phases: Reporting is always 1 day; the rest is split
+ * Planning : Information Gathering : Scanning & Exploitation = 1 : 2 : 4 in
+ * 0.5-day steps. Planning and Information Gathering round to the nearest
+ * half day; Scanning takes the remainder, so the total is always exact.
+ * 15 days -> 2, 4, 8, 1. Returns [] when dates are missing/invalid.
+ */
+export function splitAuditDays(startDate: any, endDate: any): string[] {
+  const s = startDate ? new Date(startDate).getTime() : NaN;
+  const e = endDate ? new Date(endDate).getTime() : NaN;
+  if (isNaN(s) || isNaN(e) || e < s) return [];
+  const total = Math.round((e - s) / 86400000) + 1;
+  const reporting = Math.min(1, total);
+  const units = (total - reporting) * 2; // half-days to share across the other three
+  const planning = Math.round(units / 7);
+  const gathering = Math.round((units * 2) / 7);
+  const scanning = units - planning - gathering;
+  return [planning / 2, gathering / 2, scanning / 2, reporting].map(String);
+}
+
 export const CANONICAL_PARAMETER_KEYS = new Set(CANONICAL_TEMPLATE_PARAMETERS.map((p) => p.key));
 
 export const PLATFORM_TYPE_LABELS: Record<string, string> = {

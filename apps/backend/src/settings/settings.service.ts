@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
 import { StorageService } from '../reports/storage.service';
 import { DEFAULT_SETTINGS } from './settings.defaults';
+import { validateIssueLogColumns } from '../reports/issue-log';
 import { REPORT_DATE_FORMAT_OPTIONS } from '../common/report-date-format';
 
 const SETTINGS_ID = 'singleton';
@@ -137,6 +138,11 @@ function validatePatch(patch: any) {
   if (system?.totalDatabaseQuotaMb !== undefined) {
     const v = system.totalDatabaseQuotaMb;
     if (typeof v !== 'number' || v < 1) errors.push('system.totalDatabaseQuotaMb must be a positive number');
+  }
+
+  if (patch.issueLog?.columns !== undefined) {
+    const err = validateIssueLogColumns(patch.issueLog.columns);
+    if (err) errors.push(err);
   }
 
   const egg = patch.easterEgg;

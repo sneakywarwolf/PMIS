@@ -19,6 +19,8 @@ export interface FieldRule {
   value: string;
   /** If true, ALL substrings must be present (e.g. a merged "Start Date ... End Date ..." run). Default: any match wins */
   requireAll?: boolean;
+  /** Occurrence-ordered values: the Nth matching placeholder in the document gets values[N] (used when one placeholder name repeats with different values). */
+  values?: string[];
 }
 
 export interface PocStepData {
@@ -174,26 +176,33 @@ export class DocxManipulatorService {
 
     let hasSummaryTable = false;
     let hasDetailedTable = false;
+    let hasPocRow = false;
     for (let t = 0; t < tables.length; t++) {
       const table = tables.item(t);
       if (!table) continue;
       const text = this.getElementText(table).toLowerCase();
+      // Same classification the generator uses (fillFindingsTables): a CVE/CWE
+      // header without description/remediation placeholders is a summary table.
       const hasTitle = text.includes('{vulnerability name}') || text.includes('{finding title}');
-      const isDetailed = text.includes('cve/cwe') || text.includes('{cvss vector}');
-      const isSummary = !isDetailed && hasTitle && (text.includes('{score value}') || text.includes('{cvss score}'));
-      if (isDetailed && hasTitle) hasDetailedTable = true;
-      if (isSummary) hasSummaryTable = true;
+      const hasCveCwe = text.includes('cve/cwe') || text.includes('{cve/cwe}') || text.includes('{cvss vector}');
+      const hasDetailBody = ['{vulnerability description}', '{description}', '{vulnerability remediation}', '{remediation}'].some((k) => text.includes(k));
+      if (hasTitle && hasCveCwe && hasDetailBody) {
+        hasDetailedTable = true;
+        // Same POC-row detection fillDetailedBlock() uses to expand steps.
+        if (/poc reproduction|poc snapshot|step\s*1|\{steps\}|\{poc\}/.test(text)) hasPocRow = true;
+      }
+      if (hasTitle && !hasDetailBody && (hasCveCwe || text.includes('{score value}') || text.includes('{cvss score}'))) hasSummaryTable = true;
     }
 
+    // Required-field keys accept every alias resolveFindingParameter() understands.
     const allText = fields.map((f) => f.normalizedName).join(' ');
     const mandatory: { label: string; present: boolean }[] = [
       { label: 'Summary table ({Vulnerability Name} + {Score Value})', present: hasSummaryTable },
       { label: 'Detailed findings table (with CVE/CWE ID)', present: hasDetailedTable },
-      { label: 'Affected URL and Paths', present: allText.includes('affected_url') },
-      { label: 'Authentication Type', present: allText.includes('authentication_type') },
+      { label: 'Affected URL and Paths', present: ['affected_url', 'affected_instances', 'affected'].some((k) => allText.includes(k)) },
       { label: 'Vulnerability Description', present: allText.includes('vulnerability_description') },
-      { label: 'Reference Link', present: allText.includes('reference_link') },
-      { label: 'POC reproduction Steps', present: allText.includes('poc_reproduction_steps') },
+      { label: 'Reference Link', present: ['reference_link', 'vulnerability_references', 'references'].some((k) => allText.includes(k)) },
+      { label: 'POC reproduction Steps', present: hasPocRow || allText.includes('poc_reproduction_steps') },
       { label: 'POC Snapshot', present: allText.includes('poc_snapshot') },
     ];
 
@@ -207,6 +216,8 @@ export class DocxManipulatorService {
           .join(', ')}`,
       );
     }
+    // Optional: not every report type shows it, so it never blocks activation.
+    if (!allText.includes('authentication_type')) warnings.push('Authentication Type placeholder not found (optional).');
     if (!hasSummaryTable) warnings.push('Summary-of-findings table was not detected.');
     if (!hasDetailedTable) warnings.push('Detailed-findings table was not detected.');
 
@@ -279,6 +290,9 @@ export class DocxManipulatorService {
     // rule-resolution priority (admin-mapped > generic > custom).
     this.replacePlaceholders(doc, this.buildResolver(rules));
 
+    // Step 3.5: serial-number columns ({S No} in e.g. the Engagement Scope asset table)
+    this.numberSerialColumns(doc);
+
     // Step 4: fill the template's own findings tables
     if (findings.length > 0) {
       // Unresolved finding-table {Parameter}s are left as literal text —
@@ -291,12 +305,155 @@ export class DocxManipulatorService {
       }
     }
 
+    // Step 4.5: severity charts (e.g. Cert-In "Risk Matrix") — counts from the findings
+    await this.updateSeverityCharts(zip, findings);
+
     // Step 5: serialize back
     const serializer = new XMLSerializer();
     const updatedXml = serializer.serializeToString(doc);
     zip.file('word/document.xml', updatedXml);
 
+    await this.markFieldsForUpdate(zip);
+
     return zip.generateAsync({ type: 'nodebuffer' });
+  }
+
+  /**
+   * Table of Contents (and every other field) is recalculated by Word, not by
+   * us — page numbers need a layout engine. Setting w:updateFields makes Word
+   * refresh them when the report is opened (it asks the user once).
+   * ponytail: Word shows an "update fields?" prompt on open; a server-side
+   * LibreOffice pass could pre-render the TOC if that prompt is unwanted.
+   */
+  private async markFieldsForUpdate(zip: any): Promise<void> {
+    await this.refreshDateFieldResults(zip);
+    const path = 'word/settings.xml';
+    let xml: string | undefined = await zip.file(path)?.async('text');
+    if (!xml || xml.includes('w:updateFields')) return;
+    const tag = '<w:updateFields w:val="true"/>';
+    // CT_Settings order: updateFields precedes hdrShapeDefaults/footnotePr/endnotePr/compat
+    const next = xml.match(/<w:(hdrShapeDefaults|footnotePr|endnotePr|compat)[\s>\/]/);
+    xml = next ? xml.slice(0, next.index) + tag + xml.slice(next.index) : xml.replace('</w:settings>', tag + '</w:settings>');
+    zip.file(path, xml);
+  }
+
+  /**
+   * DATE fields (e.g. the cover-page date) recalculate in Word on open, but
+   * previewers/converters show the cached result — still the template's
+   * date. Rewrite that cached text to today in the field's own \@ format
+   * (same run, so formatting is untouched). Only simple month/day/year
+   * pictures are handled; anything else is left for Word to refresh.
+   */
+  private async refreshDateFieldResults(zip: any): Promise<void> {
+    const path = 'word/document.xml';
+    const xml: string | undefined = await zip.file(path)?.async('text');
+    if (!xml) return;
+    const now = new Date();
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const out = xml.replace(
+      /(DATE\s*\\@\s*(?:&quot;|")([^"&]+)(?:&quot;|")[\s\S]*?fldCharType="separate"\/><\/w:r>\s*<w:r[ >](?:(?!<\/w:r>)[\s\S])*?<w:t[^>]*>)[^<]*(<\/w:t>)/g,
+      (all, head, fmt, tail) => {
+        if (/[^MdyY ,\/.\-]/.test(fmt.replace(/MMMM|MMM/g, ''))) return all; // unsupported picture: let Word refresh it
+        const text = fmt
+          .replace(/MMMM/g, months[now.getMonth()])
+          .replace(/MMM/g, months[now.getMonth()].slice(0, 3))
+          .replace(/MM/g, String(now.getMonth() + 1).padStart(2, '0'))
+          .replace(/M/g, String(now.getMonth() + 1))
+          .replace(/dd/g, String(now.getDate()).padStart(2, '0'))
+          .replace(/d/g, String(now.getDate()))
+          .replace(/yyyy/gi, String(now.getFullYear()))
+          .replace(/yy/gi, String(now.getFullYear()).slice(2));
+        return head + text + tail;
+      },
+    );
+    if (out !== xml) zip.file(path, out);
+  }
+
+  /**
+   * A table's first-column {S No} placeholder that step 3 left unresolved
+   * (it's a row index, not a project value) becomes 1, 2, 3... by row.
+   * Findings/summary/contact tables are skipped — they number via their
+   * own per-finding resolution.
+   */
+  private numberSerialColumns(doc: Document): void {
+    const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
+    if (!body) return;
+    for (const table of Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[]) {
+      if (this.isProtectedTable(table)) continue;
+      const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
+      let n = 0;
+      for (const row of rows) {
+        const cell = row.getElementsByTagNameNS(this.W_NS, 'tc').item(0);
+        if (!cell || !/^\{\s*s\.?\s*no\.?\s*\}$/i.test(this.getElementText(cell).trim())) continue;
+        n++;
+        for (const para of Array.from(cell.getElementsByTagNameNS(this.W_NS, 'p')) as Element[]) {
+          this.replacePlaceholdersInParagraph(para, () => String(n));
+        }
+      }
+    }
+  }
+
+  /**
+   * Template-driven severity chart fill: any chart whose series are named
+   * after severities (Critical/High/Medium/Low/Info) gets each series' own
+   * category point set to that severity's finding count — in the chart cache
+   * (what Word renders) and in the embedded workbook (so "Edit Data" in Word
+   * shows the same numbers). Charts without severity series are untouched.
+   */
+  private async updateSeverityCharts(zip: any, findings: FindingData[]): Promise<void> {
+    const counts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+    for (const f of findings) {
+      const k = (f.severity || '').toLowerCase().startsWith('info') ? 'info' : (f.severity || '').toLowerCase();
+      if (k in counts) counts[k]++;
+    }
+    const sevKey = (name: string) => (name.toLowerCase().startsWith('info') ? 'info' : name.toLowerCase());
+
+    for (const chartPath of Object.keys(zip.files).filter((n) => /^word\/charts\/chart[^/]*\.xml$/.test(n))) {
+      let xml: string = await zip.file(chartPath).async('text');
+      const cellUpdates: Record<string, number> = {};
+
+      const updated = xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (ser) => {
+        const name = ser.match(/<c:tx>[\s\S]*?<c:v>([^<]*)<\/c:v>/)?.[1]?.trim() ?? '';
+        const key = sevKey(name);
+        if (!(key in counts)) return ser;
+        const cats = [...(ser.match(/<c:cat>[\s\S]*?<\/c:cat>/)?.[0] ?? '').matchAll(/<c:pt idx="(\d+)"><c:v>([^<]*)<\/c:v>/g)];
+        const catIdx = cats.find((m) => sevKey(m[2].trim()) === key)?.[1];
+        if (catIdx === undefined) return ser;
+        const ref = ser.match(/<c:val>[\s\S]*?<c:f>([^<]*)<\/c:f>/)?.[1] ?? '';
+        const col = ref.match(/\$([A-Z]+)\$(\d+)/);
+        if (col) cellUpdates[`${col[1]}${parseInt(col[2], 10) + parseInt(catIdx, 10)}`] = counts[key];
+        return ser.replace(/(<c:val>[\s\S]*?<c:ptCount val="\d+"\/>)[\s\S]*?(<\/c:numCache>)/, `$1<c:pt idx="${catIdx}"><c:v>${counts[key]}</c:v></c:pt>$2`);
+      });
+      let result = updated;
+      if (result === xml) {
+        // Alternate layout: one series whose categories are the severities
+        // (value i = count of category i), e.g. a simple "Risk Matrix" bar/pie.
+        result = xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (ser) => {
+          const cats = [...(ser.match(/<c:cat>[\s\S]*?<\/c:cat>/)?.[0] ?? '').matchAll(/<c:pt idx="(\d+)"><c:v>([^<]*)<\/c:v>/g)];
+          if (cats.length === 0 || !cats.every((m) => sevKey(m[2].trim()) in counts)) return ser;
+          const pts = cats.map((m) => `<c:pt idx="${m[1]}"><c:v>${counts[sevKey(m[2].trim())]}</c:v></c:pt>`).join('');
+          return ser.replace(/(<c:val>[\s\S]*?<c:ptCount val="\d+"\/>)[\s\S]*?(<\/c:numCache>)/, `$1${pts}$2`);
+        });
+        if (result === xml) continue;
+      }
+      zip.file(chartPath, result);
+
+      // Embedded workbook (best-effort: only cells the template already has)
+      const relsPath = chartPath.replace('charts/', 'charts/_rels/') + '.rels';
+      const rels: string | undefined = await zip.file(relsPath)?.async('text');
+      const target = rels?.match(/Target="\.\.\/(embeddings\/[^"]+\.xlsx)"/)?.[1];
+      const wbFile = target && zip.file(`word/${target}`);
+      if (!wbFile) continue;
+      const wb = await JSZip.loadAsync(await wbFile.async('nodebuffer'));
+      const sheetPath = 'xl/worksheets/sheet1.xml';
+      let sheet: string | undefined = await wb.file(sheetPath)?.async('text');
+      if (!sheet) continue;
+      for (const [cell, value] of Object.entries(cellUpdates)) {
+        sheet = sheet.replace(new RegExp(`(<c r="${cell}"[^>]*>)<v>[^<]*</v>`), `$1<v>${value}</v>`);
+      }
+      wb.file(sheetPath, sheet);
+      zip.file(`word/${target}`, await wb.generateAsync({ type: 'nodebuffer' }));
+    }
   }
 
   /**
@@ -374,6 +531,7 @@ export class DocxManipulatorService {
           ? r.match.every((m) => normalizedName.includes(m))
           : r.match.some((m) => normalizedName.includes(m)),
       );
+      if (rule?.values) return rule.values.shift(); // exhausted -> undefined -> left literal
       return rule ? rule.value : undefined;
     };
   }
@@ -509,18 +667,26 @@ export class DocxManipulatorService {
     const hasTitle = (x: string) => x.includes('{vulnerability name}') || x.includes('{finding title}');
     const hasScore = (x: string) => x.includes('{score value}') || x.includes('{cvss score}');
     const hasCveCwe = (x: string) => x.includes('cve/cwe') || x.includes('{cve/cwe}') || x.includes('{cvss vector}');
+    // A "CVE/CWE" column header also appears in row-repeating summary tables
+    // (header row + one {Parameter} row, e.g. Cert-In). Those carry no
+    // description/remediation placeholders — only a real per-finding detail
+    // block does — so they're classified as summary, not detailed.
+    const hasDetailBody = (x: string) =>
+      ['{vulnerability description}', '{description}', '{vulnerability remediation}', '{remediation}'].some((k) => x.includes(k));
     const isDetailed = (t: Element) => {
       const x = this.getElementText(t).toLowerCase();
-      return hasTitle(x) && hasCveCwe(x);
+      return hasTitle(x) && hasCveCwe(x) && hasDetailBody(x);
     };
     const isSummary = (t: Element) => {
       const x = this.getElementText(t).toLowerCase();
-      return hasTitle(x) && hasScore(x) && !hasCveCwe(x);
+      return hasTitle(x) && !hasDetailBody(x) && (hasCveCwe(x) || hasScore(x));
     };
 
     const summaryTable = tables.find(isSummary);
     if (summaryTable) {
-      this.widenFirstColumn(summaryTable);
+      // Only score-style summaries get the wider S.No column; a multi-column
+      // summary (e.g. Cert-In) keeps the template's own column sizing.
+      if (hasScore(this.getElementText(summaryTable).toLowerCase())) this.widenFirstColumn(summaryTable);
       this.fillSummaryTable(doc, summaryTable, findings, severityColors, unresolved);
     }
 
@@ -891,11 +1057,14 @@ export class DocxManipulatorService {
     };
     const cells = Array.from(row.getElementsByTagNameNS(this.W_NS, 'tc'));
     for (const cell of cells) {
+      // A cell may combine {Severity} with other values (e.g. Cert-In's
+      // "{Severity} | {CVSS Score} | {CVSS Vector}") — it's still the severity cell.
+      const hadSeverity = /\{\s*severity\s*\}/i.test(this.getElementText(cell));
       const paragraphs = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
       for (const para of paragraphs) {
         this.replacePlaceholdersInParagraph(para, resolver);
       }
-      if (this.getElementText(cell).trim() === finding.severity) {
+      if (hadSeverity || this.getElementText(cell).trim() === finding.severity) {
         const color = severityColors[finding.severity];
         if (color) this.setCellShading(cell, color);
       }
@@ -910,7 +1079,7 @@ export class DocxManipulatorService {
    * several aliases are accepted per parameter to match the naming
    * variants used across existing and new templates.
    */
-  private resolveFindingParameter(normalizedName: string, finding: FindingData): string | undefined {
+  resolveFindingParameter(normalizedName: string, finding: FindingData): string | undefined {
     const cvssCombined = finding.cvssScore != null
       ? `${finding.cvssScore}${finding.cvssVector ? ` | ${finding.cvssVector}` : ''}`
       : 'N/A';
@@ -1248,34 +1417,38 @@ export class DocxManipulatorService {
   }
 
   /** Renders "STEP n: description" with only the "STEP n:" label bold. */
+  /**
+   * Writes "Step N: description" into the template's step cell. Both runs
+   * clone the template label run's own formatting (font, size, colour, bold,
+   * ...) — only the description drops bold/italic-style emphasis the label
+   * carries — and the label keeps the template's own wording/case
+   * ("STEP 1: " vs "Step 1:") with just the number swapped.
+   */
   private setStepCellText(cell: Element, stepNo: number, description: string): void {
     const doc = cell.ownerDocument;
     const para = cell.getElementsByTagNameNS(this.W_NS, 'p').item(0);
     if (!para) return;
 
+    const labelRun = Array.from(para.getElementsByTagNameNS(this.W_NS, 'r')).find((r) => this.getRunText(r).trim()) ?? null;
+    const templateRPr = labelRun ? this.getFirstChildByTagName(labelRun, 'rPr') : null;
+    const labelText = labelRun ? this.getRunText(labelRun) : '';
+    const label = (/\d/.test(labelText) ? labelText.replace(/\d+/, String(stepNo)) : `Step ${stepNo}:`).replace(/(\S)$/, '$1 ');
+
     for (const run of Array.from(para.getElementsByTagNameNS(this.W_NS, 'r'))) {
       para.removeChild(run);
     }
 
-    const makeRun = (text: string, bold: boolean) => {
+    const makeRun = (text: string, emphasis: boolean) => {
       const run = doc.createElementNS(this.W_NS, 'w:r');
-      const rPr = doc.createElementNS(this.W_NS, 'w:rPr');
-      if (bold) {
-        rPr.appendChild(doc.createElementNS(this.W_NS, 'w:b'));
+      if (templateRPr) {
+        const rPr = templateRPr.cloneNode(true) as Element;
+        if (!emphasis) {
+          for (const tag of ['b', 'bCs']) {
+            for (const n of Array.from(rPr.getElementsByTagNameNS(this.W_NS, tag))) rPr.removeChild(n);
+          }
+        }
+        run.appendChild(rPr);
       }
-      const rFonts = doc.createElementNS(this.W_NS, 'w:rFonts');
-      rFonts.setAttributeNS(this.W_NS, 'w:ascii', 'Calibri');
-      rFonts.setAttributeNS(this.W_NS, 'w:hAnsi', 'Calibri');
-      rFonts.setAttributeNS(this.W_NS, 'w:cs', 'Calibri');
-      rPr.appendChild(rFonts);
-      const sz = doc.createElementNS(this.W_NS, 'w:sz');
-      sz.setAttributeNS(this.W_NS, 'w:val', '24'); // 12pt, in half-points
-      rPr.appendChild(sz);
-      const szCs = doc.createElementNS(this.W_NS, 'w:szCs');
-      szCs.setAttributeNS(this.W_NS, 'w:val', '24');
-      rPr.appendChild(szCs);
-      run.appendChild(rPr);
-
       const t = doc.createElementNS(this.W_NS, 'w:t');
       t.setAttribute('xml:space', 'preserve');
       t.textContent = text;
@@ -1283,7 +1456,7 @@ export class DocxManipulatorService {
       return run;
     };
 
-    para.appendChild(makeRun(`STEP ${stepNo}: `, true));
+    para.appendChild(makeRun(label, true));
     para.appendChild(makeRun(description, false));
   }
 

@@ -12,8 +12,15 @@ import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, Repor
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
-import { CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
+import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
+import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
+
+const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
+const severityRank = (sev: string) => {
+  const i = SEVERITY_ORDER.indexOf((sev || '').toLowerCase().slice(0, 4) === 'info' ? 'info' : (sev || '').toLowerCase());
+  return i === -1 ? SEVERITY_ORDER.length : i;
+};
 
 const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   WEB: 'Web',
@@ -658,12 +665,15 @@ export class ReportsService {
         );
       }
 
+      const certIn = template.category === TemplateCategory.CERT_IN;
       const sortedFindings = project.findings
         .map((f) => ({
           ...f,
           effectiveScore: f.cvssScoreOverride ?? f.vulnerability.cvssScore ?? 0,
         }))
-        .sort((a, b) => b.effectiveScore - a.effectiveScore);
+        // Cert-In reports list findings strictly Critical → High → Medium → Low → Info
+        // (score breaks ties); other report types keep the existing score-only order.
+        .sort((a, b) => (certIn ? severityRank(this.effectiveSeverity(a)) - severityRank(this.effectiveSeverity(b)) : 0) || b.effectiveScore - a.effectiveScore);
 
       const images: PocImage[] = [];
       const findingsData: FindingData[] = [];
@@ -771,6 +781,63 @@ export class ReportsService {
         data: { status: ReportGenerationStatus.FAILED, error: error?.message || 'Unknown error' },
       });
     }
+  }
+
+  /**
+   * Issue Log CSV. Same template/structure for every compliance + testing
+   * type; columns (and their order) come from Admin Settings > Issue Log
+   * Parameters, values from the existing finding parameter registry. Nothing
+   * is persisted, so changing the config never alters an Issue Log that was
+   * already downloaded.
+   * Filename: Issue-Log_{Compliance Type}_{Sub Type}_{Client Name}-{Application Name}_v0.1_{Report Date}_Non-Compliant.csv
+   */
+  async generateIssueLog(projectId: string, user: User) {
+    const project = await this.loadProjectForReport(projectId, user);
+    const { settings } = await this.settingsService.get();
+    const columns = resolveIssueLogColumns((settings as any).issueLog?.columns);
+
+    const rows = project.findings
+      .map((f) => ({ f, score: f.cvssScoreOverride ?? f.vulnerability.cvssScore ?? 0 }))
+      .sort((a, b) => b.score - a.score) // same order as the report
+      .map(({ f }, i) => {
+        const finding: FindingData = {
+          no: i + 1,
+          title: f.vulnerability.name,
+          severity: f.cvssScoreOverride != null ? this.severityFromScore(f.cvssScoreOverride) : f.vulnerability.severity,
+          cvssScore: f.cvssScoreOverride ?? f.vulnerability.cvssScore,
+          cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
+          description: f.vulnerability.description,
+          impact: f.vulnerability.impact,
+          remediation: f.vulnerability.remediation,
+          references: f.vulnerability.references,
+          cveId: f.vulnerability.cveId,
+          cweId: f.vulnerability.cweId,
+          affectedInstances: (f.affectedInstances || []).join('\n'),
+          authenticationType: f.authenticationType,
+          vulnerabilityDependency: f.vulnerabilityDependency,
+          reportStatus: f.reportStatus,
+          pocSteps: [],
+        };
+        return columns.map((c) =>
+          c.constant ?? (c.key === 's_no' ? String(finding.no) : this.docxManipulator.resolveFindingParameter(c.key, finding) ?? ''),
+        );
+      });
+
+    const reportDate = await this.getFormattedReportDateParam();
+    const fmt = (d: any) => this.formatReportDate(d);
+    const safe = (s: string) => (s || 'NA').trim().replace(/[\s<>:"/\|?*]+/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '') || 'NA';
+    const complianceType = (project.complianceType || project.category || '').toString().replace(/_/g, '-');
+    const fileName = [
+      'Issue-Log',
+      safe(complianceType),
+      SUB_TYPE_FILE_LABELS[project.subType as TemplateSubType] || safe(project.subType),
+      `${safe(resolveTemplateParameter('project.clientName', project, fmt))}-${safe(resolveTemplateParameter('project.applicationName', project, fmt))}`,
+      'v0.1',
+      safe(resolveTemplateParameter('report.generationDateIso', project, fmt, undefined, reportDate)),
+      'Non-Compliant',
+    ].join('_');
+
+    return { fileName: `${fileName}.csv`, csv: buildIssueLogCsv(columns, rows) };
   }
 
   async getReportHistory(projectId: string, user: User) {
@@ -1016,6 +1083,11 @@ export class ReportsService {
       { match: ['sha_1', 'sha1'], value: project.sha1 || '' },
       { match: ['external_internal'], value: project.externalInternal || '' },
       { match: ['quarter'], value: project.quarter || '' },
+      // {Number of Days} repeats once per audit phase (Planning, Information
+      // Gathering, Scanning & Exploitation, Reporting), in that document order.
+      ...(splitAuditDays(project.startDate, project.endDate).length
+        ? [{ match: ['number_of_days'], value: '', values: splitAuditDays(project.startDate, project.endDate) }]
+        : []),
       { match: ['report_date'], value: reportDate ?? new Date().toISOString().slice(0, 10) },
       { match: ['testing_type', 'platform_type'], value: PLATFORM_TYPE_LABELS[project.subType] || project.subType || '' },
       { match: ['location'], value: project.location || '' },
@@ -1108,6 +1180,10 @@ export class ReportsService {
     const { settings } = await this.settingsService.get();
     const pattern = settings.formatting?.reportDateFormat || DEFAULT_REPORT_DATE_FORMAT;
     return formatReportDateByPattern(new Date(), pattern);
+  }
+
+  private effectiveSeverity(f: any): string {
+    return f.cvssScoreOverride != null ? this.severityFromScore(f.cvssScoreOverride) : f.vulnerability.severity;
   }
 
   private severityFromScore(score: number): string {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, Save, Loader2, Clock, ServerCog, Egg } from 'lucide-react';
+import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, ListOrdered, ArrowUp, ArrowDown, Save, Loader2, Clock, ServerCog, Egg } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
@@ -18,6 +18,7 @@ const TABS = [
   { id: 'attachments', label: 'Attachments', icon: Paperclip },
   { id: 'notifications', label: 'Notifications', icon: Bell },
   { id: 'formatting', label: 'Formatting', icon: Calendar },
+  { id: 'issueLog', label: 'Issue Log Parameters', icon: ListOrdered },
   { id: 'system', label: 'System', icon: ServerCog },
   { id: 'easterEgg', label: 'Easter Egg', icon: Egg },
 ];
@@ -133,7 +134,8 @@ function SettingsContent() {
         {activeTab === 'attachments' && <AttachmentsTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'notifications' && <NotificationsTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'formatting' && <FormattingTab settings={settings} setCategory={setCategory} />}
-        {activeTab === 'system' && <SystemTab settings={settings} setCategory={setCategory} />}
+        {activeTab === 'issueLog' && <IssueLogTab settings={settings} setCategory={setCategory} />}
+      {activeTab === 'system' && <SystemTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'easterEgg' && <EasterEggTab settings={settings} setCategory={setCategory} />}
 
         <div className="flex justify-end pt-6 mt-6 border-t border-gray-700">
@@ -525,6 +527,31 @@ function FormattingTab({ settings, setCategory }: any) {
         </p>
       </div>
       <p className={`${hintCls} col-span-2`}>Date Format/Number Format above are not yet wired into rendering across the app — stored centrally so a future pass can consume one source of truth.</p>
+    </div>
+  );
+}
+
+function IssueLogTab({ settings, setCategory }: any) {
+  const cols: { key: string; label: string; enabled: boolean }[] = settings.issueLog.columns;
+  const set = (next: typeof cols) => setCategory('issueLog', { columns: next });
+  const move = (i: number, d: number) => {
+    const next = [...cols];
+    [next[i], next[i + d]] = [next[i + d], next[i]];
+    set(next);
+  };
+  return (
+    <div className="space-y-3">
+      <p className={hintCls}>
+        Columns included in generated Issue Logs, in this order. Applies to future Issue Logs only; already-downloaded files are unchanged.
+      </p>
+      {cols.map((c, i) => (
+        <div key={c.key} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+          <input type="checkbox" checked={c.enabled} onChange={(e) => set(cols.map((x) => (x.key === c.key ? { ...x, enabled: e.target.checked } : x)))} />
+          <span className="flex-1 text-sm text-white">{c.label}</span>
+          <button type="button" disabled={i === 0} onClick={() => move(i, -1)} className="text-gray-400 hover:text-white disabled:opacity-30" aria-label={`Move ${c.label} up`}><ArrowUp className="w-4 h-4" /></button>
+          <button type="button" disabled={i === cols.length - 1} onClick={() => move(i, 1)} className="text-gray-400 hover:text-white disabled:opacity-30" aria-label={`Move ${c.label} down`}><ArrowDown className="w-4 h-4" /></button>
+        </div>
+      ))}
     </div>
   );
 }
