@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { motion, useReducedMotion } from 'framer-motion';
 import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, RefreshCw, User as UserIcon, Users, X } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { formatDate } from '@/lib/datetime';
@@ -37,6 +38,8 @@ const titleCase = (s: string) => s.replace(/_/g, ' ').toLowerCase().replace(/\b\
 const person = (u: { username: string; fullName: string | null }) => u.fullName || u.username;
 
 const CONTROL_CLS = 'w-auto px-3 py-2 rounded-lg text-sm';
+const SEARCH_CLS = 'w-full px-3 py-2 rounded-lg text-sm';
+const VIEWS = [['self', 'My Projects', UserIcon], ['team', 'Team Projects', Users]] as const;
 const NO_FILTERS ={ q: '', tester: '', tl: '', testingType: '', subType: '', compliance: '', status: '', from: '', to: '' };
 
 type SortKey = 'client' | 'scope' | 'tester' | 'tl' | 'testing' | 'activity' | 'start' | 'end' | 'vulns' | 'compliance' | 'status';
@@ -75,6 +78,7 @@ function FilterSelect({ label, value, onChange, options, format = (v) => v }: {
 export function DashboardEngagements() {
   const { user } = useAuth();
   const orgWide = user?.role === 'ADMIN' || user?.role === 'AVP';
+  const reduceMotion = useReducedMotion();
   const [view, setView] = useState<'team' | 'self'>('team');
   const [filters, setFilters] = useState(NO_FILTERS);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'start', dir: -1 });
@@ -132,42 +136,22 @@ export function DashboardEngagements() {
         <div>
           <h2 className="text-lg font-semibold text-white">Engagements</h2>
           <p className="text-sm text-gray-400">
-            {orgWide ? 'All teams' : view === 'team' ? 'Your team' : 'Your engagements'}
+            {orgWide ? 'All teams' : view === 'team' ? 'Team projects' : 'My projects'}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {!orgWide && (
-            <div role="group" aria-label="Engagement view" className="flex rounded-lg border border-gray-700 p-0.5">
-              {([['team', 'Team', Users], ['self', 'Self', UserIcon]] as const).map(([v, label, Icon]) => (
-                <button
-                  key={v}
-                  type="button"
-                  aria-pressed={view === v}
-                  onClick={() => setView(v)}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none ${
-                    view === v
-                      ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
-                      : 'border border-transparent text-gray-400 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="mb-3">
         <input
           type="search"
           aria-label="Search client or scope"
           placeholder="Search client / scope"
           value={filters.q}
           onChange={(e) => setFilter('q', e.target.value)}
-          className={CONTROL_CLS}
+          className={SEARCH_CLS}
         />
+      </div>
+      <div className="flex flex-wrap items-center gap-2 mb-4">
         <FilterSelect label="Tester" value={filters.tester} onChange={(v) => setFilter('tester', v)} options={options((r) => person(r.tester))} />
         <FilterSelect label="Team Lead" value={filters.tl} onChange={(v) => setFilter('tl', v)} options={options((r) => person(r.tl))} />
         <FilterSelect label="Testing" value={filters.testingType} onChange={(v) => setFilter('testingType', v)} options={options((r) => r.testingType)} />
@@ -185,7 +169,33 @@ export function DashboardEngagements() {
             <X className="w-4 h-4" /> Clear
           </button>
         )}
-        {rows && <span className="ml-auto text-xs text-gray-500 tabular-nums">{shown.length} of {rows.length}</span>}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        {!orgWide ? (
+          <div role="group" aria-label="Project view" className="inline-flex rounded-lg border border-gray-700 bg-gray-800/50 p-0.5">
+            {VIEWS.map(([v, label, Icon]) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={view === v}
+                onClick={() => setView(v)}
+                className={`relative flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none ${
+                  view === v ? 'text-emerald-400' : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {view === v && (
+                  <motion.span
+                    layoutId="engagements-view-pill"
+                    transition={{ duration: reduceMotion ? 0 : 0.2, ease: 'easeOut' }}
+                    className="absolute inset-0 rounded-md bg-emerald-500/10 border border-emerald-500/30"
+                  />
+                )}
+                <span className="relative flex items-center gap-1.5"><Icon className="w-4 h-4" />{label}</span>
+              </button>
+            ))}
+          </div>
+        ) : <span />}
+        {rows && <span className="text-xs text-gray-500 tabular-nums">{shown.length} of {rows.length}</span>}
       </div>
 
       {error ? (
