@@ -84,8 +84,11 @@ export class ChangePasswordDto {
   @IsString()
   currentPassword?: string;
 
+  // Length/complexity are enforced against the admin-configured policy in
+  // AuthService.changePassword (SettingsService.validatePassword) — a fixed
+  // @MinLength here would override that setting.
   @IsString()
-  @MinLength(14)
+  @MaxLength(128)
   newPassword: string;
 }
 

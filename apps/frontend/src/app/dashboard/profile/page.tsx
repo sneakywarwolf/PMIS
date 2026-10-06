@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { User, Eye, EyeOff, Lock, Save, Phone, Briefcase, Shield } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
 
 interface ProfileData {
   id: string;
@@ -23,6 +24,8 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Admin-configured policy; the server re-checks it, this is just an early message.
+  const minLength: number = useBranding().settings?.security?.passwordMinLength ?? 8;
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [passwordVisibility, setPasswordVisibility] = useState({ current: false, new: false, confirm: false });
   const [editForm, setEditForm] = useState({ fullName: '', phone: '', designation: '' });
@@ -66,8 +69,8 @@ export default function ProfilePage() {
       setMessage('New passwords do not match');
       return;
     }
-    if (passwordForm.newPassword.length < 14) {
-      setMessage('Password must be at least 14 characters');
+    if (passwordForm.newPassword.length < minLength) {
+      setMessage(`Password must be at least ${minLength} characters`);
       return;
     }
     try {

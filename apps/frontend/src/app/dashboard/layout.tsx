@@ -509,6 +509,10 @@ function UserDropdown({ user, logout, router }: { user: any; logout: () => Promi
 
 function ForceChangePasswordGate() {
   const { logout, refreshUser } = useAuth();
+  const { settings } = useBranding();
+  // Admin-configured policy (GET /settings is allowed during a forced change).
+  // The server re-checks it, so this is only for an early, accurate message.
+  const minLength: number = settings?.security?.passwordMinLength ?? 8;
   const router = useRouter();
   const [form, setForm] = useState({ newPassword: '', confirmPassword: '' });
   const [visibility, setVisibility] = useState({ new: false, confirm: false });
@@ -522,8 +526,8 @@ function ForceChangePasswordGate() {
       setError('New passwords do not match');
       return;
     }
-    if (form.newPassword.length < 14) {
-      setError('Password must be at least 14 characters');
+    if (form.newPassword.length < minLength) {
+      setError(`Password must be at least ${minLength} characters`);
       return;
     }
     setSaving(true);
@@ -557,6 +561,7 @@ function ForceChangePasswordGate() {
         </div>
         <p className="text-sm text-gray-400 mb-6">
           For security, you must set a new password before continuing.
+          {settings?.security && ` It must be at least ${minLength} characters.`}
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
