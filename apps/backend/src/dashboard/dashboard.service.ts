@@ -257,7 +257,7 @@ export class DashboardService {
         status: true,
         startDate: true,
         endDate: true,
-        tester: { select: { id: true, username: true, fullName: true } },
+        tester: { select: { id: true, username: true, fullName: true, assignedTlId: true } },
         tl: { select: { id: true, username: true, fullName: true } },
       },
     });
@@ -281,6 +281,57 @@ export class DashboardService {
       ...p,
       vulnCounts: counts.get(p.id) ?? { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
     }));
+  }
+
+  /**
+   * Per-Team-Lead status comparison (ADMIN/AVP only — enforced on the controller).
+   * A project belongs to its tester's *current* TL, falling back to the project's
+   * own tlId, same ownership rule as getOrgCompletionStats (no double-counting
+   * after a tester moves teams).
+   */
+  async getTlComparison() {
+    const [tls, testers, projects, findings] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { role: UserRole.TEAM_LEAD, isActive: true },
+        select: { id: true, username: true, fullName: true },
+      }),
+      this.prisma.user.findMany({ select: { id: true, assignedTlId: true } }),
+      this.prisma.project.findMany({ select: { id: true, status: true, testerId: true, tlId: true } }),
+      // ponytail: loads every finding to bucket severity (it's a relation field, so no groupBy);
+      // move to a raw SQL aggregate if the findings table gets large.
+      this.prisma.finding.findMany({ select: { projectId: true, vulnerability: { select: { severity: true } } } }),
+    ]);
+
+    const testerToTl = new Map(testers.map((t) => [t.id, t.assignedTlId]));
+    const empty = () => ({ critical: 0, high: 0, medium: 0, low: 0, info: 0 });
+    const teams = new Map(
+      tls.map((tl) => [
+        tl.id,
+        {
+          tlId: tl.id,
+          tlName: tl.fullName || tl.username,
+          teamSize: testers.filter((t) => t.assignedTlId === tl.id).length,
+          total: 0,
+          byStatus: { NOT_STARTED: 0, IN_PROGRESS: 0, AWAITING_REVIEW: 0, COMPLETED: 0 } as Record<string, number>,
+          vulnCounts: empty() as Record<string, number>,
+        },
+      ]),
+    );
+
+    const owner = new Map<string, string>();
+    for (const p of projects) {
+      const team = teams.get(testerToTl.get(p.testerId) ?? p.tlId);
+      if (!team) continue;
+      owner.set(p.id, team.tlId);
+      team.total += 1;
+      if (p.status in team.byStatus) team.byStatus[p.status] += 1;
+    }
+    for (const f of findings) {
+      const team = teams.get(owner.get(f.projectId) ?? '');
+      if (team) team.vulnCounts[severityKey(f.vulnerability.severity)] += 1;
+    }
+
+    return [...teams.values()].sort((a, b) => a.tlName.localeCompare(b.tlName));
   }
 
   async getAdminStats() {

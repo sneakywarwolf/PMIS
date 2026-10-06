@@ -24,7 +24,10 @@ import {
   Lock,
   Eye,
   EyeOff,
+  Menu,
+  Search,
 } from 'lucide-react';
+import { CommandPalette } from '@/components/command-palette';
 import { useAuth, api } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { useIdleTimer } from '@/hooks/use-idle-timer';
@@ -76,13 +79,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  // Below md the sidebar is an off-canvas drawer; the "collapsed rail" only applies on desktop.
+  const slim = collapsed && !isMobile;
   const prevPathnameRef = useRef(pathname);
   const transitionKind = classifyTransition(prevPathnameRef.current, pathname);
   const idleTimer = useIdleTimer(!!user);
 
   useEffect(() => {
     prevPathnameRef.current = pathname;
+    setMobileOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -115,15 +132,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Sidebar */}
       <motion.aside
         initial={false}
-        animate={{ width: collapsed ? 72 : 256 }}
+        animate={{ width: slim ? 72 : 256, x: isMobile && !mobileOpen ? -256 : 0 }}
         transition={{ duration: 0.3, ease: 'easeInOut' }}
+        aria-hidden={isMobile && !mobileOpen ? true : undefined}
+        // inert keeps off-screen links out of the tab order while the drawer is closed
+        {...(isMobile && !mobileOpen ? { inert: '' as any } : {})}
         className="fixed left-0 top-0 h-screen bg-cyber-surface border-r border-cyber-border z-50"
       >
         <div className="h-full flex flex-col">
           {/* Logo */}
           <div className="h-16 flex items-center px-4 border-b border-cyber-border">
             <Shield className="w-8 h-8 shrink-0" style={{ color: primaryColor }} />
-            {!collapsed && (
+            {!slim && (
               <motion.span
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -162,7 +182,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     } : undefined}
                   >
                     <item.icon className="w-5 h-5 shrink-0" style={isActive ? { color: primaryColor } : undefined} />
-                    {!collapsed && (
+                    {!slim && (
                       <span className="ml-3 text-sm font-medium whitespace-nowrap">{item.label}</span>
                     )}
                   </Link>
@@ -173,7 +193,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           {/* Bottom */}
           <div className="p-2 border-t border-cyber-border">
-            {!collapsed && (
+            {!slim && (
               <div className="px-3 py-2 mb-2">
                 <p className="text-sm font-medium text-white truncate">{user.fullName || user.username}</p>
                 <p className="text-xs text-emerald-400">{roleLabel(user.role)}</p>
@@ -185,14 +205,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               className="flex items-center w-full px-3 py-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
             >
               <LogOut className="w-5 h-5 shrink-0" />
-              {!collapsed && <span className="ml-3 text-sm font-medium">Logout</span>}
+              {!slim && <span className="ml-3 text-sm font-medium">Logout</span>}
             </button>
 
             <button
-              onClick={() => setCollapsed(!collapsed)}
+              onClick={() => (isMobile ? setMobileOpen(false) : setCollapsed(!collapsed))}
+              aria-label={isMobile ? 'Close menu' : collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               className="mt-1 flex items-center justify-center w-full py-2 rounded-lg text-gray-500 hover:text-white hover:bg-white/5 transition-all"
             >
-              {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+              {slim ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             </button>
           </div>
         </div>
@@ -201,10 +222,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Main content */}
       <main
         className="flex-1 min-w-0 transition-all duration-300"
-        style={{ marginLeft: collapsed ? 72 : 256 }}
+        style={{ marginLeft: isMobile ? 0 : slim ? 72 : 256 }}
       >
         {/* Top bar */}
-        <div className="flex items-center justify-end px-6 pt-4 gap-3">
+        <div className="flex items-center justify-end px-4 md:px-6 pt-4 gap-3">
+          <button
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open menu"
+            className="mr-auto rounded-lg p-2 text-gray-400 transition-all hover:bg-white/5 hover:text-white md:hidden"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Search pages and projects (Ctrl+K)"
+            className="flex items-center gap-2 rounded-lg border border-gray-700 px-3 py-1.5 text-sm text-gray-400 transition-all hover:bg-white/5 hover:text-white"
+          >
+            <Search className="w-4 h-4" />
+            <span className="hidden sm:inline">Search</span>
+            <kbd className="hidden rounded border border-gray-700 px-1.5 font-mono text-[10px] text-gray-500 sm:inline">Ctrl K</kbd>
+          </button>
           <ThemeSelector />
           <NotificationBell />
           <UserDropdown user={user} logout={logout} router={router} />
@@ -221,7 +258,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               animate="animate"
               exit="exit"
               transition={TRANSITION_TIMING}
-              className="p-6"
+              className="p-4 md:p-6"
               style={{ gridArea: '1 / 1' }}
             >
               {children}
@@ -229,6 +266,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </AnimatePresence>
         </div>
       </main>
+
+      {isMobile && mobileOpen && (
+        <div className="fixed inset-0 z-40 bg-black/60" aria-hidden onClick={() => setMobileOpen(false)} />
+      )}
+
+      <CommandPalette pages={filteredNav} open={paletteOpen} onOpenChange={setPaletteOpen} />
 
       <AnimatePresence>
         {idleTimer.warning && (
@@ -328,6 +371,7 @@ function NotificationBell() {
     <div className="relative">
       <button
         onClick={() => { setOpen(!open); if (!open) fetchNotifications(); }}
+        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
         className="relative p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
       >
         <Bell className="w-5 h-5" />
@@ -404,6 +448,8 @@ function UserDropdown({ user, logout, router }: { user: any; logout: () => Promi
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
+        aria-label="Account menu"
+        aria-expanded={open}
         className="flex items-center gap-2 p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
       >
         <UserCircle className="w-6 h-6" />
