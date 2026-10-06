@@ -17,6 +17,8 @@ describe('AuthService.refreshTokens — single-session enforcement', () => {
     revokeRefreshToken: jest.Mock;
     storeRefreshToken: jest.Mock;
     setActiveSession: jest.Mock;
+    touchSessionActivity: jest.Mock;
+    isSessionActive: jest.Mock;
   };
   let prisma: { user: { findUnique: jest.Mock } };
 
@@ -28,6 +30,8 @@ describe('AuthService.refreshTokens — single-session enforcement', () => {
       revokeRefreshToken: jest.fn(),
       storeRefreshToken: jest.fn(),
       setActiveSession: jest.fn(),
+      touchSessionActivity: jest.fn(),
+      isSessionActive: jest.fn().mockResolvedValue(true),
     };
     prisma = {
       user: { findUnique: jest.fn().mockResolvedValue({ id: 'u1', isActive: true, username: 'u', assignedTlId: null }) },
@@ -57,6 +61,25 @@ describe('AuthService.refreshTokens — single-session enforcement', () => {
     await service.refreshTokens('rt', '1.2.3.4', 'jest');
 
     expect(redisService.setActiveSession).toHaveBeenCalledWith('u1', 'session-A', expect.any(Number));
+  });
+
+  it('refuses to refresh a session that has been idle past the timeout (does not revive it)', async () => {
+    jwtService.verify.mockReturnValue({ sub: 'u1', jti: 'jti-1', sessionId: 'session-A' });
+    redisService.getActiveSession.mockResolvedValue('session-A');
+    redisService.isSessionActive.mockResolvedValue(false);
+
+    await expect(service.refreshTokens('rt', '1.2.3.4', 'jest')).rejects.toThrow(UnauthorizedException);
+    expect(redisService.touchSessionActivity).not.toHaveBeenCalled();
+    expect(redisService.revokeRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it('a refresh re-arms the idle timer for the configured timeout (15 min)', async () => {
+    jwtService.verify.mockReturnValue({ sub: 'u1', jti: 'jti-1', sessionId: 'session-A' });
+    redisService.getActiveSession.mockResolvedValue('session-A');
+
+    await service.refreshTokens('rt', '1.2.3.4', 'jest');
+
+    expect(redisService.touchSessionActivity).toHaveBeenCalledWith('session-A', 900);
   });
 
   it('rejects refreshing a token whose session has been superseded by a newer login', async () => {

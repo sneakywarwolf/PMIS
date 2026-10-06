@@ -22,6 +22,7 @@ export function useIdleTimer(enabled: boolean): IdleTimerState {
   const [secondsRemaining, setSecondsRemaining] = useState(WARNING_SECONDS);
   const lastActivityRef = useRef(Date.now());
   const settingsRef = useRef<{ timeoutMinutes: number; action: 'logout' | 'warn' } | null>(null);
+  const endingRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -39,10 +40,23 @@ export function useIdleTimer(enabled: boolean): IdleTimerState {
     };
   }, [enabled]);
 
+  // End the server session too (clears cookies, refresh token, active session),
+  // not just navigate — otherwise Back / typing /dashboard would still work.
+  // The server also expires idle sessions on its own, so a failed call is fine.
+  const endSession = useCallback(() => {
+    if (endingRef.current) return;
+    endingRef.current = true;
+    api.post('/auth/logout').catch(() => {}).finally(() => {
+      window.location.href = '/login?idleTimeout=1';
+    });
+  }, []);
+
   const stayActive = useCallback(() => {
     lastActivityRef.current = Date.now();
     setWarning(false);
     setSecondsRemaining(WARNING_SECONDS);
+    // Keep the server-side idle timer alive too; the dialog click isn't an API call by itself.
+    api.get('/auth/me').catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -63,9 +77,7 @@ export function useIdleTimer(enabled: boolean): IdleTimerState {
       const timeoutMs = cfg.timeoutMinutes * 60 * 1000;
 
       if (cfg.action === 'logout') {
-        if (idleMs >= timeoutMs) {
-          window.location.href = '/login?idleTimeout=1';
-        }
+        if (idleMs >= timeoutMs) endSession();
         return;
       }
 
@@ -73,7 +85,7 @@ export function useIdleTimer(enabled: boolean): IdleTimerState {
       const msUntilTimeout = timeoutMs - idleMs;
       if (msUntilTimeout <= WARNING_SECONDS * 1000) {
         if (msUntilTimeout <= 0) {
-          window.location.href = '/login?idleTimeout=1';
+          endSession();
           return;
         }
         setWarning(true);
@@ -81,7 +93,7 @@ export function useIdleTimer(enabled: boolean): IdleTimerState {
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [enabled]);
+  }, [enabled, endSession]);
 
   return { warning, secondsRemaining, stayActive };
 }
