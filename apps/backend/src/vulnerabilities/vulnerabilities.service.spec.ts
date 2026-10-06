@@ -68,20 +68,21 @@ describe('VulnerabilitiesService.bulkUpload', () => {
 
     await expect(
       service.bulkUpload(badCsv, 'NETWORK', 'admin1', '127.0.0.1', 'jest'),
-    ).rejects.toThrow('Missing or incorrect header(s): CVSS');
+    ).rejects.toThrow(/missing header\(s\): CVSS; unexpected\/extra header\(s\): CVSS Score/);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('accepts headers in a different order, since rows are extracted by header name', async () => {
+  // Header order is validated exactly (commit 6b05406); earlier behaviour accepted any order.
+  it('rejects headers in a different order, and never touches the database', async () => {
     const reorderedCsv = [
       'CVSS,S.No,Severity,Name,CVSS-VEC,Description,Impact,Remediation,Reference,CVE ID,CWE ID',
       '8.1,1,High,SQL Injection,VEC,Desc,Impact text,Remediate it,https://ref,CVE-1,CWE-89',
     ].join('\n');
 
-    await service.bulkUpload(reorderedCsv, 'NETWORK', 'admin1', '127.0.0.1', 'jest');
-
-    expect(prisma.vulnerability.createMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({ name: 'SQL Injection', cvssScore: 8.1, category: 'NETWORK' })],
-    });
+    await expect(
+      service.bulkUpload(reorderedCsv, 'NETWORK', 'admin1', '127.0.0.1', 'jest'),
+    ).rejects.toThrow(/out of order/);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.vulnerability.createMany).not.toHaveBeenCalled();
   });
 });
