@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
-import { Users, Plus, Search, UserPlus, Key, Pencil, Trash2, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, Upload, Download, AlertTriangle, XCircle } from 'lucide-react';
+import { Copy, Users, Plus, Search, UserPlus, Key, Pencil, Trash2, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, Upload, Download, AlertTriangle, XCircle } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { useConfirm } from '@/components/confirm-provider';
@@ -32,6 +32,8 @@ export default function UsersPage() {
   const [sortField, setSortField] = useState<string>('username');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [message, setMessage] = useState('');
+  const [tempPassword, setTempPassword] = useState<string | null>(null);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   // Bulk upload state
   const [showBulkError, setShowBulkError] = useState(false);
@@ -141,9 +143,22 @@ export default function UsersPage() {
   const handleResetPassword = async (userId: string) => {
     try {
       const response = await api.post(`/users/${userId}/reset-password`);
-      alert(`Temporary password: ${response.data.tempPassword}`);
+      setCopyFailed(false);
+      setTempPassword(response.data.tempPassword);
     } catch (error) {
       console.error('Failed to reset password:', error);
+    }
+  };
+
+  // Copy, then close. If the clipboard is blocked the dialog stays open —
+  // the password is only shown once, so closing would lose it.
+  const copyTempPassword = async () => {
+    try {
+      await navigator.clipboard.writeText(tempPassword!);
+      setTempPassword(null);
+      showToast('Temporary password copied.', 'success');
+    } catch {
+      setCopyFailed(true);
     }
   };
 
@@ -632,6 +647,46 @@ export default function UsersPage() {
                   Download Sample CSV
                 </button>
               </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {tempPassword && (
+        <div className="fixed inset-0 z-[300] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="temp-password-title"
+            initial={{ opacity: 0, scale: 0.95, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="w-full max-w-sm rounded-xl border border-gray-700 bg-gray-900/90 backdrop-blur-md shadow-2xl p-5"
+          >
+            <p id="temp-password-title" className="text-sm font-semibold text-white">Temporary password</p>
+            <p className="text-sm text-gray-400 mt-1">Shown only once. Copy it now and share it with the user.</p>
+            <div className="mt-4 p-3 rounded-lg bg-gray-800/50 border border-gray-700 font-mono text-sm text-emerald-400 break-all select-all">
+              {tempPassword}
+            </div>
+            {copyFailed && (
+              <p className="mt-2 text-xs text-red-400">Couldn&apos;t access the clipboard. Select the password above and copy it manually.</p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              {copyFailed && (
+                <button
+                  onClick={() => { setTempPassword(null); setCopyFailed(false); }}
+                  className="px-4 py-1.5 rounded-lg text-sm text-gray-300 hover:bg-white/5 transition-colors"
+                >
+                  Close
+                </button>
+              )}
+              <button
+                autoFocus
+                onClick={copyTempPassword}
+                className="flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none"
+              >
+                <Copy className="w-4 h-4" />
+                Copy
+              </button>
             </div>
           </motion.div>
         </div>
