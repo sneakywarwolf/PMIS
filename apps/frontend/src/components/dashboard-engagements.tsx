@@ -163,7 +163,7 @@ export function DashboardEngagements({ data, view, onViewChange, external, onCle
         <FilterSelect label="Activity" value={filters.subType} onChange={(v) => setFilter('subType', v)} options={options((r) => r.subType)} format={titleCase} />
         <FilterSelect label="Compliance" value={filters.compliance} onChange={(v) => setFilter('compliance', v)} options={Object.keys(COMPLIANCE_LABEL)} format={(v) => COMPLIANCE_LABEL[v]} />
         <FilterSelect label="Status" value={filters.status} onChange={(v) => setFilter('status', v)} options={options((r) => r.status)} format={titleCase} />
-        <label className="flex items-center gap-1.5 text-xs text-gray-500">
+        <label className="flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
           Start
           <input type="date" aria-label="Start date from" value={filters.from} max={filters.to || undefined} onChange={(e) => setFilter('from', e.target.value)} className={CONTROL_CLS} />
           –
@@ -219,7 +219,7 @@ export function DashboardEngagements({ data, view, onViewChange, external, onCle
               type="button"
               onClick={reload}
               aria-label="Refresh engagements"
-              className="rounded p-1 text-gray-500 transition-colors hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none"
+              className="rounded p-1.5 text-gray-500 transition-colors hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none"
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>

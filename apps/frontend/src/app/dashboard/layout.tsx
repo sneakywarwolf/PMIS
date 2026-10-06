@@ -134,9 +134,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         initial={false}
         animate={{ width: slim ? 72 : 256, x: isMobile && !mobileOpen ? -256 : 0 }}
         transition={{ duration: 0.3, ease: 'easeInOut' }}
-        aria-hidden={isMobile && !mobileOpen ? true : undefined}
-        // inert keeps off-screen links out of the tab order while the drawer is closed
-        {...(isMobile && !mobileOpen ? { inert: '' as any } : {})}
+        // inert keeps the off-screen drawer's links out of the tab order (set via ref: React 18 has no `inert` prop)
+        ref={(el: HTMLElement | null) => el?.toggleAttribute('inert', isMobile && !mobileOpen)}
         className="fixed left-0 top-0 h-screen bg-cyber-surface border-r border-cyber-border z-50"
       >
         <div className="h-full flex flex-col">
