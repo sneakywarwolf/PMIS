@@ -23,7 +23,7 @@ export class RetentionService {
 
   @Cron(CronExpression.EVERY_HOUR)
   async runRetentionSweep(): Promise<void> {
-    const systemActor = await this.prisma.user.findFirst({ where: { role: UserRole.ADMIN }, select: { id: true } });
+    const systemActor = await this.prisma.user.findFirst({ where: { role: UserRole.ADMIN, isActive: true }, select: { id: true } });
     await this.deleteExpiredPocAttachments(systemActor?.id ?? null);
     await this.deleteExpiredCompletedProjects(systemActor?.id ?? null);
     await this.deleteExpiredUsers(systemActor?.id ?? null);
@@ -51,6 +51,10 @@ export class RetentionService {
         filesDeleted += result.filesDeleted;
       }
 
+      // Delete the user row last so the sweep can't pick them up (and re-audit
+      // them) again next hour. Needs an admin to inherit rows that must survive.
+      if (systemActorId) await this.deleteUserRow(user.id, systemActorId);
+
       if (systemActorId) {
         await this.auditService.log({
           actorId: systemActorId,
@@ -67,6 +71,26 @@ export class RetentionService {
     if (expiredUsers.length > 0) {
       this.logger.log(`User retention: purged data for ${expiredUsers.length} deleted user(s)`);
     }
+  }
+
+  // Same handling as the DB reset's user removal: shared rows go to the admin,
+  // per-user rows (one-per-user quiz/arcade data, authored audit entries) are
+  // deleted, optional references null themselves via ON DELETE SET NULL, and
+  // notifications cascade.
+  private async deleteUserRow(userId: string, adminId: string): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.project.updateMany({ where: { tlId: userId }, data: { tlId: adminId } }),
+      this.prisma.finding.updateMany({ where: { createdById: userId }, data: { createdById: adminId } }),
+      this.prisma.reportGeneration.updateMany({ where: { generatedById: userId }, data: { generatedById: adminId } }),
+      this.prisma.reportTemplate.updateMany({ where: { uploadedById: userId }, data: { uploadedById: adminId } }),
+      this.prisma.quizQuestion.updateMany({ where: { createdById: userId }, data: { createdById: adminId } }),
+      this.prisma.vulnerabilityChangeRequest.updateMany({ where: { requestedById: userId }, data: { requestedById: adminId } }),
+      this.prisma.quizAttempt.deleteMany({ where: { userId } }),
+      this.prisma.quizUserStats.deleteMany({ where: { userId } }),
+      this.prisma.patternMapScore.deleteMany({ where: { userId } }),
+      this.prisma.auditLog.deleteMany({ where: { actorId: userId } }),
+      this.prisma.user.delete({ where: { id: userId } }),
+    ]);
   }
 
   private async deleteExpiredPocAttachments(systemActorId: string | null): Promise<void> {
