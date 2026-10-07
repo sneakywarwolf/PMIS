@@ -14,6 +14,7 @@ import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
 import { ChartFilter, DashboardEngagements } from '@/components/dashboard-engagements';
 import { DashboardRankings } from '@/components/dashboard-rankings';
+import { DashboardCustomize, Slot, useDashboardLayout } from '@/components/dashboard-customize';
 import { TlComparison } from '@/components/tl-comparison';
 import { FindingsHeatmap } from '@/components/findings-heatmap';
 import { Sparkline } from '@/components/sparkline';
@@ -37,6 +38,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [quizToday, setQuizToday] = useState<any>(null);
   const [view, setView] = useState<'team' | 'self'>('team');
+  const layout = useDashboardLayout(user?.id);
   const [external, setExternal] = useState<ChartFilter>({});
   // One engagements fetch shared by the table, KPI sparklines and heatmap.
   const engagements = useEngagements(view);
@@ -131,7 +133,7 @@ export default function DashboardPage() {
   if (loading) return <DashboardSkeleton />;
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <DashboardGreetingHero name={user?.fullName || user?.username || 'there'} pageTitle={pageTitle} />
 
       {quizToday && (
@@ -152,6 +154,7 @@ export default function DashboardPage() {
 
       <div className="flex items-center justify-between">
         <p className="text-gray-400 text-sm">Overview of your VAPT operations</p>
+        <DashboardCustomize layout={layout} />
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-sm text-emerald-400 font-mono">SYSTEM ONLINE</span>
@@ -200,12 +203,15 @@ export default function DashboardPage() {
         </div>
       </RevealSection>
 
+      <Slot layout={layout} id="rankings">
       {/* Competitive rankings */}
       <RevealSection delay={0.03}>
         <SectionHeading>Leaderboards</SectionHeading>
         <DashboardRankings />
       </RevealSection>
+      </Slot>
 
+      <Slot layout={layout} id="engagements">
       {/* Engagements */}
       <RevealSection delay={0.05}>
         <div id="engagements" className="scroll-mt-6">
@@ -219,7 +225,9 @@ export default function DashboardPage() {
           />
         </div>
       </RevealSection>
+      </Slot>
 
+      <Slot layout={layout} id="charts">
       {/* Charts */}
       <RevealSection delay={0.1} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="glass-card rounded-xl p-6">
@@ -289,7 +297,9 @@ export default function DashboardPage() {
           )}
         </div>
       </RevealSection>
+      </Slot>
 
+      <Slot layout={layout} id="tls">
       {/* Team Lead comparison — ADMIN/AVP only (endpoint is role-guarded too) */}
       {isAdmin && (
         <RevealSection delay={0.12}>
@@ -297,13 +307,17 @@ export default function DashboardPage() {
           <TlComparison onSelect={(tl, status) => filterEngagements({ tl, status })} />
         </RevealSection>
       )}
+      </Slot>
 
+      <Slot layout={layout} id="heatmap">
       {/* Heatmap */}
       <RevealSection delay={0.13}>
         <SectionHeading>Findings Heatmap</SectionHeading>
         <FindingsHeatmap rows={engagements.rows} onSelect={(severity) => filterEngagements({ severity })} />
       </RevealSection>
+      </Slot>
 
+      <Slot layout={layout} id="main">
       {/* Main Content Grid */}
       <RevealSection delay={0.15} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Team Breakdown (Admin / TL) */}
@@ -389,9 +403,12 @@ export default function DashboardPage() {
           </div>
         </motion.div>
       </RevealSection>
+      </Slot>
 
+      <Slot layout={layout} id="activity">
       {/* Activity */}
       {(isAdmin || user?.role === 'TEAM_LEAD') && <RecentActivity delay={0.2} />}
+      </Slot>
     </div>
   );
 }

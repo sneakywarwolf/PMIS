@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Heart, Play, RotateCcw, Trophy } from 'lucide-react';
+import { Heart, Play, RotateCcw, Trophy, Volume2, VolumeX } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { QuizHeader } from '@/components/quiz-ui';
+import { RAMP, cfgFor, makePattern, type Cfg } from '@/lib/pattern-map';
 
 // Pattern Map: standalone break-time game. Its scores live in their own table and never touch Quiz data.
 
@@ -14,27 +15,22 @@ type Entry = { rank: number; userId: string; name: string; bestScore: number };
 
 const LIVES = 3;
 
-type Cfg = { grid: number; length: number; step: number; label: string };
-
-// Rounds 1-6: a gentle fixed ramp. From round 7 every round rolls a random tier,
-// so a super-easy round can follow a super-tough one.
-const RAMP: Cfg[] = [
-  { grid: 3, length: 3, step: 650, label: 'Warm-up' },
-  { grid: 3, length: 4, step: 620, label: 'Warm-up' },
-  { grid: 3, length: 4, step: 580, label: 'Easy' },
-  { grid: 4, length: 4, step: 560, label: 'Easy' },
-  { grid: 4, length: 5, step: 520, label: 'Getting warmer' },
-  { grid: 4, length: 5, step: 500, label: 'Getting warmer' },
-];
-const between = (lo: number, hi: number) => lo + Math.floor(Math.random() * (hi - lo + 1));
-const TIERS: (() => Cfg)[] = [
-  () => ({ grid: 3, length: 3, step: 700, label: 'Super easy' }),
-  () => ({ grid: 3, length: between(4, 5), step: 600, label: 'Easy' }),
-  () => ({ grid: 4, length: between(5, 7), step: 450, label: 'Medium' }),
-  () => ({ grid: 5, length: between(5, 7), step: 330, label: 'Tough' }),
-  () => ({ grid: 5, length: between(8, 11), step: 240, label: 'Super tough' }),
-];
-const cfgFor = (n: number): Cfg => RAMP[n - 1] ?? TIERS[between(0, TIERS.length - 1)]();
+// One short WebAudio blip per tile; pitch rises along the sequence. No audio files, off via the mute toggle.
+let audioCtx: AudioContext | null = null;
+function beep(step: number, ok = true) {
+  try {
+    audioCtx ??= new AudioContext();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.frequency.value = ok ? 330 * 1.12 ** step : 110;
+    o.type = ok ? 'sine' : 'sawtooth';
+    g.gain.setValueAtTime(0.06, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.18);
+    o.connect(g).connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.18);
+  } catch { /* audio unavailable; the game is fully playable without it */ }
+}
 
 // A fresh vivid colour per round (lit tile, correct tap, accent) on high-contrast tiles.
 const PALETTES = [
@@ -45,15 +41,6 @@ const PALETTES = [
   { lit: 'bg-rose-400 border-rose-200 shadow-rose-400/50', ok: 'bg-rose-500/50 border-rose-300', text: 'text-rose-300' },
   { lit: 'bg-violet-400 border-violet-200 shadow-violet-400/50', ok: 'bg-violet-500/50 border-violet-300', text: 'text-violet-300' },
 ];
-
-function makePattern(cfg: Cfg): number[] {
-  const tiles = Array.from({ length: cfg.grid ** 2 }, (_, i) => i);
-  for (let i = tiles.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
-  }
-  return tiles.slice(0, cfg.length);
-}
 
 export default function ArcadePage() {
   const { user } = useAuth();
@@ -67,6 +54,11 @@ export default function ArcadePage() {
   const [flash, setFlash] = useState<{ tile: number; ok: boolean } | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [board, setBoard] = useState<Entry[]>([]);
+  const [period, setPeriod] = useState<'week' | 'all'>('week');
+  const [muted, setMuted] = useState(false);
+  const soundRef = useRef(true);
+  useEffect(() => { const m = localStorage.getItem('pattern-map-muted') === '1'; setMuted(m); soundRef.current = !m; }, []);
+  const toggleSound = () => { const m = !muted; setMuted(m); soundRef.current = !m; localStorage.setItem('pattern-map-muted', m ? '1' : '0'); };
 
   // Run stats live in a ref: they feed the final submit and must not lag behind rapid clicks.
   const run = useRef({ rounds: [] as Round[], clicks: 0, correct: 0, recallStart: 0 });
@@ -75,9 +67,10 @@ export default function ArcadePage() {
   const later = (fn: () => void, ms: number) => { timers.current.push(setTimeout(fn, ms)); };
 
   const loadBoard = useCallback(() => {
-    api.get('/quiz/arcade/pattern-map/leaderboard').then((r) => setBoard(r.data)).catch(() => {});
-  }, []);
-  useEffect(() => { loadBoard(); return clearTimers; }, [loadBoard]);
+    api.get('/quiz/arcade/pattern-map/leaderboard', { params: { period } }).then((r) => setBoard(r.data)).catch(() => {});
+  }, [period]);
+  useEffect(() => { loadBoard(); }, [loadBoard]);
+  useEffect(() => clearTimers, []);
 
   // A retry after a mistake keeps the same difficulty (`keep`) so a tough roll can't be dodged by losing a life.
   const startRound = useCallback((n: number, keep?: Cfg) => {
@@ -92,7 +85,7 @@ export default function ArcadePage() {
     setPhase('reveal');
     clearTimers();
     p.forEach((tile, i) => {
-      later(() => setLit(tile), 500 + i * step * 1.4);
+      later(() => { setLit(tile); if (soundRef.current) beep(i); }, 500 + i * step * 1.4);
       later(() => setLit(null), 500 + i * step * 1.4 + step);
     });
     later(() => { run.current.recallStart = Date.now(); setPhase('recall'); }, 500 + p.length * step * 1.4);
@@ -122,6 +115,7 @@ export default function ArcadePage() {
     const ok = tile === pattern[picked.length];
     r.clicks += 1;
     setFlash({ tile, ok });
+    if (soundRef.current) beep(picked.length, ok);
     if (!ok) {
       const left = lives - 1;
       setLives(left);
@@ -139,6 +133,15 @@ export default function ArcadePage() {
     }
   };
 
+  const moveFocus = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const d = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cfg.grid, ArrowDown: cfg.grid }[e.key];
+    if (!d) return;
+    const tiles = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button'));
+    const at = tiles.indexOf(document.activeElement as HTMLButtonElement);
+    const to = tiles[at + d];
+    if (at >= 0 && to) { e.preventDefault(); to.focus(); }
+  };
+
   const size = cfg.grid;
   const pal = PALETTES[(roundNo - 1) % PALETTES.length];
   const cleared = run.current.rounds.length;
@@ -150,6 +153,9 @@ export default function ArcadePage() {
       <section className="glass-card rounded-xl p-5 max-w-sm mx-auto w-full space-y-4">
         <div className="flex items-center justify-between text-sm">
           <span className="text-gray-400 tabular-nums">Round <span className="text-white font-semibold">{phase === 'idle' ? '–' : roundNo}</span>{phase !== 'idle' && <span className={`ml-2 text-xs font-medium ${pal.text}`}>{cfg.label}</span>}</span>
+          <button type="button" onClick={toggleSound} aria-pressed={muted} aria-label={muted ? 'Unmute sound' : 'Mute sound'} className="text-gray-400 hover:text-white transition-colors">
+            {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
           <span className="flex gap-1" aria-label={`${lives} lives left`}>
             {Array.from({ length: LIVES }).map((_, i) => (
               <Heart key={i} className={`w-4 h-4 ${i < lives ? 'text-rose-400 fill-rose-400' : 'text-gray-700'}`} />
@@ -157,7 +163,7 @@ export default function ArcadePage() {
           </span>
         </div>
 
-        <div className="grid gap-2 mx-auto" style={{ gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))` }} role="group" aria-label="Pattern grid">
+        <div className="grid gap-2 mx-auto" style={{ gridTemplateColumns: `repeat(${size}, minmax(0, 1fr))` }} role="group" aria-label="Pattern grid" onKeyDown={moveFocus}>
           {Array.from({ length: size * size }).map((_, i) => {
             const isLit = lit === i;
             const f = flash?.tile === i ? (flash.ok ? 'ok' : 'bad') : null;
@@ -174,7 +180,9 @@ export default function ArcadePage() {
                   : f === 'bad' ? 'bg-red-600/70 border-red-300'
                   : 'bg-slate-700/70 border-slate-500 enabled:hover:bg-slate-600 enabled:hover:border-slate-300'
                 }`}
-              />
+              >
+                {isLit && <span className="text-sm font-bold text-slate-900 tabular-nums">{pattern.indexOf(i) + 1}</span>}
+              </button>
             );
           })}
         </div>
@@ -208,6 +216,14 @@ export default function ArcadePage() {
       <section className="glass-card rounded-xl p-5 max-w-sm mx-auto w-full">
         <h2 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
           <Trophy className="w-4 h-4 text-amber-400" /> Pattern Map Leaderboard
+          <span className="ml-auto flex rounded-md border border-gray-700 text-xs overflow-hidden">
+            {(['week', 'all'] as const).map((p) => (
+              <button key={p} type="button" onClick={() => setPeriod(p)} aria-pressed={period === p}
+                className={`px-2 py-0.5 transition-colors ${period === p ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}>
+                {p === 'week' ? 'This week' : 'All time'}
+              </button>
+            ))}
+          </span>
         </h2>
         {board.length === 0 ? (
           <p className="text-sm text-gray-500">No scores yet — be the first.</p>

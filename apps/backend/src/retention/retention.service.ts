@@ -8,6 +8,8 @@ import { AuditService } from '../audit/audit.service';
 import { ProjectPurgeService, PurgeableProject } from '../common/project-purge.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Purged rows are deleted, so a capped batch just means the rest are picked up by the next hourly sweep.
+const PURGE_BATCH = 25;
 
 @Injectable()
 export class RetentionService {
@@ -37,6 +39,7 @@ export class RetentionService {
 
     const expiredUsers = await this.prisma.user.findMany({
       where: { isActive: false, deletedAt: { lt: cutoff } },
+      take: PURGE_BATCH,
       include: {
         projectsOwned: {
           include: { reportGenerations: true, findings: { include: { pocSteps: true } } },
@@ -134,6 +137,7 @@ export class RetentionService {
 
     const expiredProjects: (PurgeableProject & { name: string })[] = await this.prisma.project.findMany({
       where: { status: ProjectStatus.COMPLETED, generatedAt: { lt: cutoff } },
+      take: PURGE_BATCH,
       include: {
         reportGenerations: true,
         findings: { include: { pocSteps: true } },

@@ -385,6 +385,11 @@ export default function UsersPage() {
                   }`}>
                     {u.isActive ? 'Active' : 'Inactive'}
                   </span>
+                  {!u.isActive && u.deletedAt && (
+                    <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-red-500/10 text-red-400 tabular-nums" title="Permanently deleted after this unless reactivated">
+                      Deletes in {Math.max(1, Math.ceil((new Date(u.deletedAt).getTime() + 24 * 3600 * 1000 - Date.now()) / 3600000))}h
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -414,7 +419,7 @@ export default function UsersPage() {
                       <button
                         onClick={() => handleActivate(u.id)}
                         className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
-                        title="Activate"
+                        title={u.deletedAt ? 'Restore (cancels deletion)' : 'Activate'}
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
                       </button>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ChevronRight, Crown, Gamepad2, Zap } from 'lucide-react';
+import { ChevronRight, Crown, Gamepad2, Users, Zap } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 
 type Row = { id: string; name: string; score: number };
@@ -17,7 +17,7 @@ const MEDAL = [
 
 const TOP = 5;
 
-function Board({ title, unit, icon: Icon, accent, href, rows, meId }: {
+function Board({ title, unit, icon: Icon, accent, href, rows, meId, extra }: {
   title: string;
   unit: string;
   icon: React.ElementType;
@@ -25,6 +25,7 @@ function Board({ title, unit, icon: Icon, accent, href, rows, meId }: {
   href: string;
   rows: Row[] | null;
   meId?: string;
+  extra?: React.ReactNode;
 }) {
   const reduce = useReducedMotion();
   const top = rows?.slice(0, TOP) ?? [];
@@ -72,9 +73,11 @@ function Board({ title, unit, icon: Icon, accent, href, rows, meId }: {
           {title}
           <span className="text-[10px] font-medium uppercase tracking-widest text-gray-500">{unit}</span>
         </h3>
-        <Link href={href} className="inline-flex items-center gap-0.5 text-xs text-gray-400 hover:text-white transition-colors">
-          Full board <ChevronRight className="w-3.5 h-3.5" />
-        </Link>
+        {extra ?? (
+          <Link href={href} className="inline-flex items-center gap-0.5 text-xs text-gray-400 hover:text-white transition-colors">
+            Full board <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
+        )}
       </div>
 
       {rows === null ? (
@@ -103,6 +106,8 @@ export function DashboardRankings() {
   const { user } = useAuth();
   const [quiz, setQuiz] = useState<Row[] | null>(null);
   const [arcade, setArcade] = useState<Row[] | null>(null);
+  const [teams, setTeams] = useState<{ quiz: Row[]; arcade: Row[] } | null>(null);
+  const [teamGame, setTeamGame] = useState<'quiz' | 'arcade'>('quiz');
 
   useEffect(() => {
     api.get('/quiz/scorecard/leaderboard')
@@ -111,10 +116,14 @@ export function DashboardRankings() {
     api.get('/quiz/arcade/pattern-map/leaderboard')
       .then((r) => setArcade(r.data.map((e: { userId: string; name: string; bestScore: number }) => ({ id: e.userId, name: e.name, score: e.bestScore }))))
       .catch(() => setArcade([]));
+    const toRows = (t: { teamLeadId: string; name: string; score: number }[]): Row[] => t.map((e) => ({ id: e.teamLeadId, name: e.name, score: e.score }));
+    api.get('/quiz/teams/leaderboard')
+      .then((r) => setTeams({ quiz: toRows(r.data.quiz), arcade: toRows(r.data.arcade) }))
+      .catch(() => setTeams({ quiz: [], arcade: [] }));
   }, []);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
       <Board
         title="Quiz Champions" unit="points" icon={Zap} href="/dashboard/quiz/scorecard" rows={quiz} meId={user?.id}
         accent={{ text: 'text-emerald-300', bar: 'bg-gradient-to-r from-emerald-500/30 to-emerald-400/5', glow: 'hover:shadow-lg hover:shadow-emerald-500/10 transition-shadow' }}
@@ -122,6 +131,20 @@ export function DashboardRankings() {
       <Board
         title="Pattern Map" unit="best score" icon={Gamepad2} href="/dashboard/quiz/arcade" rows={arcade} meId={user?.id}
         accent={{ text: 'text-fuchsia-300', bar: 'bg-gradient-to-r from-fuchsia-500/30 to-cyan-400/5', glow: 'hover:shadow-lg hover:shadow-fuchsia-500/10 transition-shadow' }}
+      />
+      <Board
+        title="Team Showdown" unit="avg / member" icon={Users} href="/dashboard/quiz/scorecard" rows={teams ? teams[teamGame] : null}
+        accent={{ text: 'text-amber-300', bar: 'bg-gradient-to-r from-amber-500/30 to-orange-400/5', glow: 'hover:shadow-lg hover:shadow-amber-500/10 transition-shadow' }}
+        extra={
+          <span className="flex rounded-md border border-gray-700 text-xs overflow-hidden">
+            {(['quiz', 'arcade'] as const).map((g) => (
+              <button key={g} type="button" onClick={() => setTeamGame(g)} aria-pressed={teamGame === g}
+                className={`px-2 py-0.5 capitalize transition-colors ${teamGame === g ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}>
+                {g}
+              </button>
+            ))}
+          </span>
+        }
       />
     </div>
   );

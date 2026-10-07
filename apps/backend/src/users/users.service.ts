@@ -42,6 +42,7 @@ export class UsersService {
         assignedTlId: true,
         managerId: true,
         isActive: true,
+        deletedAt: true,
         isForcePasswordChange: true,
         createdAt: true,
         lastLoginAt: true,
@@ -352,6 +353,18 @@ export class UsersService {
       userAgent,
       details: { gracePeriodHours: 24 },
     });
+
+    // Let the people responsible for this user know the 24h undo window is open.
+    const label = user.fullName || user.username;
+    for (const recipientId of new Set([user.assignedTlId, user.managerId])) {
+      if (!recipientId || recipientId === adminId) continue;
+      await this.notificationsService.create({
+        userId: recipientId,
+        type: 'USER_UPDATED',
+        title: 'User scheduled for deletion',
+        message: `${label} was deleted by an admin. Their data is permanently removed in 24 hours unless an admin reactivates them.`,
+      });
+    }
 
     return {
       message: 'User deactivated. Data will be permanently deleted in 24 hours unless reactivated.',

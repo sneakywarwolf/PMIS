@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { ArcadeService } from './arcade.service';
 import { SubmitPatternMapDto } from './arcade.dto';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
@@ -13,7 +13,7 @@ export class ArcadeController {
   }
 
   @Get('pattern-map/leaderboard')
-  leaderboard() {
-    return this.arcade.leaderboard();
+  leaderboard(@Query('period') period?: string) {
+    return this.arcade.leaderboard(period === 'week' ? 'week' : 'all');
   }
 }
