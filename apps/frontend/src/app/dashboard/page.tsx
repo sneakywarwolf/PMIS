@@ -154,10 +154,12 @@ export default function DashboardPage() {
 
       <div className="flex items-center justify-between">
         <p className="text-gray-400 text-sm">Overview of your VAPT operations</p>
-        <DashboardCustomize layout={layout} />
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-sm text-emerald-400 font-mono">SYSTEM ONLINE</span>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-sm text-emerald-400 font-mono">SYSTEM ONLINE</span>
+          </div>
+          <DashboardCustomize layout={layout} />
         </div>
       </div>
 

@@ -41,9 +41,11 @@ export function DashboardCustomize({ layout }: { layout: DashboardLayout }) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-700 text-sm text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+        aria-label="Customize"
+        title="Customize"
+        className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none"
       >
-        <SlidersHorizontal className="w-4 h-4" /> Customize
+        <SlidersHorizontal className="w-4 h-4" />
       </button>
       {open && (
         <div role="dialog" aria-label="Customize dashboard" className="absolute right-0 z-50 mt-2 w-72 rounded-xl border border-gray-700 bg-gray-900/95 backdrop-blur-md shadow-2xl p-3">

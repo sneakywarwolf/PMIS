@@ -19,6 +19,13 @@ export class ProjectsController {
     return this.projectsService.findAll(user);
   }
 
+  // Declared before ':id' so "search" isn't treated as a project id.
+  @Get('search')
+  @ApiOperation({ summary: 'Projects the caller may open, for the Ctrl+K palette' })
+  async search(@CurrentUser() user: User) {
+    return this.projectsService.searchProjects(user);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get project by ID' })
   async findOne(@Param('id') id: string, @CurrentUser() user: User) {
