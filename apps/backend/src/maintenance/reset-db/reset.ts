@@ -88,6 +88,7 @@ export async function describeImpact(
       { label: 'Quiz questions', count: await prisma.quizQuestion.count() },
       { label: 'Quiz answers / history', count: await prisma.quizAttempt.count() },
       { label: 'Quiz scores & badges', count: await prisma.quizUserStats.count() },
+      { label: 'Arcade (Pattern Map) scores & leaderboard', count: await prisma.patternMapScore.count() },
     );
   }
   if (f.projects) {
@@ -137,7 +138,7 @@ export async function describeImpact(
       }
       if (!f.quiz) {
         deleted.push({ label: 'Quiz answers & scores belonging to removed users', count:
-          (await prisma.quizAttempt.count({ where: { userId: owners } })) + (await prisma.quizUserStats.count({ where: { userId: owners } })) });
+          (await prisma.quizAttempt.count({ where: { userId: owners } })) + (await prisma.quizUserStats.count({ where: { userId: owners } })) + (await prisma.patternMapScore.count({ where: { userId: owners } })) });
       }
       deleted.push({ label: 'Audit log entries authored by removed users', count: await prisma.auditLog.count({ where: { actorId: owners } }) });
     }
@@ -173,6 +174,7 @@ async function resetDatabase(
   if (f.quiz) {
     await tx.quizAttempt.deleteMany();
     await tx.quizUserStats.deleteMany();
+    await tx.patternMapScore.deleteMany();
     await tx.quizQuestion.deleteMany();
     await tx.notification.deleteMany({ where: { type: { in: [...QUIZ_NOTIFICATIONS] } } });
   }

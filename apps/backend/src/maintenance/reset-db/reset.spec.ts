@@ -46,10 +46,10 @@ describe('footprint', () => {
 });
 
 describe('runReset — each scope touches only what it should', () => {
-  it('quiz: only quiz tables + quiz notifications', async () => {
+  it('quiz: only quiz + arcade tables and quiz notifications', async () => {
     const h = makeHarness();
     await runReset(h.deps, ['quiz']);
-    expect(touched(h.calls)).toEqual(new Set(['quizAttempt', 'quizUserStats', 'quizQuestion', 'notification']));
+    expect(touched(h.calls)).toEqual(new Set(['quizAttempt', 'quizUserStats', 'patternMapScore', 'quizQuestion', 'notification']));
     expect(h.storage.remove).not.toHaveBeenCalled();
     expect(h.cache.clearSessionKeys).not.toHaveBeenCalled();
   });
