@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CheckCircle2, Clock, Flame, X, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
 import { useToast } from '@/components/toast-provider';
 import { api } from '@/contexts/auth-context';
 import { GlitchOverlay, RevealScanner, SuspiciousMark, useRareGlitch } from '@/components/easter-egg/quiz-eggs';
@@ -154,9 +155,14 @@ export default function QuizPage() {
 
   useEffect(() => {
     load();
-    // Easter Egg extras follow the admin toggle; any failure just leaves them off.
-    api.get('/settings').then((r) => setEggOn(!!r.data.settings?.easterEgg?.enabled)).catch(() => setEggOn(false));
   }, []);
+
+  // Easter Egg extras follow the admin toggle. Reads the app-wide settings the branding provider already
+  // fetched, instead of issuing its own duplicate GET /settings; until they load, the extras stay off.
+  const { settings: appSettings } = useBranding();
+  useEffect(() => {
+    setEggOn(!!appSettings?.easterEgg?.enabled);
+  }, [appSettings?.easterEgg?.enabled]);
 
   const revealedId = isRevealed(data) ? data.id : null;
   const userIsCorrect = isRevealed(data) ? data.userIsCorrect : null;

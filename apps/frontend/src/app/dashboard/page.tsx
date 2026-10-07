@@ -133,8 +133,6 @@ export default function DashboardPage() {
       }))
     : [];
 
-  if (loading) return <DashboardSkeleton />;
-
   return (
     <div className="flex flex-col gap-6">
       <DashboardGreetingHero name={user?.fullName || user?.username || 'there'} pageTitle={pageTitle} />
@@ -167,6 +165,8 @@ export default function DashboardPage() {
       </div>
 
       {/* Overview */}
+      {loading ? <SectionSkeleton rows={1} cards={4} /> : (
+<>
       <RevealSection>
         <SectionHeading>Overview</SectionHeading>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -207,6 +207,8 @@ export default function DashboardPage() {
           />
         </div>
       </RevealSection>
+</>
+      )}
 
       <Slot layout={layout} id="rankings">
       {/* Competitive rankings */}
@@ -243,6 +245,8 @@ export default function DashboardPage() {
       </Slot>
 
       <Slot layout={layout} id="charts">
+      {loading ? <SectionSkeleton rows={1} h="h-72" /> : (
+<>
       {/* Charts */}
       <RevealSection delay={0.1} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="glass-card rounded-xl p-6">
@@ -312,6 +316,8 @@ export default function DashboardPage() {
           )}
         </div>
       </RevealSection>
+</>
+      )}
       </Slot>
 
       <Slot layout={layout} id="tls">
@@ -333,6 +339,8 @@ export default function DashboardPage() {
       </Slot>
 
       <Slot layout={layout} id="main">
+      {loading ? <SectionSkeleton rows={1} h="h-72" /> : (
+<>
       {/* Main Content Grid */}
       <RevealSection delay={0.15} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Team Breakdown (Admin / TL) */}
@@ -418,6 +426,8 @@ export default function DashboardPage() {
           </div>
         </motion.div>
       </RevealSection>
+</>
+      )}
       </Slot>
 
       <Slot layout={layout} id="activity">
@@ -534,16 +544,13 @@ function RecentActivity({ delay }: { delay?: number }) {
 }
 
 /** Layout-matching placeholder so the page doesn't jump when data arrives. */
-function DashboardSkeleton() {
-  const block = (h: string) => <div className={`${h} rounded-xl bg-white/5 animate-pulse`} />;
+/** Placeholder for a stats-dependent section while /dashboard stats load — the rest of the page is already usable. */
+function SectionSkeleton({ rows = 1, cards = 0, h = 'h-72' }: { rows?: number; cards?: number; h?: string }) {
+  const block = (cls: string, key?: number) => <div key={key} className={`${cls} rounded-xl bg-white/5 animate-pulse`} />;
   return (
-    <div className="space-y-6" aria-busy="true" aria-label="Loading dashboard">
-      {block('h-28')}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[0, 1, 2, 3].map((i) => <div key={i}>{block('h-32')}</div>)}
-      </div>
-      {block('h-80')}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">{block('h-72')}{block('h-72')}</div>
+    <div className="space-y-4" aria-busy="true" aria-label="Loading">
+      {cards > 0 && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">{Array.from({ length: cards }).map((_, i) => block('h-32', i))}</div>}
+      {cards === 0 && Array.from({ length: rows }).map((_, i) => block(h, i))}
     </div>
   );
 }
