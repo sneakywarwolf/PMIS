@@ -31,8 +31,8 @@ const TIERS: (() => Cfg)[] = [
   () => ({ grid: 3, length: 3, step: 700, label: 'Super easy' }),
   () => ({ grid: 3, length: between(4, 5), step: 600, label: 'Easy' }),
   () => ({ grid: 4, length: between(5, 7), step: 450, label: 'Medium' }),
-  () => ({ grid: 5, length: between(8, 10), step: 330, label: 'Tough' }),
-  () => ({ grid: 5, length: between(11, 14), step: 240, label: 'Super tough' }),
+  () => ({ grid: 5, length: between(5, 7), step: 330, label: 'Tough' }),
+  () => ({ grid: 5, length: between(8, 11), step: 240, label: 'Super tough' }),
 ];
 const cfgFor = (n: number): Cfg => RAMP[n - 1] ?? TIERS[between(0, TIERS.length - 1)]();
 
