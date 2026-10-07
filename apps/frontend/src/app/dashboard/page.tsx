@@ -13,6 +13,7 @@ import { useBranding } from '@/contexts/branding-context';
 import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
 import { ChartFilter, DashboardEngagements } from '@/components/dashboard-engagements';
+import { DashboardRankings } from '@/components/dashboard-rankings';
 import { TlComparison } from '@/components/tl-comparison';
 import { FindingsHeatmap } from '@/components/findings-heatmap';
 import { Sparkline } from '@/components/sparkline';
@@ -197,6 +198,12 @@ export default function DashboardPage() {
             context={isAdmin ? 'Manage team members' : 'Active team members'}
           />
         </div>
+      </RevealSection>
+
+      {/* Competitive rankings */}
+      <RevealSection delay={0.03}>
+        <SectionHeading>Leaderboards</SectionHeading>
+        <DashboardRankings />
       </RevealSection>
 
       {/* Engagements */}
