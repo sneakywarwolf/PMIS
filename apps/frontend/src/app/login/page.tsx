@@ -122,10 +122,6 @@ function LoginForm() {
               )}
             </button>
           </form>
-
-          <div className="mt-6 text-center text-xs text-gray-500">
-            <p>Default: admin / Admin@1234567890!</p>
-          </div>
         </div>
       </motion.div>
     </div>
