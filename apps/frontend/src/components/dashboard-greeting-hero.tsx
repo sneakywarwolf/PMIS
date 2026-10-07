@@ -72,7 +72,7 @@ export function DashboardGreetingHero({ name, pageTitle }: { name: string; pageT
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.2 }}
-            className="sticky top-0 z-20 -mx-6 px-6 py-3 bg-cyber-bg/90 backdrop-blur-md border-b border-gray-800 flex items-center justify-between"
+            className="sticky top-0 z-20 -mx-4 px-4 md:-mx-6 md:px-6 py-3 bg-cyber-bg/90 backdrop-blur-md border-b border-gray-800 flex items-center justify-between"
           >
             <div className="flex items-center gap-2">
               <Icon className="w-4 h-4 text-emerald-400" />
@@ -86,7 +86,7 @@ export function DashboardGreetingHero({ name, pageTitle }: { name: string; pageT
       <motion.div
         ref={heroRef}
         style={prefersReducedMotion ? undefined : { scaleY: heroHeight, opacity: heroOpacity, y: heroY, transformOrigin: 'top' }}
-        className={`-mx-6 -mt-4 px-6 pt-10 pb-8 mb-2 bg-gradient-to-br ${BACKGROUNDS[timeOfDay]} rounded-b-2xl`}
+        className={`-mx-4 -mt-4 px-4 md:-mx-6 md:px-6 pt-10 pb-8 mb-2 bg-gradient-to-br ${BACKGROUNDS[timeOfDay]} rounded-b-2xl`}
       >
         <motion.div
           initial={{ opacity: 0, y: 16 }}

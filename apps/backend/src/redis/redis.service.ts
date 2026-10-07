@@ -95,4 +95,20 @@ export class RedisService extends Redis implements OnModuleDestroy {
   async clearActiveSession(userId: string): Promise<void> {
     await this.del(`active_session:${userId}`);
   }
+
+  // Inactivity enforcement: one key per session whose TTL *is* the idle
+  // timeout. Every authenticated request (and login/refresh) re-arms it, so a
+  // missing key means the session has been idle longer than the configured
+  // security.sessionTimeoutMinutes — no clock comparison needed.
+  async touchSessionActivity(sessionId: string, ttlSeconds: number): Promise<void> {
+    await this.setex(`session_activity:${sessionId}`, ttlSeconds, '1');
+  }
+
+  async clearSessionActivity(sessionId: string): Promise<void> {
+    await this.del(`session_activity:${sessionId}`);
+  }
+
+  async isSessionActive(sessionId: string): Promise<boolean> {
+    return (await this.exists(`session_activity:${sessionId}`)) === 1;
+  }
 }

@@ -6,6 +6,7 @@ import { SettingsService } from '../settings/settings.service';
 import { validateCsvHeaders, parseCsv } from '../common/csv-validation.util';
 import { User, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { randomInt } from 'crypto';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
 
 // Every newly created user (single or bulk) starts with this password and
@@ -256,7 +257,11 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    const tempPassword = this.generateSecurePassword();
+    const { settings } = await this.settingsService.get();
+    const tempPassword = this.generateSecurePassword(
+      settings.security.passwordMinLength,
+      settings.security.passwordRequireComplexity,
+    );
     const passwordHash = await argon2.hash(tempPassword, {
       type: argon2.argon2id,
       memoryCost: 65536,
@@ -408,15 +413,24 @@ export class UsersService {
     });
   }
 
-  private generateSecurePassword(): string {
-    const length = 20;
-    const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-    let password = '';
-    for (let i = 0; i < length; i++) {
-      const randomIndex = Math.floor(Math.random() * charset.length);
-      password += charset[randomIndex];
+  /**
+   * Temp password sized to the admin-configured policy (security.passwordMinLength).
+   * When complexity is required, one character from each class is guaranteed so
+   * the temp password itself satisfies the policy. Uses crypto.randomInt (CSPRNG).
+   */
+  private generateSecurePassword(length: number, requireComplexity: boolean): string {
+    const classes = ['abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789', '!@#$%^&*'];
+    const charset = classes.join('');
+    const pick = (set: string) => set[randomInt(set.length)];
+
+    const chars = requireComplexity ? classes.map(pick) : [];
+    while (chars.length < length) chars.push(pick(charset));
+    // Fisher–Yates so the guaranteed characters aren't always first.
+    for (let i = chars.length - 1; i > 0; i--) {
+      const j = randomInt(i + 1);
+      [chars[i], chars[j]] = [chars[j], chars[i]];
     }
-    return password;
+    return chars.join('');
   }
 
   // ─── Bulk Upload ───

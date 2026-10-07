@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
+import { animate, motion, useReducedMotion } from 'framer-motion';
 import {
   Activity, FolderOpen, ShieldCheck, Users, TrendingUp,
   Clock, AlertCircle, CheckCircle, FileText, ShieldAlert, HelpCircle,
@@ -12,21 +12,20 @@ import { useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
+import { ChartFilter, DashboardEngagements } from '@/components/dashboard-engagements';
+import { TlComparison } from '@/components/tl-comparison';
+import { FindingsHeatmap } from '@/components/findings-heatmap';
+import { Sparkline } from '@/components/sparkline';
+import { useEngagements } from '@/lib/use-engagements';
+import { weeklyDelta, weeklySeries } from '@/lib/trends';
+import { SEVERITY_COLORS, TOOLTIP_STYLE, statusColor, statusKey } from '@/lib/chart-theme';
+import type { Counts } from '@/lib/risk';
 import { api } from '@/contexts/auth-context';
 import { formatDateTime } from '@/lib/datetime';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-
-const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#6b7280'];
-const SEVERITY_COLORS: Record<string, string> = {
-  Critical: '#ef4444',
-  High: '#f97316',
-  Medium: '#f59e0b',
-  Low: '#3b82f6',
-  Info: '#6b7280',
-};
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -36,6 +35,17 @@ export default function DashboardPage() {
   const [vulnTrends, setVulnTrends] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [quizToday, setQuizToday] = useState<any>(null);
+  const [view, setView] = useState<'team' | 'self'>('team');
+  const [external, setExternal] = useState<ChartFilter>({});
+  // One engagements fetch shared by the table, KPI sparklines and heatmap.
+  const engagements = useEngagements(view);
+  const clearExternal = useCallback((key: keyof ChartFilter) => setExternal((e) => ({ ...e, [key]: undefined })), []);
+  const reduceMotion = useReducedMotion();
+  const filterEngagements = (f: ChartFilter) => {
+    setExternal(f);
+    document.getElementById('engagements')?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  };
+  const series = weeklySeries(engagements.rows ?? []);
 
   useEffect(() => {
     if (!user) return;
@@ -117,13 +127,7 @@ export default function DashboardPage() {
       }))
     : [];
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <DashboardSkeleton />;
 
   return (
     <div className="space-y-6">
@@ -164,6 +168,7 @@ export default function DashboardPage() {
             color="emerald"
             href="/dashboard/projects"
             context="View all projects"
+            trend={engagements.rows ? { values: series.total, delta: weeklyDelta(series.total) } : undefined}
           />
           <StatCard
             title="Active Assessments"
@@ -172,6 +177,7 @@ export default function DashboardPage() {
             color="cyan"
             href="/dashboard/projects?status=IN_PROGRESS"
             context="View projects in progress"
+            trend={engagements.rows ? { values: series.active, delta: weeklyDelta(series.active) } : undefined}
           />
           <StatCard
             title="Vulnerabilities"
@@ -180,6 +186,7 @@ export default function DashboardPage() {
             color="amber"
             href="/dashboard/vulnerabilities"
             context="Browse vulnerability database"
+            trend={engagements.rows ? { values: series.vulns, delta: weeklyDelta(series.vulns) } : undefined}
           />
           <StatCard
             title="Team Members"
@@ -192,31 +199,49 @@ export default function DashboardPage() {
         </div>
       </RevealSection>
 
-      {/* Project Health */}
+      {/* Engagements */}
       <RevealSection delay={0.05}>
-        <SectionHeading>Project Health</SectionHeading>
-        <motion.div
-          whileHover={{ y: -2 }}
-          className="glass-card rounded-xl p-6"
-        >
-          <h2 className="text-lg font-semibold text-white mb-4">Projects by Status</h2>
+        <div id="engagements" className="scroll-mt-6">
+          <SectionHeading>Engagements</SectionHeading>
+          <DashboardEngagements
+            data={engagements}
+            view={view}
+            onViewChange={setView}
+            external={external}
+            onClearExternal={clearExternal}
+          />
+        </div>
+      </RevealSection>
+
+      {/* Charts */}
+      <RevealSection delay={0.1} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="glass-card rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-1">Projects by Status</h2>
+          <p className="text-xs text-gray-500 mb-3">Click a slice to filter Engagements</p>
           {projectStatusData.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
                 <Pie
                   data={projectStatusData}
                   cx="50%"
-                  cy="50%"
-                  outerRadius={80}
+                  cy="45%"
+                  innerRadius={55}
+                  outerRadius={85}
+                  paddingAngle={2}
+                  stroke="none"
                   dataKey="value"
-                  label={({ name, value }) => `${name}: ${value}`}
+                  cursor="pointer"
+                  onClick={(d: any) => filterEngagements({ status: statusKey(d.name) })}
                 >
-                  {projectStatusData.map((_: any, index: number) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  {projectStatusData.map((d: any) => (
+                    <Cell key={d.name} fill={statusColor(d.name)} />
                   ))}
                 </Pie>
+                <text x="50%" y="45%" textAnchor="middle" dominantBaseline="middle" fill="#fff" className="text-2xl font-bold tabular-nums">
+                  {projectStatusData.reduce((n: number, d: any) => n + d.value, 0)}
+                </text>
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
+                  contentStyle={TOOLTIP_STYLE}
                   itemStyle={{ color: '#fff' }}
                 />
                 <Legend />
@@ -225,28 +250,27 @@ export default function DashboardPage() {
           ) : (
             <p className="text-gray-500 text-sm text-center py-12">No project data</p>
           )}
-        </motion.div>
-      </RevealSection>
+        </div>
 
-      {/* Vulnerabilities */}
-      <RevealSection delay={0.1}>
-        <SectionHeading>Vulnerabilities</SectionHeading>
-        <motion.div
-          whileHover={{ y: -2 }}
-          className="glass-card rounded-xl p-6"
-        >
-          <h2 className="text-lg font-semibold text-white mb-4">Findings by Severity</h2>
+        <div className="glass-card rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-1">Findings by Severity</h2>
+          <p className="text-xs text-gray-500 mb-3">Click a bar to filter Engagements</p>
           {severityData.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
               <BarChart data={severityData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                 <XAxis dataKey="name" stroke="#9ca3af" />
-                <YAxis stroke="#9ca3af" />
+                <YAxis stroke="#9ca3af" allowDecimals={false} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
+                  contentStyle={TOOLTIP_STYLE}
                   itemStyle={{ color: '#fff' }}
                 />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                <Bar
+                  dataKey="value"
+                  radius={[4, 4, 0, 0]}
+                  cursor="pointer"
+                  onClick={(d: any) => filterEngagements({ severity: String(d.name).toLowerCase() as keyof Counts })}
+                >
                   {severityData.map((entry: any, index: number) => (
                     <Cell key={`cell-${index}`} fill={entry.fill} />
                   ))}
@@ -256,7 +280,21 @@ export default function DashboardPage() {
           ) : (
             <p className="text-gray-500 text-sm text-center py-12">No findings data</p>
           )}
-        </motion.div>
+        </div>
+      </RevealSection>
+
+      {/* Team Lead comparison — ADMIN/AVP only (endpoint is role-guarded too) */}
+      {isAdmin && (
+        <RevealSection delay={0.12}>
+          <SectionHeading>Team Leads</SectionHeading>
+          <TlComparison onSelect={(tl, status) => filterEngagements({ tl, status })} />
+        </RevealSection>
+      )}
+
+      {/* Heatmap */}
+      <RevealSection delay={0.13}>
+        <SectionHeading>Findings Heatmap</SectionHeading>
+        <FindingsHeatmap rows={engagements.rows} onSelect={(severity) => filterEngagements({ severity })} />
       </RevealSection>
 
       {/* Main Content Grid */}
@@ -351,7 +389,19 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({ title, value, icon: Icon, color, href, context }: any) {
+/** Counts 0 → `to` over 0.8s; skipped under prefers-reduced-motion. */
+function CountUp({ to }: { to: number }) {
+  const reduce = useReducedMotion();
+  const [n, setN] = useState(reduce ? to : 0);
+  useEffect(() => {
+    if (reduce) return setN(to);
+    const controls = animate(0, to, { duration: 0.8, ease: 'easeOut', onUpdate: (v) => setN(Math.round(v)) });
+    return () => controls.stop();
+  }, [to, reduce]);
+  return <>{n}</>;
+}
+
+function StatCard({ title, value, icon: Icon, color, href, context, trend }: any) {
   const colorMap: any = {
     emerald: 'text-emerald-400 bg-emerald-500/10',
     cyan: 'text-cyan-400 bg-cyan-500/10',
@@ -367,16 +417,22 @@ function StatCard({ title, value, icon: Icon, color, href, context }: any) {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-gray-400">{title}</p>
-          <p className="text-2xl font-bold text-white mt-1">{value}</p>
+          <p className="text-2xl font-bold text-white mt-1 tabular-nums"><CountUp to={Number(value) || 0} /></p>
         </div>
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${colorMap[color]}`}>
           <Icon className="w-5 h-5" />
         </div>
       </div>
+      {trend && (
+        <div className={`mt-3 flex items-center justify-between gap-2 ${colorMap[color].split(' ')[0]}`}>
+          <span className={`text-xs tabular-nums ${trend.delta > 0 ? 'text-emerald-400' : 'text-gray-500'}`}>
+            {trend.delta > 0 ? '+' : ''}{trend.delta} this week
+          </span>
+          <Sparkline values={trend.values} />
+        </div>
+      )}
       {context && (
-        <p className="text-xs text-gray-500 mt-3 h-0 opacity-0 group-hover:h-4 group-hover:opacity-100 transition-all duration-200 overflow-hidden">
-          {context}
-        </p>
+        <p className="text-xs text-gray-500 mt-3 group-hover:text-gray-300 transition-colors">{context}</p>
       )}
     </motion.div>
   );
@@ -435,5 +491,20 @@ function RecentActivity({ delay }: { delay?: number }) {
         </div>
       </div>
     </RevealSection>
+  );
+}
+
+/** Layout-matching placeholder so the page doesn't jump when data arrives. */
+function DashboardSkeleton() {
+  const block = (h: string) => <div className={`${h} rounded-xl bg-white/5 animate-pulse`} />;
+  return (
+    <div className="space-y-6" aria-busy="true" aria-label="Loading dashboard">
+      {block('h-28')}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[0, 1, 2, 3].map((i) => <div key={i}>{block('h-32')}</div>)}
+      </div>
+      {block('h-80')}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">{block('h-72')}{block('h-72')}</div>
+    </div>
   );
 }

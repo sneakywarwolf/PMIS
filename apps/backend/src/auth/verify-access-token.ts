@@ -14,11 +14,17 @@ export type AuthUser = {
   isForcePasswordChange: boolean;
 };
 
+/**
+ * Always rejects a session that has been idle past security.sessionTimeoutMinutes.
+ * Pass `touchTtlSeconds` to also count this call as activity (HTTP requests do;
+ * socket handshakes don't, so a held-open connection can't keep a session alive).
+ */
 export async function verifyAccessToken(
   token: string,
   jwt: JwtService,
   redis: RedisService,
   prisma: PrismaService,
+  touchTtlSeconds?: () => Promise<number>,
 ): Promise<AuthUser> {
   let payload: any;
   try {
@@ -30,6 +36,12 @@ export async function verifyAccessToken(
   // Single-session enforcement: a newer login elsewhere overwrites the pointer.
   if (payload.sessionId && (await redis.getActiveSession(payload.sub)) !== payload.sessionId) {
     throw new UnauthorizedException('Session has been signed in elsewhere');
+  }
+
+  // Inactivity enforcement (tokens issued before sessionId existed are exempt,
+  // same as the single-session check above).
+  if (payload.sessionId && !(await redis.isSessionActive(payload.sessionId))) {
+    throw new UnauthorizedException('Session expired due to inactivity');
   }
 
   const user = await prisma.user.findUnique({
@@ -46,6 +58,11 @@ export async function verifyAccessToken(
     },
   });
   if (!user || !user.isActive) throw new UnauthorizedException('User account is inactive or deleted');
+
+  // Only a fully-valid request counts as activity.
+  if (payload.sessionId && touchTtlSeconds) {
+    await redis.touchSessionActivity(payload.sessionId, await touchTtlSeconds());
+  }
   return user as AuthUser;
 }
 

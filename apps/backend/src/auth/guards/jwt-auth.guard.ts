@@ -6,6 +6,7 @@ import { IS_PUBLIC_KEY } from '../decorators/roles.decorator';
 import { RedisService } from '../../redis/redis.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { verifyAccessToken } from '../verify-access-token';
+import { SettingsService } from '../../settings/settings.service';
 
 // Endpoints a user with a pending forced password change may still reach —
 // everything else is blocked server-side so the requirement can't be
@@ -29,6 +30,7 @@ export class JwtAuthGuard implements CanActivate {
     private jwtService: JwtService,
     private redisService: RedisService,
     private prismaService: PrismaService,
+    private settingsService: SettingsService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -49,7 +51,10 @@ export class JwtAuthGuard implements CanActivate {
     }
 
     try {
-      const user = await verifyAccessToken(token, this.jwtService, this.redisService, this.prismaService);
+      // Every authenticated request re-arms the session's idle timer (see verifyAccessToken).
+      const user = await verifyAccessToken(token, this.jwtService, this.redisService, this.prismaService, () =>
+        this.settingsService.getSessionTimeoutSeconds(),
+      );
 
       const isAllowedDuringForceChange =
         FORCE_PASSWORD_CHANGE_ALLOWED_PATHS.has(request.path) ||

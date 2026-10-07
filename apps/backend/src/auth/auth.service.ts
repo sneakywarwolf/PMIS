@@ -125,6 +125,13 @@ export class AuthService {
         if (activeSessionId !== payload.sessionId) {
           throw new UnauthorizedException('Session has been signed in elsewhere');
         }
+
+        // Inactivity: the idle key expires after security.sessionTimeoutMinutes
+        // without an authenticated request. Without this, the silent refresh
+        // would revive an idle session for the refresh token's whole lifetime.
+        if (!(await this.redisService.isSessionActive(payload.sessionId))) {
+          throw new UnauthorizedException('Session expired due to inactivity');
+        }
       }
 
       // Revoke old refresh token
@@ -149,6 +156,8 @@ export class AuthService {
       // Token might already be expired, that's okay
     }
 
+    const sessionId = await this.redisService.getActiveSession(userId);
+    if (sessionId) await this.redisService.clearSessionActivity(sessionId);
     await this.redisService.clearActiveSession(userId);
 
     await this.auditService.log({
@@ -253,6 +262,8 @@ export class AuthService {
     // Store refresh token in Redis
     await this.redisService.storeRefreshToken(jti, user.id, refreshExpirySeconds);
     await this.redisService.setActiveSession(user.id, sessionId, refreshExpirySeconds);
+    // Login/refresh counts as activity; from here each request re-arms it.
+    await this.redisService.touchSessionActivity(sessionId, accessExpirySeconds);
 
     return {
       access_token: accessToken,

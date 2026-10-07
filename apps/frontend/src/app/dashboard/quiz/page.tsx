@@ -1,17 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { Check, CheckCircle2, Clock, Flame, X, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
 import { api } from '@/contexts/auth-context';
 import { GlitchOverlay, RevealScanner, SuspiciousMark, useRareGlitch } from '@/components/easter-egg/quiz-eggs';
 import { correctTip, roast, suspiciousOption, type QuizStats } from '@/lib/easter-egg/quiz';
+import { QUIZ_HOVER, QuizHeader, QuizSkeleton, Ring, StatusPill, useQuizMotion } from '@/components/quiz-ui';
 
-// Same turquoise-glass hover treatment used app-wide (e.g. the sidebar nav) —
-// keep every Quiz control consistent with it rather than inventing a new one.
-const QUIZ_HOVER = 'hover:bg-teal-400/5 hover:border-teal-400/20 hover:shadow-lg hover:shadow-teal-500/10 hover:text-white transition-all';
+const LETTERS = 'ABCDEFGH';
+const WINDOW_MS = 24 * 60 * 60 * 1000;
 
 type ActiveQuestion = {
   id: string;
@@ -196,6 +196,18 @@ export default function QuizPage() {
   const glitching = useRareGlitch(!!eggOn && !!data && !isRevealed(data));
   const finishScan = useCallback(() => setScanned(true), []);
 
+  const m = useQuizMotion();
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // Radio-group keyboard behaviour: arrows move the choice (wrapping), focus follows.
+  const onOptionKey = (e: React.KeyboardEvent, i: number, n: number) => {
+    const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const next = (i + step + n) % n;
+    setSelected(next);
+    optionRefs.current[next]?.focus();
+  };
+
   const submit = async () => {
     if (selected === null || isRevealed(data) || !data) return;
     setSubmitting(true);
@@ -210,78 +222,138 @@ export default function QuizPage() {
     }
   };
 
-  if (loading) return <div className="p-6 text-gray-400">Loading today&apos;s question…</div>;
+  if (loading) return <div className="p-6 max-w-2xl mx-auto"><QuizSkeleton /></div>;
+
+  const active = data && !isRevealed(data) ? data : null;
+  const revealed = data && isRevealed(data) ? data : null;
+  const answered = !!active?.alreadyAnswered;
+  const canPick = !!active && !answered && !windowClosed;
 
   return (
-    <div className="p-6 max-w-2xl mx-auto space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-white">Question of the Day</h1>
-        <div className="flex items-center gap-2">
-          <Link href="/dashboard/quiz/log" className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-200 ${QUIZ_HOVER}`}>
-            Question Log
-          </Link>
-          <Link href="/dashboard/quiz/scorecard" className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-200 ${QUIZ_HOVER}`}>
-            Scorecard
-          </Link>
-          {user?.role === 'ADMIN' && (
-            <Link href="/dashboard/quiz/manage" className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-200 ${QUIZ_HOVER}`}>
-              Manage Quiz
-            </Link>
-          )}
-        </div>
-      </div>
+    <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-5">
+      <QuizHeader title="Question of the Day" subtitle="One question a day. Answer before the reveal to earn points and build your streak." />
 
       {!data && (
-        <div className="glass-card p-6 rounded-xl text-gray-400">No active question right now. Check back soon.</div>
+        <div className="glass-card rounded-xl p-10 text-center">
+          <Clock className="w-8 h-8 mx-auto text-gray-500 mb-3" />
+          <p className="text-white font-medium">No active question right now</p>
+          <p className="text-sm text-gray-400 mt-1">Check back soon — a new one is on its way.</p>
+        </div>
       )}
 
       <AnimatePresence mode="wait">
-        {data && !isRevealed(data) && (
-          <motion.div key="active" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="relative glass-card p-6 rounded-xl space-y-4">
+        {active && (
+          <motion.div
+            key="active"
+            initial={{ opacity: 0, y: m.reduce ? 0 : 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={m.t(0.3)}
+            className="relative glass-card rounded-xl p-5 md:p-6 space-y-5"
+          >
             {glitching && <GlitchOverlay />}
-            <p className={`text-lg text-white ${glitching ? 'ee-glitch' : ''}`}>{data.question}</p>
-            <div className="text-xs text-gray-400">
-              {windowClosed ? 'Answer window closed. Waiting for the reveal…' : `Answer revealed in ${countdown.label}`}
+
+            <div className="flex items-center justify-between gap-4">
+              <StatusPill status={windowClosed ? 'closed' : 'live'} />
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-500">{windowClosed ? 'Waiting for reveal' : 'Reveal in'}</p>
+                  <p className="font-mono text-sm text-white tabular-nums" aria-live="off">{windowClosed ? '—' : countdown.label}</p>
+                </div>
+                <Ring value={windowClosed ? 0 : countdown.remainingMs / WINDOW_MS} size={44} stroke={3} className={countdown.remainingMs < 3_600_000 ? 'text-amber-400' : 'text-emerald-400'}>
+                  <Clock className="w-4 h-4 text-gray-300" />
+                </Ring>
+              </div>
             </div>
-            {data.alreadyAnswered ? (
-              <p className="text-sm text-cyan-400">You&apos;ve already answered — check back after the reveal.</p>
+
+            <p className={`text-lg md:text-xl font-medium text-white leading-snug ${glitching ? 'ee-glitch' : ''}`}>{active.question}</p>
+
+            {answered ? (
+              <div className="flex items-start gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-white">Answer locked in</p>
+                  <p className="text-sm text-gray-400">Come back after the reveal to see how you did.</p>
+                </div>
+              </div>
             ) : (
               <>
-                <div className="grid gap-2">
-                  {data.options.map((opt, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setSelected(i)}
-                      className={`glass text-left px-4 py-2.5 rounded-lg text-gray-200 ${selected === i ? 'border-cyan-400 text-white transition-all' : QUIZ_HOVER}`}
-                    >
-                      <span className="flex items-center justify-between">
-                        {opt}
+                <div role="radiogroup" aria-label="Answer options" className="grid gap-2.5">
+                  {active.options.map((opt, i) => {
+                    const on = selected === i;
+                    return (
+                      <motion.button
+                        key={i}
+                        ref={(el) => { optionRefs.current[i] = el; }}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        tabIndex={on || (selected === null && i === 0) ? 0 : -1}
+                        disabled={!canPick}
+                        onClick={() => setSelected(i)}
+                        onKeyDown={(e: React.KeyboardEvent) => onOptionKey(e, i, active.options.length)}
+                        initial={{ opacity: 0, y: m.reduce ? 0 : 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ ...m.t(0.25), delay: i * m.stagger }}
+                        whileTap={m.reduce ? undefined : { scale: 0.99 }}
+                        className={`group flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 ${
+                          on
+                            ? 'border-emerald-500/50 bg-emerald-500/10 text-white shadow-lg shadow-emerald-500/5'
+                            : `glass border-transparent text-gray-200 ${QUIZ_HOVER}`
+                        }`}
+                      >
+                        <span
+                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs font-semibold transition-colors ${
+                            on ? 'border-emerald-400 bg-emerald-500 text-black' : 'border-gray-700 text-gray-400 group-hover:border-teal-400/40 group-hover:text-white'
+                          }`}
+                        >
+                          {on ? <Check className="w-4 h-4" /> : LETTERS[i]}
+                        </span>
+                        <span className="flex-1">{opt}</span>
                         {suspicious === i && <SuspiciousMark />}
-                      </span>
-                    </button>
-                  ))}
+                      </motion.button>
+                    );
+                  })}
                 </div>
+
                 <button
                   onClick={submit}
-                  disabled={selected === null || submitting}
-                  className={`glass px-4 py-2 rounded-lg text-white disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:shadow-none ${QUIZ_HOVER}`}
+                  disabled={selected === null || submitting || !canPick}
+                  className="w-full sm:w-auto min-w-[10rem] rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-emerald-600"
                 >
                   {submitting ? 'Submitting…' : 'Submit Answer'}
                 </button>
+                {windowClosed && <p className="text-xs text-gray-400">The answer window has closed. Waiting for the reveal…</p>}
               </>
             )}
           </motion.div>
         )}
 
-        {data && isRevealed(data) && eggOn !== null && (
-          <motion.div key="revealed" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card p-6 rounded-xl space-y-3">
-            <p className="text-lg text-white">{data.question}</p>
+        {revealed && eggOn !== null && (
+          <motion.div
+            key="revealed"
+            initial={{ opacity: 0, y: m.reduce ? 0 : 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={m.t(0.3)}
+            className="glass-card rounded-xl p-5 md:p-6 space-y-5"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <StatusPill status="revealed" />
+              {revealed.userIsCorrect !== null && (
+                <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${revealed.userIsCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {revealed.userIsCorrect ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                  {revealed.userIsCorrect ? 'You got it right' : 'Not this time'}
+                </span>
+              )}
+            </div>
+
+            <p className="text-lg md:text-xl font-medium text-white leading-snug">{revealed.question}</p>
 
             {eggOn && !scanned ? (
               <RevealScanner onDone={finishScan} />
             ) : (
               <>
-                {eggOn && data.userIsCorrect === true && (
+                {eggOn && revealed.userIsCorrect === true && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -309,25 +381,54 @@ export default function QuizPage() {
                   </motion.div>
                 )}
 
-                <p className="text-cyan-400 font-medium">Correct answer: {data.options[data.correctIndex]}</p>
+                <div className="grid gap-2.5" aria-label="Answer options">
+                  {revealed.options.map((opt, i) => {
+                    const correct = i === revealed.correctIndex;
+                    return (
+                      <motion.div
+                        key={i}
+                        initial={{ opacity: 0, y: m.reduce ? 0 : 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ ...m.t(0.25), delay: i * m.stagger }}
+                        className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
+                          correct ? 'border-emerald-500/40 bg-emerald-500/10 text-white' : 'border-gray-800 bg-white/[0.02] text-gray-500'
+                        }`}
+                      >
+                        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs font-semibold ${correct ? 'border-emerald-400 bg-emerald-500 text-black' : 'border-gray-700'}`}>
+                          {correct ? <Check className="w-4 h-4" /> : LETTERS[i]}
+                        </span>
+                        <span className="flex-1">{opt}</span>
+                        {correct && <span className="text-xs font-medium text-emerald-400">Correct answer</span>}
+                      </motion.div>
+                    );
+                  })}
+                </div>
 
                 {explanationRevealed ? (
-                  <p className="text-gray-300 text-sm">{data.explanation}</p>
-                ) : data.userIsCorrect === false ? (
+                  <motion.div initial={{ opacity: 0, y: m.reduce ? 0 : 6 }} animate={{ opacity: 1, y: 0 }} transition={m.t(0.25)} className="rounded-lg border border-gray-700 bg-gray-800/40 p-4">
+                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Explanation</p>
+                    <p className="text-sm text-gray-200 leading-relaxed">{revealed.explanation}</p>
+                  </motion.div>
+                ) : revealed.userIsCorrect === false ? (
                   <EvasiveExplanationButton onReveal={() => setExplanationRevealed(true)} />
                 ) : (
                   <button
                     onClick={() => setExplanationRevealed(true)}
-                    className={`glass px-4 py-2 rounded-lg text-white w-fit ${QUIZ_HOVER}`}
+                    className={`glass w-fit rounded-lg px-4 py-2 text-sm text-white focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none ${QUIZ_HOVER}`}
                   >
                     View Explanation
                   </button>
                 )}
 
-                <div className="flex gap-4 text-sm text-gray-400">
-                  <span>{data.participants} participants</span>
-                  <span>{data.correctCount} correct</span>
-                  <span>{data.incorrectCount} incorrect</span>
+                <div className="flex items-center gap-4 rounded-xl border border-gray-800 bg-white/[0.02] p-4">
+                  <Ring value={revealed.participants ? revealed.correctCount / revealed.participants : 0} size={56}>
+                    {revealed.participants ? Math.round((revealed.correctCount / revealed.participants) * 100) : 0}%
+                  </Ring>
+                  <div className="grid flex-1 grid-cols-3 gap-2 text-center">
+                    <div><p className="text-lg font-semibold text-white tabular-nums">{revealed.participants}</p><p className="text-xs text-gray-500">Participants</p></div>
+                    <div><p className="text-lg font-semibold text-emerald-400 tabular-nums">{revealed.correctCount}</p><p className="text-xs text-gray-500">Correct</p></div>
+                    <div><p className="text-lg font-semibold text-red-400 tabular-nums">{revealed.incorrectCount}</p><p className="text-xs text-gray-500">Incorrect</p></div>
+                  </div>
                 </div>
               </>
             )}

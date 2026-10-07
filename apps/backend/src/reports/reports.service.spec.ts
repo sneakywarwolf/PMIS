@@ -190,7 +190,8 @@ describe('ReportsService.generateReport (fast/enqueue path)', () => {
         { provide: DocxManipulatorService, useValue: docxManipulator },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: { log: jest.fn() } },
-        { provide: SettingsService, useValue: {} },
+        // generateReport reads the configured report-date format (formatting.reportDateFormat); empty settings use the default.
+        { provide: SettingsService, useValue: { get: jest.fn().mockResolvedValue({ settings: {} }) } },
         { provide: getQueueToken(REPORT_GENERATION_QUEUE), useValue: queue },
       ],
     }).compile();

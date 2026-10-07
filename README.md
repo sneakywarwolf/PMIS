@@ -528,8 +528,13 @@ start.bat
 # 5. Stop everything
 stop.bat
 
-# 6. Reset database (keeps Docker running)
+# 6. Reset application data (keeps Docker running) - interactive menu:
+#    1 Users  2 Vulnerability DB  3 Projects  4 Quiz & Scores  5 Everything (type RESET)  6 Cancel
+#    Pick several at once, e.g. "1,3". Shows exactly what will be deleted before asking to confirm.
 reset-db.bat
+#    Non-interactive:  reset-db.bat --scopes "users,projects" --yes
+#                      reset-db.bat --scopes everything --confirm RESET
+#                      reset-db.bat --dry-run      (preview only)
 ```
 
 ### Option 2: Manual Setup
@@ -612,7 +617,7 @@ TEMPLATE_MAX_SIZE_MB="10"
 | `start.bat` | Silent start: minimized terminals, logs to `backend.log` / `frontend.log` |
 | `start-dev.bat` | Debug start: full terminal windows with live output |
 | `stop.bat` | Stops dev servers and Docker containers (preserves data) |
-| `reset-db.bat` | Resets database and re-runs migrations + seed |
+| `reset-db.bat` | Reset Application: selectively or fully clears users / vulnerabilities / projects / quiz data (DB + MinIO files + sessions), restores defaults, then restarts the servers |
 
 ### Root package.json scripts
 ```bash

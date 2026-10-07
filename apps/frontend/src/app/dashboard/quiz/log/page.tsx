@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
+import * as Dialog from '@radix-ui/react-dialog';
+import { Check, ChevronRight, History, X } from 'lucide-react';
 import { api } from '@/contexts/auth-context';
 import { formatDate } from '@/lib/datetime';
-
-// Same turquoise-glass hover treatment used app-wide (e.g. the sidebar nav) —
-// keep every Quiz control consistent with it rather than inventing a new one.
-const QUIZ_HOVER = 'hover:bg-teal-400/5 hover:border-teal-400/20 hover:shadow-lg hover:shadow-teal-500/10 hover:text-white transition-all';
+import { QUIZ_HOVER, QuizHeader, QuizSkeleton, Ring, useQuizMotion } from '@/components/quiz-ui';
 
 type LogItem = { id: string; question: string; revealedAt: string };
 type LogDetail = {
@@ -22,9 +22,11 @@ type LogDetail = {
 };
 
 export default function QuizLogPage() {
+  const m = useQuizMotion();
   const [items, setItems] = useState<LogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<LogDetail | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
 
   useEffect(() => {
     api.get('/quiz/log').then((res) => {
@@ -34,46 +36,103 @@ export default function QuizLogPage() {
   }, []);
 
   const openDetail = async (id: string) => {
-    const res = await api.get(`/quiz/log/${id}`);
-    setDetail(res.data);
+    setOpening(id);
+    try {
+      const res = await api.get(`/quiz/log/${id}`);
+      setDetail(res.data);
+    } finally {
+      setOpening(null);
+    }
   };
 
-  if (loading) return <div className="p-6 text-gray-400">Loading question log…</div>;
+  if (loading) return <div className="p-6 max-w-3xl mx-auto"><QuizSkeleton rows={5} /></div>;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-4">
-      <h1 className="text-2xl font-semibold text-white">Question Log</h1>
-      <div className="space-y-2">
-        {items.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => openDetail(item.id)}
-            className={`glass-card w-full text-left p-4 rounded-lg text-gray-200 ${QUIZ_HOVER}`}
-          >
-            <div>{item.question}</div>
-            <div className="text-xs text-gray-500">{formatDate(item.revealedAt)}</div>
-          </button>
-        ))}
-        {items.length === 0 && <div className="text-gray-500">No revealed questions yet.</div>}
-      </div>
+    <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
+      <QuizHeader title="Question Log" subtitle="Every revealed question, with the answer and explanation." />
 
-      {detail && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setDetail(null)}>
-          <div className="glass-card max-w-lg w-full p-6 rounded-xl space-y-3" onClick={(e) => e.stopPropagation()}>
-            <p className="text-lg text-white">{detail.question}</p>
-            <p className="text-cyan-400">Correct answer: {detail.options[detail.correctIndex]}</p>
-            <p className="text-gray-300 text-sm">{detail.explanation}</p>
-            <div className="flex gap-4 text-sm text-gray-400">
-              <span>{detail.participants} participants</span>
-              <span>{detail.correctCount} correct</span>
-              <span>{detail.incorrectCount} incorrect</span>
-            </div>
-            <button onClick={() => setDetail(null)} className={`glass px-3 py-1.5 rounded-lg text-sm text-gray-300 ${QUIZ_HOVER}`}>
-              Close
-            </button>
-          </div>
+      {items.length === 0 ? (
+        <div className="glass-card rounded-xl p-10 text-center">
+          <History className="w-8 h-8 mx-auto text-gray-500 mb-3" />
+          <p className="text-white font-medium">No revealed questions yet</p>
+          <p className="text-sm text-gray-400 mt-1">Past questions show up here after their reveal.</p>
         </div>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((item, i) => (
+            <motion.li
+              key={item.id}
+              initial={{ opacity: 0, y: m.reduce ? 0 : 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...m.t(0.25), delay: Math.min(i, 8) * m.stagger }}
+            >
+              <button
+                onClick={() => openDetail(item.id)}
+                disabled={opening === item.id}
+                className={`glass-card group flex w-full items-center gap-3 rounded-xl p-4 text-left text-gray-200 focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none disabled:opacity-60 ${QUIZ_HOVER}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate">{item.question}</p>
+                  <p className="mt-0.5 font-mono text-xs text-gray-500">{formatDate(item.revealedAt)}</p>
+                </div>
+                <ChevronRight className="w-4 h-4 shrink-0 text-gray-500 transition-transform group-hover:translate-x-0.5 group-hover:text-gray-300" />
+              </button>
+            </motion.li>
+          ))}
+        </ul>
       )}
+
+      <Dialog.Root open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[150] bg-black/60 backdrop-blur-sm" />
+          <Dialog.Content
+            aria-describedby={undefined}
+            className="fixed left-1/2 top-1/2 z-[160] max-h-[85vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 space-y-4 overflow-y-auto rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl focus:outline-none"
+          >
+            {detail && (
+              <>
+                <div className="flex items-start justify-between gap-4">
+                  <Dialog.Title className="text-lg font-medium text-white leading-snug">{detail.question}</Dialog.Title>
+                  <Dialog.Close aria-label="Close" className="shrink-0 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none">
+                    <X className="w-4 h-4" />
+                  </Dialog.Close>
+                </div>
+
+                <div className="space-y-2">
+                  {detail.options.map((opt, i) => {
+                    const correct = i === detail.correctIndex;
+                    return (
+                      <div key={i} className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${correct ? 'border-emerald-500/40 bg-emerald-500/10 text-white' : 'border-gray-800 text-gray-500'}`}>
+                        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-xs font-semibold ${correct ? 'border-emerald-400 bg-emerald-500 text-black' : 'border-gray-700'}`}>
+                          {correct ? <Check className="w-3.5 h-3.5" /> : 'ABCDEFGH'[i]}
+                        </span>
+                        <span className="flex-1">{opt}</span>
+                        {correct && <span className="text-xs font-medium text-emerald-400">Correct</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3">
+                  <p className="mb-1 text-xs uppercase tracking-wide text-gray-500">Explanation</p>
+                  <p className="text-sm leading-relaxed text-gray-200">{detail.explanation}</p>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <Ring value={detail.participants ? detail.correctCount / detail.participants : 0} size={52}>
+                    {detail.participants ? Math.round((detail.correctCount / detail.participants) * 100) : 0}%
+                  </Ring>
+                  <div className="grid flex-1 grid-cols-3 gap-2 text-center">
+                    <div><p className="font-semibold text-white tabular-nums">{detail.participants}</p><p className="text-xs text-gray-500">Participants</p></div>
+                    <div><p className="font-semibold text-emerald-400 tabular-nums">{detail.correctCount}</p><p className="text-xs text-gray-500">Correct</p></div>
+                    <div><p className="font-semibold text-red-400 tabular-nums">{detail.incorrectCount}</p><p className="text-xs text-gray-500">Incorrect</p></div>
+                  </div>
+                </div>
+              </>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </div>
   );
 }

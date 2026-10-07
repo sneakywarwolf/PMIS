@@ -176,6 +176,24 @@ export class SettingsService {
     };
   }
 
+  // The idle-timeout lookup runs on every authenticated request, so cache it
+  // briefly instead of hitting the DB each time.
+  // ponytail: per-process cache — other instances pick up a change within the
+  // TTL; move to Redis pub/sub if instant propagation matters.
+  private timeoutCache: { seconds: number; at: number } | null = null;
+  private static readonly TIMEOUT_CACHE_MS = 10_000;
+
+  async getSessionTimeoutSeconds(): Promise<number> {
+    const now = Date.now();
+    if (this.timeoutCache && now - this.timeoutCache.at < SettingsService.TIMEOUT_CACHE_MS) {
+      return this.timeoutCache.seconds;
+    }
+    const { settings } = await this.get();
+    const seconds = settings.security.sessionTimeoutMinutes * 60;
+    this.timeoutCache = { seconds, at: now };
+    return seconds;
+  }
+
   /** Validates a user-supplied password against the admin-configured security policy. */
   async validatePassword(password: string): Promise<string[]> {
     const { settings } = await this.get();
@@ -209,6 +227,8 @@ export class SettingsService {
       create: { id: SETTINGS_ID, data: merged, updatedById: actorId },
       update: { data: merged, updatedById: actorId },
     });
+
+    this.timeoutCache = null;
 
     await this.auditService.log({
       actorId,
