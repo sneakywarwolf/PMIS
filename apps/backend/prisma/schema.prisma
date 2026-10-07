@@ -473,8 +473,9 @@ model PocStep {
 
 model AuditLog {
   id          String     @id @default(cuid())
-  actorId     String     @map("actor_id")
-  actor       User       @relation("AuditActor", fields: [actorId], references: [id])
+  // Null once the acting user has been permanently purged (retention); the entry itself is kept.
+  actorId     String?    @map("actor_id")
+  actor       User?      @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   action      AuditAction
   targetType  String?    @map("target_type")

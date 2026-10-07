@@ -31,6 +31,7 @@ function makePrismaMock(): any {
       upsert: jest.fn(),
       findMany: jest.fn(),
     },
+    user: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn((cb: any) => cb(prisma)),
   } as any;
 }
@@ -420,38 +421,33 @@ describe('QuizService admin/read methods', () => {
       { userId: 'u1', currentStreak: 1, bestStreak: 1, badges: [] },
       { userId: 'u2', currentStreak: 1, bestStreak: 1, badges: [] },
     ]);
-    // Both users score 10 total pts; u1 gets it from 1/4 correct (25%),
-    // u2 gets it from 1/4 correct too but with 3 extra zero-point correct answers (75% accuracy).
-    const attempt = (userId: string, fullName: string, isCorrect: boolean, pointsAwarded: number) => ({
-      userId,
-      isCorrect,
-      pointsAwarded,
-      user: { id: userId, fullName },
-    });
-    prisma.quizAttempt.findMany.mockResolvedValue([
-      attempt('u1', 'Low Accuracy', true, 10),
-      attempt('u1', 'Low Accuracy', false, 0),
-      attempt('u1', 'Low Accuracy', false, 0),
-      attempt('u1', 'Low Accuracy', false, 0),
-      attempt('u2', 'High Accuracy', true, 10),
-      attempt('u2', 'High Accuracy', true, 0),
-      attempt('u2', 'High Accuracy', true, 0),
-      attempt('u2', 'High Accuracy', false, 0),
+    // Both users score 10 points; u1 got 1/4 correct (25%), u2 got 3/4 (75%).
+    prisma.quizAttempt.groupBy
+      .mockResolvedValueOnce([
+        { userId: 'u1', _sum: { pointsAwarded: 10 }, _count: { _all: 4 } },
+        { userId: 'u2', _sum: { pointsAwarded: 10 }, _count: { _all: 4 } },
+      ])
+      .mockResolvedValueOnce([
+        { userId: 'u1', _count: { _all: 1 } },
+        { userId: 'u2', _count: { _all: 3 } },
+      ]);
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'u1', fullName: 'Low Accuracy' },
+      { id: 'u2', fullName: 'High Accuracy' },
     ]);
 
     const result = await service.getLeaderboard();
 
-    expect(result[0].userId).toBe('u2');
-    expect(result[1].userId).toBe('u1');
-    expect(prisma.quizAttempt.findMany).toHaveBeenCalledWith({
-      where: { question: { status: 'REVEALED' } },
-      include: { user: { select: { id: true, fullName: true } } },
-    });
+    expect(result.map((r) => r.userId)).toEqual(['u2', 'u1']);
+    expect(prisma.quizAttempt.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { question: { status: 'REVEALED' } } }),
+    );
   });
 
   it('getLeaderboard only counts attempts on revealed questions', async () => {
     prisma.quizUserStats.findMany.mockResolvedValue([]);
-    prisma.quizAttempt.findMany.mockResolvedValue([]);
+    prisma.quizAttempt.groupBy.mockResolvedValue([]);
+    prisma.user.findMany.mockResolvedValue([]);
 
     const result = await service.getLeaderboard();
 

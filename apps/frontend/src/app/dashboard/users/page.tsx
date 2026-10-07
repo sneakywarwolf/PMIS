@@ -8,6 +8,7 @@ import { api, useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
+import { downloadBlob } from '@/lib/download';
 
 interface TeamLead {
   id: string;
@@ -81,11 +82,13 @@ export default function UsersPage() {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.post('/users', newUser);
+      const res = await api.post('/users', newUser);
       setShowAddModal(false);
       setNewUser({ username: '', email: '', role: 'TESTER', assignedTlId: '', managerId: '', fullName: '', phone: '', designation: '' });
       fetchUsers();
-      showToast('User created. Default password: Tester@12345 (must be changed on first login).');
+      setCopyFailed(false);
+      setTempPassword(res.data.tempPassword);
+      showToast('User created. Share the one-time temporary password with them.');
     } catch (error: any) {
       showToast(error.response?.data?.message || 'Failed to create user', 'error');
     }
@@ -163,6 +166,14 @@ export default function UsersPage() {
   };
 
   // ─── Bulk Upload ───
+  // Temp passwords exist only in this response, so hand them to the admin as a file right away.
+  const downloadCredentialsCsv = (rows: { fullName: string; email: string; username: string; tempPassword: string }[]) => {
+    // Leading =,+,-,@ would be read as a formula when the file is opened in Excel/Sheets.
+    const cell = (v: string) => `"${(/^[=+\-@\t\r]/.test(v) ? `'${v}` : v).replace(/"/g, '""')}"`;
+    const csv = ['Full Name,Email,Username,Temporary Password', ...rows.map((r) => [r.fullName, r.email, r.username, r.tempPassword].map(cell).join(','))].join('\n');
+    downloadBlob(new Blob([csv], { type: 'text/csv' }), 'new-user-credentials.csv');
+  };
+
   const handleBulkUploadClick = () => {
     fileInputRef.current?.click();
   };
@@ -188,7 +199,8 @@ export default function UsersPage() {
       const response = await api.post('/users/bulk-upload', formData, {
         headers: { 'Content-Type': undefined },
       });
-      const { added, skipped, errors } = response.data;
+      const { added, skipped, errors, credentials } = response.data;
+      if (credentials?.length) downloadCredentialsCsv(credentials);
       let msg = `Bulk upload complete: ${added} added`;
       if (skipped > 0) msg += `, ${skipped} skipped (already exist)`;
       if (errors.length > 0) msg += `, ${errors.length} errors`;
@@ -438,7 +450,7 @@ export default function UsersPage() {
                   className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
               </div>
               <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 px-3 py-2 text-xs text-emerald-300">
-                New users are created with the default password <span className="font-mono">Tester@12345</span> and must change it on first login.
+                A random temporary password is generated and shown once after creation. The user must change it on first login.
               </div>
               <div>
                 <label className="block text-sm text-gray-300 mb-1">Full Name</label>

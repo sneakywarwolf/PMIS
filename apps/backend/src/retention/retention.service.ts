@@ -74,8 +74,8 @@ export class RetentionService {
   }
 
   // Same handling as the DB reset's user removal: shared rows go to the admin,
-  // per-user rows (one-per-user quiz/arcade data, authored audit entries) are
-  // deleted, optional references null themselves via ON DELETE SET NULL, and
+  // per-user rows (one-per-user quiz/arcade data) are
+  // deleted, optional references (incl. the audit-log actor) null themselves via ON DELETE SET NULL, and
   // notifications cascade.
   private async deleteUserRow(userId: string, adminId: string): Promise<void> {
     await this.prisma.$transaction([
@@ -88,7 +88,6 @@ export class RetentionService {
       this.prisma.quizAttempt.deleteMany({ where: { userId } }),
       this.prisma.quizUserStats.deleteMany({ where: { userId } }),
       this.prisma.patternMapScore.deleteMany({ where: { userId } }),
-      this.prisma.auditLog.deleteMany({ where: { actorId: userId } }),
       this.prisma.user.delete({ where: { id: userId } }),
     ]);
   }

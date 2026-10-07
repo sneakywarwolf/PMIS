@@ -487,7 +487,7 @@ function RecentActivity({ delay }: { delay?: number }) {
               </div>
               <div className="min-w-0">
                 <p className="text-sm text-white">
-                  <span className="font-medium">{log.actor?.username || 'System'}</span>{' '}
+                  <span className="font-medium">{log.actor?.username || 'Deleted user'}</span>{' '}
                   <span className="text-gray-400">{log.action.replace(/_/g, ' ').toLowerCase()}</span>
                   {log.targetType && <span className="text-gray-500"> · {log.targetType.toLowerCase()}</span>}
                 </p>

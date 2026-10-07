@@ -140,7 +140,6 @@ export async function describeImpact(
         deleted.push({ label: 'Quiz answers & scores belonging to removed users', count:
           (await prisma.quizAttempt.count({ where: { userId: owners } })) + (await prisma.quizUserStats.count({ where: { userId: owners } })) + (await prisma.patternMapScore.count({ where: { userId: owners } })) });
       }
-      deleted.push({ label: 'Audit log entries authored by removed users', count: await prisma.auditLog.count({ where: { actorId: owners } }) });
     }
     restored.push('Default accounts: admin, teamlead, tester1, tester2 (default passwords, must change on first login)');
     restored.push('All login sessions are signed out');
@@ -280,11 +279,10 @@ async function resetUsers(tx: Tx, hashes: Record<string, string>): Promise<strin
     await tx.reportTemplate.updateMany({ where: { uploadedById: ids }, data: { uploadedById: admin.id } });
     await tx.quizQuestion.updateMany({ where: { createdById: ids }, data: { createdById: admin.id } });
     await tx.vulnerabilityChangeRequest.updateMany({ where: { requestedById: ids }, data: { requestedById: admin.id } });
-    // Per-user rows can't be reassigned (one answer / score row per user) or would falsify history (audit authorship).
+    // Per-user rows can't be reassigned (one answer / score row per user). Audit entries are kept; their actor nulls out.
     await tx.quizAttempt.deleteMany({ where: { userId: ids } });
     await tx.quizUserStats.deleteMany({ where: { userId: ids } });
     await tx.patternMapScore.deleteMany({ where: { userId: ids } });
-    await tx.auditLog.deleteMany({ where: { actorId: ids } });
     // Notifications cascade; optional references (reviewers, requesters, TL/manager links) null themselves via ON DELETE SET NULL.
     await tx.user.deleteMany({ where: { id: ids } });
   }

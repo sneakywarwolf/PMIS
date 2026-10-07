@@ -159,7 +159,7 @@ function SettingsContent() {
             {history.map((log: any) => (
               <div key={log.id} className="flex items-start justify-between text-xs p-2 rounded bg-white/5">
                 <div>
-                  <span className="text-white font-medium">{log.actor?.username || 'System'}</span>
+                  <span className="text-white font-medium">{log.actor?.username || 'Deleted user'}</span>
                   <span className="text-gray-400"> updated settings</span>
                   {log.details?.changed && (
                     <p className="text-gray-500 mt-0.5">{Object.keys(log.details.changed).join(', ')}</p>

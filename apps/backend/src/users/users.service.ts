@@ -9,11 +9,6 @@ import * as argon2 from 'argon2';
 import { randomInt } from 'crypto';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
 
-// Every newly created user (single or bulk) starts with this password and
-// must change it on first login — see isForcePasswordChange enforcement in
-// JwtAuthGuard.
-export const DEFAULT_NEW_USER_PASSWORD = 'Tester@12345';
-
 @Injectable()
 export class UsersService {
   constructor(
@@ -110,12 +105,10 @@ export class UsersService {
       }
     }
 
-    const passwordHash = await argon2.hash(DEFAULT_NEW_USER_PASSWORD, {
-      type: argon2.argon2id,
-      memoryCost: 65536,
-      timeCost: 3,
-      parallelism: 4,
-    });
+    // Random one-time password, shown to the admin once; the user must change
+    // it on first login (isForcePasswordChange, enforced in JwtAuthGuard).
+    const tempPassword = await this.newTempPassword();
+    const passwordHash = await this.hashPassword(tempPassword);
 
     const user = await this.prisma.user.create({
       data: {
@@ -169,7 +162,7 @@ export class UsersService {
       excludeUserId: adminId,
     });
 
-    return user;
+    return { ...user, tempPassword };
   }
 
   async update(id: string, dto: UpdateUserDto, adminId: string, ipAddress: string, userAgent: string) {
@@ -413,6 +406,15 @@ export class UsersService {
     });
   }
 
+  private async newTempPassword(): Promise<string> {
+    const { settings } = await this.settingsService.get();
+    return this.generateSecurePassword(settings.security.passwordMinLength, settings.security.passwordRequireComplexity);
+  }
+
+  private hashPassword(password: string) {
+    return argon2.hash(password, { type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 4 });
+  }
+
   /**
    * Temp password sized to the admin-configured policy (security.passwordMinLength).
    * When complexity is required, one character from each class is guaranteed so
@@ -479,7 +481,7 @@ export class UsersService {
     const allExistingEmails = new Set(allUsers.map(u => u.email.toLowerCase()));
     const allExistingUsernames = new Set(allUsers.map(u => u.username.toLowerCase()));
 
-    const results = { added: 0, skipped: 0, errors: [] as string[] };
+    const results = { added: 0, skipped: 0, errors: [] as string[], credentials: [] as { fullName: string; email: string; username: string; tempPassword: string }[] };
 
     for (let i = 1; i < allRows.length; i++) {
       const cols = allRows[i];
@@ -551,12 +553,8 @@ export class UsersService {
         if (mgr) managerId = mgr.id;
       }
 
-      const passwordHash = await argon2.hash(DEFAULT_NEW_USER_PASSWORD, {
-        type: argon2.argon2id,
-        memoryCost: 65536,
-        timeCost: 3,
-        parallelism: 4,
-      });
+      const tempPassword = await this.newTempPassword();
+      const passwordHash = await this.hashPassword(tempPassword);
 
       try {
         await this.prisma.user.create({
@@ -574,6 +572,7 @@ export class UsersService {
           },
         });
         results.added++;
+        results.credentials.push({ fullName, email, username, tempPassword });
       } catch (error: any) {
         results.errors.push(`Row ${i + 1}: ${error.message || 'Failed to create user'}`);
       }
