@@ -14,17 +14,45 @@ type Entry = { rank: number; userId: string; name: string; bestScore: number };
 
 const LIVES = 3;
 
-const gridFor = (n: number) => (n <= 4 ? 3 : n <= 9 ? 4 : 5);
-const lengthFor = (n: number) => Math.min(gridFor(n) ** 2 - 2, 2 + Math.ceil(n / 1.5));
-const revealMsFor = (n: number) => Math.max(300, 650 - n * 15);
+type Cfg = { grid: number; length: number; step: number; label: string };
 
-function makePattern(n: number): number[] {
-  const tiles = Array.from({ length: gridFor(n) ** 2 }, (_, i) => i);
+// Rounds 1-6: a gentle fixed ramp. From round 7 every round rolls a random tier,
+// so a super-easy round can follow a super-tough one.
+const RAMP: Cfg[] = [
+  { grid: 3, length: 3, step: 650, label: 'Warm-up' },
+  { grid: 3, length: 4, step: 620, label: 'Warm-up' },
+  { grid: 3, length: 4, step: 580, label: 'Easy' },
+  { grid: 4, length: 4, step: 560, label: 'Easy' },
+  { grid: 4, length: 5, step: 520, label: 'Getting warmer' },
+  { grid: 4, length: 5, step: 500, label: 'Getting warmer' },
+];
+const between = (lo: number, hi: number) => lo + Math.floor(Math.random() * (hi - lo + 1));
+const TIERS: (() => Cfg)[] = [
+  () => ({ grid: 3, length: 3, step: 700, label: 'Super easy' }),
+  () => ({ grid: 3, length: between(4, 5), step: 600, label: 'Easy' }),
+  () => ({ grid: 4, length: between(5, 7), step: 450, label: 'Medium' }),
+  () => ({ grid: 5, length: between(8, 10), step: 330, label: 'Tough' }),
+  () => ({ grid: 5, length: between(11, 14), step: 240, label: 'Super tough' }),
+];
+const cfgFor = (n: number): Cfg => RAMP[n - 1] ?? TIERS[between(0, TIERS.length - 1)]();
+
+// A fresh vivid colour per round (lit tile, correct tap, accent) on high-contrast tiles.
+const PALETTES = [
+  { lit: 'bg-cyan-300 border-cyan-100 shadow-cyan-400/50', ok: 'bg-cyan-500/50 border-cyan-300', text: 'text-cyan-300' },
+  { lit: 'bg-fuchsia-400 border-fuchsia-200 shadow-fuchsia-400/50', ok: 'bg-fuchsia-500/50 border-fuchsia-300', text: 'text-fuchsia-300' },
+  { lit: 'bg-amber-300 border-amber-100 shadow-amber-400/50', ok: 'bg-amber-500/50 border-amber-300', text: 'text-amber-300' },
+  { lit: 'bg-lime-300 border-lime-100 shadow-lime-400/50', ok: 'bg-lime-500/50 border-lime-300', text: 'text-lime-300' },
+  { lit: 'bg-rose-400 border-rose-200 shadow-rose-400/50', ok: 'bg-rose-500/50 border-rose-300', text: 'text-rose-300' },
+  { lit: 'bg-violet-400 border-violet-200 shadow-violet-400/50', ok: 'bg-violet-500/50 border-violet-300', text: 'text-violet-300' },
+];
+
+function makePattern(cfg: Cfg): number[] {
+  const tiles = Array.from({ length: cfg.grid ** 2 }, (_, i) => i);
   for (let i = tiles.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
   }
-  return tiles.slice(0, lengthFor(n));
+  return tiles.slice(0, cfg.length);
 }
 
 export default function ArcadePage() {
@@ -32,6 +60,7 @@ export default function ArcadePage() {
   const [phase, setPhase] = useState<Phase>('idle');
   const [roundNo, setRoundNo] = useState(1);
   const [lives, setLives] = useState(LIVES);
+  const [cfg, setCfg] = useState<Cfg>(RAMP[0]);
   const [pattern, setPattern] = useState<number[]>([]);
   const [lit, setLit] = useState<number | null>(null);
   const [picked, setPicked] = useState<number[]>([]);
@@ -50,10 +79,13 @@ export default function ArcadePage() {
   }, []);
   useEffect(() => { loadBoard(); return clearTimers; }, [loadBoard]);
 
-  const startRound = useCallback((n: number) => {
-    const p = makePattern(n);
-    const step = revealMsFor(n);
+  // A retry after a mistake keeps the same difficulty (`keep`) so a tough roll can't be dodged by losing a life.
+  const startRound = useCallback((n: number, keep?: Cfg) => {
+    const c = keep ?? cfgFor(n);
+    const p = makePattern(c);
+    const step = c.step;
     setRoundNo(n);
+    setCfg(c);
     setPattern(p);
     setPicked([]);
     setFlash(null);
@@ -94,20 +126,21 @@ export default function ArcadePage() {
       const left = lives - 1;
       setLives(left);
       setPhase('reveal'); // lock input during the pause
-      later(() => (left <= 0 ? finish() : startRound(roundNo)), 700);
+      later(() => (left <= 0 ? finish() : startRound(roundNo, cfg)), 700);
       return;
     }
     r.correct += 1;
     const next = [...picked, tile];
     setPicked(next);
     if (next.length === pattern.length) {
-      r.rounds.push({ grid: gridFor(roundNo), length: pattern.length, ms: Math.min(60000, Date.now() - r.recallStart) });
+      r.rounds.push({ grid: cfg.grid, length: pattern.length, ms: Math.min(60000, Date.now() - r.recallStart) });
       setPhase('reveal');
       later(() => startRound(roundNo + 1), 600);
     }
   };
 
-  const size = gridFor(roundNo);
+  const size = cfg.grid;
+  const pal = PALETTES[(roundNo - 1) % PALETTES.length];
   const cleared = run.current.rounds.length;
 
   return (
@@ -116,7 +149,7 @@ export default function ArcadePage() {
 
       <section className="glass-card rounded-xl p-5 max-w-sm mx-auto w-full space-y-4">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-gray-400 tabular-nums">Round <span className="text-white font-semibold">{phase === 'idle' ? '–' : roundNo}</span></span>
+          <span className="text-gray-400 tabular-nums">Round <span className="text-white font-semibold">{phase === 'idle' ? '–' : roundNo}</span>{phase !== 'idle' && <span className={`ml-2 text-xs font-medium ${pal.text}`}>{cfg.label}</span>}</span>
           <span className="flex gap-1" aria-label={`${lives} lives left`}>
             {Array.from({ length: LIVES }).map((_, i) => (
               <Heart key={i} className={`w-4 h-4 ${i < lives ? 'text-rose-400 fill-rose-400' : 'text-gray-700'}`} />
@@ -135,11 +168,11 @@ export default function ArcadePage() {
                 disabled={phase !== 'recall'}
                 onClick={() => tap(i)}
                 aria-label={`Tile ${i + 1}`}
-                className={`aspect-square rounded-lg border transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none ${
-                  isLit ? 'bg-emerald-400 border-emerald-300 shadow-lg shadow-emerald-500/30'
-                  : f === 'ok' ? 'bg-emerald-500/30 border-emerald-500/50'
-                  : f === 'bad' ? 'bg-rose-500/40 border-rose-500/60'
-                  : 'bg-white/[0.03] border-gray-800 enabled:hover:bg-teal-400/10 enabled:hover:border-teal-400/30'
+                className={`aspect-square rounded-lg border transition-all duration-150 focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none ${
+                  isLit ? `${pal.lit} shadow-lg scale-105`
+                  : f === 'ok' ? pal.ok
+                  : f === 'bad' ? 'bg-red-600/70 border-red-300'
+                  : 'bg-slate-700/70 border-slate-500 enabled:hover:bg-slate-600 enabled:hover:border-slate-300'
                 }`}
               />
             );
