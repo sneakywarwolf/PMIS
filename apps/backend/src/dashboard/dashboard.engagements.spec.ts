@@ -9,7 +9,11 @@ describe('DashboardService.getEngagements', () => {
 
   beforeEach(async () => {
     prisma = {
-      project: { findMany: jest.fn().mockResolvedValue([{ id: 'p1' }]) },
+      project: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'p1', tl: { id: 'tl', username: 'tl' }, tester: { id: 't1', username: 't1', fullName: null, assignedTlId: 'tl', assignedTl: { id: 'tl', username: 'tl' } } },
+        ]),
+      },
       user: { findMany: jest.fn().mockResolvedValue([{ id: 't1' }, { id: 't2' }]) },
       finding: {
         findMany: jest.fn().mockResolvedValue([
@@ -37,13 +41,27 @@ describe('DashboardService.getEngagements', () => {
     expect(whereOf()).toEqual({ OR: [{ testerId: 't1' }, { tlId: 't1' }] });
   });
 
-  it('tester team view only covers testers currently on their TL\'s team (never another team\'s projects)', async () => {
+  it('tester team view only covers work carried by members of their current team', async () => {
     await service.getEngagements({ id: 't1', role: UserRole.TESTER, assignedTlId: 'tl' }, 'team');
-    expect(whereOf()).toEqual({
-      OR: [{ tester: { assignedTlId: 'tl' } }, { testerId: 'tl' }, { tlId: 'tl', tester: { assignedTlId: null } }],
-    });
-    // A bare `{ tlId: 'tl' }` clause would leak projects whose tester has moved to another team.
-    expect(whereOf().OR).not.toContainEqual({ tlId: 'tl' });
+    expect(whereOf()).toEqual({ OR: [{ tester: { assignedTlId: 'tl' } }, { testerId: 'tl' }] });
+    // No bare `{ tlId }` clause (leaks projects whose tester moved teams) and no "unassigned tester" fallback for testers.
+    expect(JSON.stringify(whereOf())).not.toContain('"tlId"');
+  });
+
+  it('a team lead additionally keeps projects they are the stored TL of whose tester has no team yet', async () => {
+    await service.getEngagements({ id: 'tl', role: UserRole.TEAM_LEAD, assignedTlId: null }, 'team');
+    expect(whereOf().OR).toContainEqual({ tlId: 'tl', tester: { assignedTlId: null } });
+  });
+
+  it("shows the tester's CURRENT team lead, not the project's stored one", async () => {
+    prisma.project.findMany.mockResolvedValue([
+      { id: 'p1', tl: { id: 'old-tl', username: 'old' }, tester: { id: 't1', username: 't1', fullName: null, assignedTlId: 'new-tl', assignedTl: { id: 'new-tl', username: 'new' } } },
+      { id: 'p2', tl: { id: 'self-tl', username: 'self' }, tester: { id: 'tl-as-tester', username: 'x', fullName: null, assignedTlId: null, assignedTl: null } },
+    ]);
+    const rows = await service.getEngagements({ id: 'a', role: UserRole.ADMIN, assignedTlId: null }, 'team');
+    expect(rows[0].tl.id).toBe('new-tl');
+    expect(rows[1].tl.id).toBe('self-tl'); // no current lead -> fall back to the stored one
+    expect((rows[0].tester as any).assignedTl).toBeUndefined();
   });
 
   it('a tester with no team lead only sees their own projects, even in the team view', async () => {

@@ -158,7 +158,10 @@ export function DashboardEngagements({ data, view, onViewChange, external, onCle
       </div>
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <FilterSelect label="Tester" value={filters.tester} onChange={(v) => setFilter('tester', v)} options={options((r) => person(r.tester))} />
-        <FilterSelect label="Team Lead" value={filters.tl} onChange={(v) => setFilter('tl', v)} options={options((r) => person(r.tl))} />
+        {/* Testers only ever see their own team, so there is no other team lead to filter by. */}
+        {user?.role !== 'TESTER' && (
+          <FilterSelect label="Team Lead" value={filters.tl} onChange={(v) => setFilter('tl', v)} options={options((r) => person(r.tl))} />
+        )}
         <FilterSelect label="Testing" value={filters.testingType} onChange={(v) => setFilter('testingType', v)} options={options((r) => r.testingType)} />
         <FilterSelect label="Activity" value={filters.subType} onChange={(v) => setFilter('subType', v)} options={options((r) => r.subType)} format={titleCase} />
         <FilterSelect label="Compliance" value={filters.compliance} onChange={(v) => setFilter('compliance', v)} options={Object.keys(COMPLIANCE_LABEL)} format={(v) => COMPLIANCE_LABEL[v]} />

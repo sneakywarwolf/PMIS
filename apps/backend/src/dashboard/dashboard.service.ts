@@ -236,11 +236,13 @@ export class DashboardService {
           // A project belongs to its tester's *current* team (same ownership rule as the TL comparison),
           // so a project doesn't stay visible to its old TL's team after the tester moves, and
           // testers never see another team's projects. The lead's own testing work counts as theirs.
+          // Only a lead also keeps projects they're the stored TL of whose tester isn't on any team yet;
+          // a tester sees work carried by members of their team and nothing else.
           where = {
             OR: [
               { tester: { assignedTlId: tlId } },
               { testerId: tlId },
-              { tlId, tester: { assignedTlId: null } },
+              ...(user.role === UserRole.TESTER ? [] : [{ tlId, tester: { assignedTlId: null } }]),
             ],
           };
         }
@@ -262,7 +264,7 @@ export class DashboardService {
         status: true,
         startDate: true,
         endDate: true,
-        tester: { select: { id: true, username: true, fullName: true, assignedTlId: true } },
+        tester: { select: { id: true, username: true, fullName: true, assignedTlId: true, assignedTl: { select: { id: true, username: true, fullName: true } } } },
         tl: { select: { id: true, username: true, fullName: true } },
       },
     });
@@ -282,8 +284,13 @@ export class DashboardService {
       counts.set(f.projectId, row);
     }
 
-    return projects.map((p) => ({
+    // The Team Lead shown is the tester's *current* lead (that's what decides which team the project
+    // belongs to and who can see it). The stored project.tl is only a fallback for testers with no
+    // lead, e.g. a lead working their own project.
+    return projects.map(({ tester, ...p }) => ({
       ...p,
+      tester: { id: tester.id, username: tester.username, fullName: tester.fullName, assignedTlId: tester.assignedTlId },
+      tl: tester.assignedTl ?? p.tl,
       vulnCounts: counts.get(p.id) ?? { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
     }));
   }
