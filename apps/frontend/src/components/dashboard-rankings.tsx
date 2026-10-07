@@ -107,14 +107,15 @@ function Board({ title, unit, icon: Icon, accent, href, rows, meId, extra, foote
 }
 
 /** Team-lead-only editor for the Quiz/Arcade team name. */
-function TeamNameEditor({ current, onSaved }: { current: string | null; onSaved: () => void }) {
+function TeamNameEditor({ current, onSaved, teams }: { current: string | null; onSaved: () => void; teams?: { id: string; name: string }[] }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState('');
   const [error, setError] = useState('');
+  const [teamId, setTeamId] = useState('');
 
   const save = async (name: string) => {
     try {
-      await api.put('/quiz/teams/name', { name });
+      await api.put('/quiz/teams/name', { name, teamLeadId: teams ? teamId : undefined });
       setEditing(false);
       setError('');
       onSaved();
@@ -125,13 +126,22 @@ function TeamNameEditor({ current, onSaved }: { current: string | null; onSaved:
 
   if (!editing) {
     return (
-      <button type="button" onClick={() => { setValue(current ?? ''); setEditing(true); }} className="relative mt-3 inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
-        <Pencil className="w-3.5 h-3.5" /> Rename your team
+      <button type="button" onClick={() => { setValue(teams?.[0]?.name ?? current ?? ''); setTeamId(teams?.[0]?.id ?? ''); setEditing(true); }} className="relative mt-3 inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
+        <Pencil className="w-3.5 h-3.5" /> {teams ? 'Rename a team' : 'Rename your team'}
       </button>
     );
   }
   return (
     <form onSubmit={(e) => { e.preventDefault(); save(value); }} className="relative mt-3 space-y-1">
+      {teams && (
+        <select
+          aria-label="Team to rename" value={teamId}
+          onChange={(e) => { setTeamId(e.target.value); setValue(teams.find((t) => t.id === e.target.value)?.name ?? ''); }}
+          className="w-full rounded-lg border border-gray-700 bg-gray-900 px-2.5 py-1.5 text-sm text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+        >
+          {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+      )}
       <div className="flex gap-2">
         <input
           autoFocus value={value} maxLength={30} onChange={(e) => setValue(e.target.value)} aria-label="Team name"
@@ -155,7 +165,7 @@ export function DashboardRankings() {
   const [quiz, setQuiz] = useState<Row[] | null>(null);
   const [arcade, setArcade] = useState<Row[] | null>(null);
   const [teams, setTeams] = useState<{ quiz: Row[]; arcade: Row[] } | null>(null);
-  const [myTeam, setMyTeam] = useState<{ teamName: string | null; canRename: boolean } | null>(null);
+  const [myTeam, setMyTeam] = useState<{ teamName: string | null; canRename: boolean; canRenameAny: boolean } | null>(null);
   const teamOf = useTeamNames();
   const [teamGame, setTeamGame] = useState<'quiz' | 'arcade'>('quiz');
 
@@ -190,7 +200,8 @@ export function DashboardRankings() {
       />
       <Board
         title="Team Showdown" unit="avg" icon={Users} href="/dashboard/quiz/scorecard" rows={teams ? teams[teamGame] : null} meId={myTeamId}
-        footer={myTeam?.canRename ? <TeamNameEditor current={myTeam.teamName} onSaved={loadTeams} /> : undefined}
+        footer={myTeam?.canRename ? <TeamNameEditor current={myTeam.teamName} onSaved={loadTeams} />
+          : myTeam?.canRenameAny && teams?.quiz.length ? <TeamNameEditor current={null} onSaved={loadTeams} teams={teams.quiz.map((t) => ({ id: t.id, name: t.name }))} /> : undefined}
         accent={{ text: 'text-amber-300', bar: 'bg-gradient-to-r from-amber-500/30 to-orange-400/5', glow: 'hover:shadow-lg hover:shadow-amber-500/10 transition-shadow' }}
         extra={
           <span className="flex rounded-md border border-gray-700 text-xs overflow-hidden">

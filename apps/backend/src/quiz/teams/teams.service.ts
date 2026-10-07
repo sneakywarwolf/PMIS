@@ -66,10 +66,21 @@ export class TeamsService {
   /** The caller's team (if any) and whether they may rename it. */
   async mine(userId: string, role: UserRole) {
     const team = (await this.loadTeams()).find((t) => t.memberIds.includes(userId));
-    return { teamName: team?.name ?? null, customName: team?.customName ?? null, canRename: role === UserRole.TEAM_LEAD && team?.teamLeadId === userId };
+    return {
+      teamName: team?.name ?? null,
+      customName: team?.customName ?? null,
+      canRename: role === UserRole.TEAM_LEAD && team?.teamLeadId === userId,
+      // Admins can rename any team (still only a Quiz/Arcade label).
+      canRenameAny: role === UserRole.ADMIN,
+    };
   }
 
-  async rename(leadId: string, raw: unknown) {
+  /** A team lead renames their own team; an admin names the team of `targetLeadId`. */
+  async rename(caller: { id: string; role: UserRole }, raw: unknown, targetLeadId?: string) {
+    const leadId = caller.role === UserRole.ADMIN ? targetLeadId : caller.id;
+    if (!leadId || !(await this.loadTeams()).some((t) => t.teamLeadId === leadId)) {
+      throw new BadRequestException('Choose a team to rename');
+    }
     const cleaned = cleanTeamName(raw);
     if ('error' in cleaned) throw new BadRequestException(cleaned.error);
 
@@ -79,6 +90,6 @@ export class TeamsService {
       if (clash) throw new BadRequestException('Another team already uses that name');
     }
     await this.prisma.user.update({ where: { id: leadId }, data: { quizTeamName: cleaned.name } });
-    return this.mine(leadId, UserRole.TEAM_LEAD);
+    return this.mine(caller.id, caller.role);
   }
 }

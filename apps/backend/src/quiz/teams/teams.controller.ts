@@ -23,10 +23,15 @@ export class TeamsController {
     return this.teams.mine(userId, role);
   }
 
-  // Team leads only; the name is used on Quiz/Arcade boards and nowhere else.
-  @Roles(UserRole.TEAM_LEAD)
+  // Team leads rename their own team; admins rename any team (teamLeadId). The name is used on Quiz/Arcade boards and nowhere else.
+  @Roles(UserRole.TEAM_LEAD, UserRole.ADMIN)
   @Put('name')
-  rename(@CurrentUser('id') leadId: string, @Body('name') name?: string) {
-    return this.teams.rename(leadId, name);
+  rename(
+    @CurrentUser('id') id: string,
+    @CurrentUser('role') role: UserRole,
+    @Body('name') name?: string,
+    @Body('teamLeadId') teamLeadId?: string,
+  ) {
+    return this.teams.rename({ id, role }, name, teamLeadId);
   }
 }
