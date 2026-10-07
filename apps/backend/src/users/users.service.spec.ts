@@ -72,7 +72,7 @@ describe('UsersService.bulkUpload', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: AuditService, useValue: audit },
         { provide: NotificationsService, useValue: {} },
-        { provide: SettingsService, useValue: {} },
+        { provide: SettingsService, useValue: { get: jest.fn().mockResolvedValue({ settings: { security: { passwordMinLength: 12, passwordRequireComplexity: true } } }) } },
       ],
     }).compile();
     service = moduleRef.get(UsersService);
@@ -102,5 +102,6 @@ describe('UsersService.bulkUpload', () => {
       expect.objectContaining({ data: expect.objectContaining({ email: 'jane@example.com', fullName: 'Jane Doe' }) }),
     );
     expect(results.added).toBe(1);
+    expect(results.credentials).toEqual([expect.objectContaining({ email: 'jane@example.com', tempPassword: expect.stringMatching(/^.{12,}$/) })]);
   });
 });

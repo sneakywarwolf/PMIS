@@ -22,9 +22,15 @@ if errorlevel 1 (
     echo      Frontend server stopped.
 )
 
-REM Also try to kill any lingering node processes on the common ports
-echo      Cleaning up any lingering Node processes...
-taskkill /F /IM node.exe >nul 2>&1
+REM Free the dev ports (covers servers started without a titled window, e.g. start.bat's
+REM minimized ones). Only the processes listening on 3000/4000 and their children are killed -
+REM never every node.exe, which would also kill unrelated Node apps and tools.
+echo      Freeing ports 3000 and 4000...
+for %%P in (3000 4000) do (
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R /C:":%%P .*LISTENING"') do (
+        taskkill /F /T /PID %%a >nul 2>&1
+    )
+)
 
 echo.
 echo [2/2] Stopping Docker containers...

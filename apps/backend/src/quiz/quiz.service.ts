@@ -252,36 +252,35 @@ export class QuizService {
   }
 
   async getLeaderboard() {
-    const attempts = await this.prisma.quizAttempt.findMany({
-      where: this.revealedAttemptsWhere(),
-      include: { user: { select: { id: true, fullName: true } } },
+    // Aggregated in the database, not by loading every attempt into memory.
+    const where = this.revealedAttemptsWhere();
+    const [totals, corrects, stats] = await Promise.all([
+      this.prisma.quizAttempt.groupBy({ by: ['userId'], where, _sum: { pointsAwarded: true }, _count: { _all: true } }),
+      this.prisma.quizAttempt.groupBy({ by: ['userId'], where: { ...where, isCorrect: true }, _count: { _all: true } }),
+      this.prisma.quizUserStats.findMany(),
+    ]);
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: totals.map((t) => t.userId) } },
+      select: { id: true, fullName: true },
     });
-    const stats = await this.prisma.quizUserStats.findMany();
-    const statsByUserId = new Map(stats.map((s) => [s.userId, s]));
+    const nameById = new Map(users.map((u) => [u.id, u.fullName ?? '']));
+    const correctById = new Map(corrects.map((c) => [c.userId, c._count._all]));
+    const statsById = new Map(stats.map((st) => [st.userId, st]));
 
-    const byUser = new Map<string, { userId: string; fullName: string; totalPoints: number; correct: number; total: number }>();
-    for (const a of attempts) {
-      const entry = byUser.get(a.userId) ?? { userId: a.userId, fullName: a.user.fullName ?? '', totalPoints: 0, correct: 0, total: 0 };
-      entry.totalPoints += a.pointsAwarded;
-      entry.total += 1;
-      if (a.isCorrect) entry.correct += 1;
-      byUser.set(a.userId, entry);
-    }
-
-    const result = Array.from(byUser.values()).map((entry) => {
-      const s = statsByUserId.get(entry.userId);
-      return {
-        userId: entry.userId,
-        fullName: entry.fullName,
-        totalPoints: entry.totalPoints,
-        currentStreak: s?.currentStreak ?? 0,
-        bestStreak: s?.bestStreak ?? 0,
-        badges: s?.badges ?? [],
-        accuracy: entry.total ? entry.correct / entry.total : 0,
-      };
-    });
-
-    return result.sort((a, b) => b.totalPoints - a.totalPoints || b.accuracy - a.accuracy);
+    return totals
+      .map((t) => {
+        const st = statsById.get(t.userId);
+        return {
+          userId: t.userId,
+          fullName: nameById.get(t.userId) ?? '',
+          totalPoints: t._sum.pointsAwarded ?? 0,
+          currentStreak: st?.currentStreak ?? 0,
+          bestStreak: st?.bestStreak ?? 0,
+          badges: st?.badges ?? [],
+          accuracy: t._count._all ? (correctById.get(t.userId) ?? 0) / t._count._all : 0,
+        };
+      })
+      .sort((x, y) => y.totalPoints - x.totalPoints || y.accuracy - x.accuracy);
   }
 
   async createQuestion(createdById: string, dto: CreateQuizQuestionDto, ipAddress: string, userAgent: string) {

@@ -529,7 +529,7 @@ start.bat
 stop.bat
 
 # 6. Reset application data (keeps Docker running) - interactive menu:
-#    1 Users  2 Vulnerability DB  3 Projects  4 Quiz & Scores  5 Everything (type RESET)  6 Cancel
+#    1 Users  2 Vulnerability DB  3 Projects  4 Quiz & Arcade Scores  5 Everything (type RESET)  6 Cancel
 #    Pick several at once, e.g. "1,3". Shows exactly what will be deleted before asking to confirm.
 reset-db.bat
 #    Non-interactive:  reset-db.bat --scopes "users,projects" --yes

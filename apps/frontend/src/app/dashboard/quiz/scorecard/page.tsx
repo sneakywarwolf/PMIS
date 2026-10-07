@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Crown, Flame, Lock, Target, Trophy } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { TEAM_CHIP, useTeamNames } from '@/lib/use-team-names';
 import { BADGE_CATALOG, QuizHeader, QuizSkeleton, Ring, useQuizMotion } from '@/components/quiz-ui';
 
 type Scorecard = {
@@ -24,6 +25,7 @@ const RANK = ['text-amber-300 bg-amber-400/10 border-amber-400/30', 'text-gray-2
 
 export default function QuizScorecardPage() {
   const { user } = useAuth();
+  const teamOf = useTeamNames();
   const m = useQuizMotion();
   const [card, setCard] = useState<Scorecard | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -141,6 +143,7 @@ export default function QuizScorecardPage() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-gray-100">
                       {entry.fullName}
+                      {teamOf[entry.userId] && <span className={TEAM_CHIP}>{teamOf[entry.userId]}</span>}
                       {you && <span className="ml-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400">You</span>}
                     </p>
                     <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-gray-800">

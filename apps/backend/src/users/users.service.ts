@@ -9,10 +9,8 @@ import * as argon2 from 'argon2';
 import { randomInt } from 'crypto';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
 
-// Every newly created user (single or bulk) starts with this password and
-// must change it on first login — see isForcePasswordChange enforcement in
-// JwtAuthGuard.
-export const DEFAULT_NEW_USER_PASSWORD = 'Tester@12345';
+// Roles that can lead a team (be assigned testers). Admins can act as team leads too.
+const TL_ROLES: UserRole[] = [UserRole.TEAM_LEAD, UserRole.AVP, UserRole.ADMIN];
 
 @Injectable()
 export class UsersService {
@@ -47,6 +45,7 @@ export class UsersService {
         assignedTlId: true,
         managerId: true,
         isActive: true,
+        deletedAt: true,
         isForcePasswordChange: true,
         createdAt: true,
         lastLoginAt: true,
@@ -105,17 +104,15 @@ export class UsersService {
       const tl = await this.prisma.user.findUnique({
         where: { id: dto.assignedTlId },
       });
-      if (!tl || (tl.role !== UserRole.TEAM_LEAD && tl.role !== UserRole.AVP)) {
+      if (!tl || !TL_ROLES.includes(tl.role)) {
         throw new BadRequestException('Invalid team lead assignment');
       }
     }
 
-    const passwordHash = await argon2.hash(DEFAULT_NEW_USER_PASSWORD, {
-      type: argon2.argon2id,
-      memoryCost: 65536,
-      timeCost: 3,
-      parallelism: 4,
-    });
+    // Random one-time password, shown to the admin once; the user must change
+    // it on first login (isForcePasswordChange, enforced in JwtAuthGuard).
+    const tempPassword = await this.newTempPassword();
+    const passwordHash = await this.hashPassword(tempPassword);
 
     const user = await this.prisma.user.create({
       data: {
@@ -169,7 +166,7 @@ export class UsersService {
       excludeUserId: adminId,
     });
 
-    return user;
+    return { ...user, tempPassword };
   }
 
   async update(id: string, dto: UpdateUserDto, adminId: string, ipAddress: string, userAgent: string) {
@@ -360,14 +357,54 @@ export class UsersService {
       details: { gracePeriodHours: 24 },
     });
 
+    // Let the people responsible for this user know the 24h undo window is open.
+    const label = user.fullName || user.username;
+    for (const recipientId of new Set([user.assignedTlId, user.managerId])) {
+      if (!recipientId || recipientId === adminId) continue;
+      await this.notificationsService.create({
+        userId: recipientId,
+        type: 'USER_UPDATED',
+        title: 'User scheduled for deletion',
+        message: `${label} was deleted by an admin. Their data is permanently removed in 24 hours unless an admin reactivates them.`,
+      });
+    }
+
     return {
       message: 'User deactivated. Data will be permanently deleted in 24 hours unless reactivated.',
     };
   }
 
+  /**
+   * The caller's own team, safe for any role: names and designations only (no email/phone),
+   * and only people on the caller's team. A tester's team is their lead's; a lead's is their own.
+   */
+  async getMyTeam(user: Pick<User, 'id' | 'role' | 'assignedTlId'>) {
+    const leadId = user.role === UserRole.TESTER ? user.assignedTlId : user.id;
+    if (!leadId) return null;
+
+    const person = { id: true, fullName: true, username: true, designation: true } as const;
+    const [lead, members] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: leadId }, select: { ...person, manager: { select: person } } }),
+      this.prisma.user.findMany({ where: { assignedTlId: leadId, isActive: true }, select: person, orderBy: { fullName: 'asc' } }),
+    ]);
+    if (!lead || (user.role !== UserRole.TESTER && members.length === 0)) return null;
+
+    const shape = (u: { id: string; fullName: string | null; username: string; designation: string | null }) => ({
+      id: u.id,
+      name: u.fullName || u.username,
+      designation: u.designation,
+    });
+    return {
+      teamLead: shape(lead),
+      manager: lead.manager ? shape(lead.manager) : null,
+      members: members.map((m) => ({ ...shape(m), isMe: m.id === user.id })),
+      iAmLead: leadId === user.id,
+    };
+  }
+
   async getTeamHierarchy() {
     const teamLeads = await this.prisma.user.findMany({
-      where: { role: { in: [UserRole.TEAM_LEAD, UserRole.AVP] }, isActive: true },
+      where: { role: { in: TL_ROLES }, isActive: true },
       select: {
         id: true,
         username: true,
@@ -389,7 +426,7 @@ export class UsersService {
 
   async getTeamLeads() {
     return this.prisma.user.findMany({
-      where: { role: { in: [UserRole.TEAM_LEAD, UserRole.AVP] }, isActive: true },
+      where: { role: { in: TL_ROLES }, isActive: true },
       select: {
         id: true,
         username: true,
@@ -411,6 +448,15 @@ export class UsersService {
       },
       orderBy: { username: 'asc' },
     });
+  }
+
+  private async newTempPassword(): Promise<string> {
+    const { settings } = await this.settingsService.get();
+    return this.generateSecurePassword(settings.security.passwordMinLength, settings.security.passwordRequireComplexity);
+  }
+
+  private hashPassword(password: string) {
+    return argon2.hash(password, { type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 4 });
   }
 
   /**
@@ -479,7 +525,7 @@ export class UsersService {
     const allExistingEmails = new Set(allUsers.map(u => u.email.toLowerCase()));
     const allExistingUsernames = new Set(allUsers.map(u => u.username.toLowerCase()));
 
-    const results = { added: 0, skipped: 0, errors: [] as string[] };
+    const results = { added: 0, skipped: 0, errors: [] as string[], credentials: [] as { fullName: string; email: string; username: string; tempPassword: string }[] };
 
     for (let i = 1; i < allRows.length; i++) {
       const cols = allRows[i];
@@ -536,7 +582,7 @@ export class UsersService {
       if (tlName) {
         const tl = allUsers.find(u =>
           u.fullName?.toLowerCase() === tlName.toLowerCase() &&
-          (u.role === UserRole.TEAM_LEAD || u.role === UserRole.AVP)
+          TL_ROLES.includes(u.role)
         );
         if (tl) assignedTlId = tl.id;
       }
@@ -551,12 +597,8 @@ export class UsersService {
         if (mgr) managerId = mgr.id;
       }
 
-      const passwordHash = await argon2.hash(DEFAULT_NEW_USER_PASSWORD, {
-        type: argon2.argon2id,
-        memoryCost: 65536,
-        timeCost: 3,
-        parallelism: 4,
-      });
+      const tempPassword = await this.newTempPassword();
+      const passwordHash = await this.hashPassword(tempPassword);
 
       try {
         await this.prisma.user.create({
@@ -574,6 +616,7 @@ export class UsersService {
           },
         });
         results.added++;
+        results.credentials.push({ fullName, email, username, tempPassword });
       } catch (error: any) {
         results.errors.push(`Row ${i + 1}: ${error.message || 'Failed to create user'}`);
       }

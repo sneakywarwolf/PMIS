@@ -8,6 +8,8 @@ import { AuditService } from '../audit/audit.service';
 import { ProjectPurgeService, PurgeableProject } from '../common/project-purge.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Purged rows are deleted, so a capped batch just means the rest are picked up by the next hourly sweep.
+const PURGE_BATCH = 25;
 
 @Injectable()
 export class RetentionService {
@@ -23,7 +25,7 @@ export class RetentionService {
 
   @Cron(CronExpression.EVERY_HOUR)
   async runRetentionSweep(): Promise<void> {
-    const systemActor = await this.prisma.user.findFirst({ where: { role: UserRole.ADMIN }, select: { id: true } });
+    const systemActor = await this.prisma.user.findFirst({ where: { role: UserRole.ADMIN, isActive: true }, select: { id: true } });
     await this.deleteExpiredPocAttachments(systemActor?.id ?? null);
     await this.deleteExpiredCompletedProjects(systemActor?.id ?? null);
     await this.deleteExpiredUsers(systemActor?.id ?? null);
@@ -37,6 +39,7 @@ export class RetentionService {
 
     const expiredUsers = await this.prisma.user.findMany({
       where: { isActive: false, deletedAt: { lt: cutoff } },
+      take: PURGE_BATCH,
       include: {
         projectsOwned: {
           include: { reportGenerations: true, findings: { include: { pocSteps: true } } },
@@ -50,6 +53,10 @@ export class RetentionService {
         const result = await this.projectPurge.purgeProject(project);
         filesDeleted += result.filesDeleted;
       }
+
+      // Delete the user row last so the sweep can't pick them up (and re-audit
+      // them) again next hour. Needs an admin to inherit rows that must survive.
+      if (systemActorId) await this.deleteUserRow(user.id, systemActorId);
 
       if (systemActorId) {
         await this.auditService.log({
@@ -67,6 +74,25 @@ export class RetentionService {
     if (expiredUsers.length > 0) {
       this.logger.log(`User retention: purged data for ${expiredUsers.length} deleted user(s)`);
     }
+  }
+
+  // Same handling as the DB reset's user removal: shared rows go to the admin,
+  // per-user rows (one-per-user quiz/arcade data) are
+  // deleted, optional references (incl. the audit-log actor) null themselves via ON DELETE SET NULL, and
+  // notifications cascade.
+  private async deleteUserRow(userId: string, adminId: string): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.project.updateMany({ where: { tlId: userId }, data: { tlId: adminId } }),
+      this.prisma.finding.updateMany({ where: { createdById: userId }, data: { createdById: adminId } }),
+      this.prisma.reportGeneration.updateMany({ where: { generatedById: userId }, data: { generatedById: adminId } }),
+      this.prisma.reportTemplate.updateMany({ where: { uploadedById: userId }, data: { uploadedById: adminId } }),
+      this.prisma.quizQuestion.updateMany({ where: { createdById: userId }, data: { createdById: adminId } }),
+      this.prisma.vulnerabilityChangeRequest.updateMany({ where: { requestedById: userId }, data: { requestedById: adminId } }),
+      this.prisma.quizAttempt.deleteMany({ where: { userId } }),
+      this.prisma.quizUserStats.deleteMany({ where: { userId } }),
+      this.prisma.patternMapScore.deleteMany({ where: { userId } }),
+      this.prisma.user.delete({ where: { id: userId } }),
+    ]);
   }
 
   private async deleteExpiredPocAttachments(systemActorId: string | null): Promise<void> {
@@ -111,6 +137,7 @@ export class RetentionService {
 
     const expiredProjects: (PurgeableProject & { name: string })[] = await this.prisma.project.findMany({
       where: { status: ProjectStatus.COMPLETED, generatedAt: { lt: cutoff } },
+      take: PURGE_BATCH,
       include: {
         reportGenerations: true,
         findings: { include: { pocSteps: true } },

@@ -9,9 +9,9 @@ import type { Transition, Variants } from 'framer-motion';
  * 3. Vertical lift — Dashboard -> deeper analytics (Reports)
  * 4. Scale + fade — modal-like focused views (routes ending in /new or /edit)
  *
- * Every family shares the exact same duration/easing (TRANSITION_TIMING) and the
- * same "Progressive Blur Reveal" treatment (entering content starts slightly
- * blurred and sharpens in), so only the motion path differs — never the feel.
+ * Every family shares the exact same duration/easing (TRANSITION_TIMING), so only the
+ * motion path differs — never the feel. (No blur/filter: it forces expensive repaints of
+ * the whole page on every navigation.)
  *
  * True DOM shared-element/morph transitions (Project card -> Project detail)
  * would need both trees mounted simultaneously across a Next.js route change,
@@ -20,7 +20,8 @@ import type { Transition, Variants } from 'framer-motion';
  */
 export type TransitionKind = 'crossfade' | 'slideForward' | 'slideBack' | 'verticalLift' | 'scaleFade';
 
-export const TRANSITION_TIMING: Transition = { duration: 0.55, ease: 'easeInOut' };
+// Short on purpose: a route change should feel instant. Long, blurred transitions read as lag.
+export const TRANSITION_TIMING: Transition = { duration: 0.2, ease: 'easeOut' };
 
 function moduleOf(pathname: string): string {
   const segments = pathname.split('/').filter(Boolean); // ['dashboard', 'projects', ':id']
@@ -50,38 +51,35 @@ export function classifyTransition(prevPath: string, nextPath: string): Transiti
   return 'crossfade';
 }
 
-const BLUR_IN = 'blur(6px)';
-const BLUR_OUT = 'blur(4px)';
-
 export const TRANSITION_VARIANTS: Record<TransitionKind, Variants> = {
   // Family 1: Crossfade
   crossfade: {
-    initial: { opacity: 0, filter: BLUR_IN },
-    animate: { opacity: 1, filter: 'blur(0px)' },
-    exit: { opacity: 0, filter: BLUR_OUT },
+    initial: { opacity: 0 },
+    animate: { opacity: 1 },
+    exit: { opacity: 0 },
   },
   // Family 2: Slide (forward = deeper into a module)
   slideForward: {
-    initial: { opacity: 0, x: 24, filter: BLUR_IN },
-    animate: { opacity: 1, x: 0, filter: 'blur(0px)' },
-    exit: { opacity: 0, x: -24, filter: BLUR_OUT },
+    initial: { opacity: 0, x: 24 },
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, x: -24 },
   },
   // Family 2: Slide (backward = up out of a module)
   slideBack: {
-    initial: { opacity: 0, x: -24, filter: BLUR_IN },
-    animate: { opacity: 1, x: 0, filter: 'blur(0px)' },
-    exit: { opacity: 0, x: 24, filter: BLUR_OUT },
+    initial: { opacity: 0, x: -24 },
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, x: 24 },
   },
   // Family 3: Vertical lift
   verticalLift: {
-    initial: { opacity: 0, y: 24, filter: BLUR_IN },
-    animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
-    exit: { opacity: 0, y: -12, filter: BLUR_OUT },
+    initial: { opacity: 0, y: 24 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -12 },
   },
   // Family 4: Scale + fade
   scaleFade: {
-    initial: { opacity: 0, scale: 0.97, filter: BLUR_IN },
-    animate: { opacity: 1, scale: 1, filter: 'blur(0px)' },
-    exit: { opacity: 0, scale: 0.98, filter: BLUR_OUT },
+    initial: { opacity: 0, scale: 0.97 },
+    animate: { opacity: 1, scale: 1 },
+    exit: { opacity: 0, scale: 0.98 },
   },
 };

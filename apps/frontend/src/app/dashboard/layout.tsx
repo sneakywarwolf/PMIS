@@ -246,24 +246,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <UserDropdown user={user} logout={logout} router={router} />
         </div>
 
-        {/* grid-stack: entering and exiting pages share one cell so they can
-            overlap and cross-dissolve, instead of a hard cut between them */}
-        <div className="grid grid-cols-[minmax(0,1fr)]">
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.div
-              key={pathname}
-              variants={TRANSITION_VARIANTS[transitionKind]}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={TRANSITION_TIMING}
-              className="p-4 md:p-6"
-              style={{ gridArea: '1 / 1' }}
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
-        </div>
+        {/* Enter-only transition. An exit animation (AnimatePresence) keeps the OLD page mounted while the
+            router has already switched, and in Next's app router that exiting copy re-renders the NEW
+            route too — so every page was mounted twice per navigation, firing all its API calls twice.
+            Enter-only mounts each page once and starts it fading in immediately. */}
+        <motion.div
+          key={pathname}
+          variants={TRANSITION_VARIANTS[transitionKind]}
+          initial="initial"
+          animate="animate"
+          transition={TRANSITION_TIMING}
+          className="p-4 md:p-6"
+        >
+          {children}
+        </motion.div>
       </main>
 
       {isMobile && mobileOpen && (

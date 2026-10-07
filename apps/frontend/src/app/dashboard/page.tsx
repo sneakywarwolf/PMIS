@@ -13,6 +13,9 @@ import { useBranding } from '@/contexts/branding-context';
 import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
 import { ChartFilter, DashboardEngagements } from '@/components/dashboard-engagements';
+import { DashboardRankings } from '@/components/dashboard-rankings';
+import { MyTeamCard, type MyTeam } from '@/components/my-team-card';
+import { DashboardCustomize, Slot, useDashboardLayout } from '@/components/dashboard-customize';
 import { TlComparison } from '@/components/tl-comparison';
 import { FindingsHeatmap } from '@/components/findings-heatmap';
 import { Sparkline } from '@/components/sparkline';
@@ -36,6 +39,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [quizToday, setQuizToday] = useState<any>(null);
   const [view, setView] = useState<'team' | 'self'>('team');
+  const layout = useDashboardLayout(user?.id);
+  const [myTeam, setMyTeam] = useState<MyTeam | null>(null);
+  useEffect(() => { api.get('/users/my-team').then((r) => setMyTeam(r.data || null)).catch(() => setMyTeam(null)); }, [user?.id]);
   const [external, setExternal] = useState<ChartFilter>({});
   // One engagements fetch shared by the table, KPI sparklines and heatmap.
   const engagements = useEngagements(view);
@@ -127,10 +133,8 @@ export default function DashboardPage() {
       }))
     : [];
 
-  if (loading) return <DashboardSkeleton />;
-
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <DashboardGreetingHero name={user?.fullName || user?.username || 'there'} pageTitle={pageTitle} />
 
       {quizToday && (
@@ -151,13 +155,18 @@ export default function DashboardPage() {
 
       <div className="flex items-center justify-between">
         <p className="text-gray-400 text-sm">Overview of your VAPT operations</p>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-sm text-emerald-400 font-mono">SYSTEM ONLINE</span>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-sm text-emerald-400 font-mono">SYSTEM ONLINE</span>
+          </div>
+          <DashboardCustomize layout={layout} />
         </div>
       </div>
 
       {/* Overview */}
+      {loading ? <SectionSkeleton rows={1} cards={4} /> : (
+<>
       <RevealSection>
         <SectionHeading>Overview</SectionHeading>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -198,6 +207,27 @@ export default function DashboardPage() {
           />
         </div>
       </RevealSection>
+</>
+      )}
+
+      <Slot layout={layout} id="rankings">
+      {/* Competitive rankings */}
+      <RevealSection delay={0.03}>
+        <SectionHeading>Leaderboards</SectionHeading>
+        <DashboardRankings />
+      </RevealSection>
+      </Slot>
+
+      <Slot layout={layout} id="engagements">
+      {/* My team */}
+      {myTeam && (
+        <Slot layout={layout} id="myteam">
+          <RevealSection delay={0.04}>
+            <SectionHeading>My Team</SectionHeading>
+            <MyTeamCard team={myTeam} />
+          </RevealSection>
+        </Slot>
+      )}
 
       {/* Engagements */}
       <RevealSection delay={0.05}>
@@ -212,7 +242,11 @@ export default function DashboardPage() {
           />
         </div>
       </RevealSection>
+      </Slot>
 
+      <Slot layout={layout} id="charts">
+      {loading ? <SectionSkeleton rows={1} h="h-72" /> : (
+<>
       {/* Charts */}
       <RevealSection delay={0.1} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="glass-card rounded-xl p-6">
@@ -282,7 +316,11 @@ export default function DashboardPage() {
           )}
         </div>
       </RevealSection>
+</>
+      )}
+      </Slot>
 
+      <Slot layout={layout} id="tls">
       {/* Team Lead comparison — ADMIN/AVP only (endpoint is role-guarded too) */}
       {isAdmin && (
         <RevealSection delay={0.12}>
@@ -290,13 +328,19 @@ export default function DashboardPage() {
           <TlComparison onSelect={(tl, status) => filterEngagements({ tl, status })} />
         </RevealSection>
       )}
+      </Slot>
 
+      <Slot layout={layout} id="heatmap">
       {/* Heatmap */}
       <RevealSection delay={0.13}>
         <SectionHeading>Findings Heatmap</SectionHeading>
         <FindingsHeatmap rows={engagements.rows} onSelect={(severity) => filterEngagements({ severity })} />
       </RevealSection>
+      </Slot>
 
+      <Slot layout={layout} id="main">
+      {loading ? <SectionSkeleton rows={1} h="h-72" /> : (
+<>
       {/* Main Content Grid */}
       <RevealSection delay={0.15} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Team Breakdown (Admin / TL) */}
@@ -382,9 +426,14 @@ export default function DashboardPage() {
           </div>
         </motion.div>
       </RevealSection>
+</>
+      )}
+      </Slot>
 
+      <Slot layout={layout} id="activity">
       {/* Activity */}
       {(isAdmin || user?.role === 'TEAM_LEAD') && <RecentActivity delay={0.2} />}
+      </Slot>
     </div>
   );
 }
@@ -480,7 +529,7 @@ function RecentActivity({ delay }: { delay?: number }) {
               </div>
               <div className="min-w-0">
                 <p className="text-sm text-white">
-                  <span className="font-medium">{log.actor?.username || 'System'}</span>{' '}
+                  <span className="font-medium">{log.actor?.username || 'Deleted user'}</span>{' '}
                   <span className="text-gray-400">{log.action.replace(/_/g, ' ').toLowerCase()}</span>
                   {log.targetType && <span className="text-gray-500"> · {log.targetType.toLowerCase()}</span>}
                 </p>
@@ -495,16 +544,13 @@ function RecentActivity({ delay }: { delay?: number }) {
 }
 
 /** Layout-matching placeholder so the page doesn't jump when data arrives. */
-function DashboardSkeleton() {
-  const block = (h: string) => <div className={`${h} rounded-xl bg-white/5 animate-pulse`} />;
+/** Placeholder for a stats-dependent section while /dashboard stats load — the rest of the page is already usable. */
+function SectionSkeleton({ rows = 1, cards = 0, h = 'h-72' }: { rows?: number; cards?: number; h?: string }) {
+  const block = (cls: string, key?: number) => <div key={key} className={`${cls} rounded-xl bg-white/5 animate-pulse`} />;
   return (
-    <div className="space-y-6" aria-busy="true" aria-label="Loading dashboard">
-      {block('h-28')}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[0, 1, 2, 3].map((i) => <div key={i}>{block('h-32')}</div>)}
-      </div>
-      {block('h-80')}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">{block('h-72')}{block('h-72')}</div>
+    <div className="space-y-4" aria-busy="true" aria-label="Loading">
+      {cards > 0 && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">{Array.from({ length: cards }).map((_, i) => block('h-32', i))}</div>}
+      {cards === 0 && Array.from({ length: rows }).map((_, i) => block(h, i))}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { EngagementCard } from '@/components/engagement-card';
 import { useEffect, useState } from 'react';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
@@ -94,6 +95,8 @@ export default function QuizManagePage() {
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <h1 className="text-2xl font-semibold text-white">Manage Quiz</h1>
+
+      <EngagementCard />
 
       <div className="glass-card p-6 rounded-xl space-y-3">
         <div className="text-sm text-gray-400">{editingId ? 'Edit question' : 'New question'}</div>

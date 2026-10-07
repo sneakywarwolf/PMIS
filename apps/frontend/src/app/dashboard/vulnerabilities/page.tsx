@@ -1156,7 +1156,7 @@ function VulnHistoryTimeline({ vulnId }: { vulnId: string }) {
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
             <div>
               <p className="text-gray-300">
-                <span className="font-medium text-white">{log.actor?.username || 'System'}</span>{' '}
+                <span className="font-medium text-white">{log.actor?.username || 'Deleted user'}</span>{' '}
                 {log.action.replace('VULNERABILITY_', '').replace(/_/g, ' ').toLowerCase()}
               </p>
               <p className="text-gray-500">{formatDateTime(log.timestamp)}</p>
@@ -1215,7 +1215,7 @@ function ChangeTrackerTab() {
             {logs.map((log: any) => (
               <tr key={log.id} className="border-b border-gray-800/60 hover:bg-white/[0.02]">
                 <td className="px-5 py-2.5 text-gray-400 whitespace-nowrap">{formatDateTime(log.timestamp)}</td>
-                <td className="px-5 py-2.5 text-white">{log.actor?.username || 'System'}</td>
+                <td className="px-5 py-2.5 text-white">{log.actor?.username || 'Deleted user'}</td>
                 <td className="px-5 py-2.5">
                   <span className={`px-2 py-0.5 rounded text-xs font-medium ${ACTION_STYLES[log.action] || 'bg-gray-500/10 text-gray-400'}`}>
                     {log.action.replace('VULNERABILITY_', '').replace(/_/g, ' ').toLowerCase()}

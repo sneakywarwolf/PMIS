@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, ListOrdered, ArrowUp, ArrowDown, Save, Loader2, Clock, ServerCog, Egg } from 'lucide-react';
+import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, ListOrdered, ArrowUp, ArrowDown, GripVertical, Save, Loader2, Clock, ServerCog, Egg } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
@@ -159,7 +159,7 @@ function SettingsContent() {
             {history.map((log: any) => (
               <div key={log.id} className="flex items-start justify-between text-xs p-2 rounded bg-white/5">
                 <div>
-                  <span className="text-white font-medium">{log.actor?.username || 'System'}</span>
+                  <span className="text-white font-medium">{log.actor?.username || 'Deleted user'}</span>
                   <span className="text-gray-400"> updated settings</span>
                   {log.details?.changed && (
                     <p className="text-gray-500 mt-0.5">{Object.keys(log.details.changed).join(', ')}</p>
@@ -539,13 +539,40 @@ function IssueLogTab({ settings, setCategory }: any) {
     [next[i], next[i + d]] = [next[i + d], next[i]];
     set(next);
   };
+  // Drag and drop reorder (arrow buttons remain for keyboard users). Only the order changes; each row keeps its own enabled flag.
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [overKey, setOverKey] = useState<string | null>(null);
+  const drop = (toKey: string) => {
+    const from = cols.findIndex((c) => c.key === dragKey);
+    const to = cols.findIndex((c) => c.key === toKey);
+    setDragKey(null);
+    setOverKey(null);
+    if (from < 0 || to < 0 || from === to) return;
+    const next = [...cols];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    set(next);
+  };
   return (
     <div className="space-y-3">
       <p className={hintCls}>
-        Columns included in generated Issue Logs, in this order. Applies to future Issue Logs only; already-downloaded files are unchanged.
+        Drag columns (or use the arrows) to change their order. Columns are included in generated Issue Logs in this order. Applies to future Issue Logs only; already-downloaded files are unchanged.
       </p>
       {cols.map((c, i) => (
-        <div key={c.key} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700">
+        <div
+          key={c.key}
+          draggable
+          onDragStart={(e) => { setDragKey(c.key); e.dataTransfer.effectAllowed = 'move'; }}
+          onDragOver={(e) => { if (dragKey) { e.preventDefault(); setOverKey(c.key); } }}
+          onDrop={(e) => { e.preventDefault(); drop(c.key); }}
+          onDragEnd={() => { setDragKey(null); setOverKey(null); }}
+          className={`flex items-center gap-3 px-3 py-2 rounded-lg border cursor-grab active:cursor-grabbing transition-colors ${
+            dragKey === c.key ? 'opacity-40 border-gray-700 bg-gray-800/50'
+            : overKey === c.key && dragKey ? 'border-emerald-400 bg-emerald-500/10'
+            : 'bg-gray-800/50 border-gray-700'
+          }`}
+        >
+          <GripVertical className="w-4 h-4 shrink-0 text-gray-500" aria-hidden />
           <input type="checkbox" checked={c.enabled} onChange={(e) => set(cols.map((x) => (x.key === c.key ? { ...x, enabled: e.target.checked } : x)))} />
           <span className="flex-1 text-sm text-white">{c.label}</span>
           <button type="button" disabled={i === 0} onClick={() => move(i, -1)} className="text-gray-400 hover:text-white disabled:opacity-30" aria-label={`Move ${c.label} up`}><ArrowUp className="w-4 h-4" /></button>

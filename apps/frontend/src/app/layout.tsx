@@ -28,7 +28,8 @@ export default function RootLayout({
             __html: `
               (function() {
                 try {
-                  const theme = localStorage.getItem('pmis-theme-override');
+                  // Same precedence as ThemeProvider: user override -> last known admin default -> (none = system default)
+                  const theme = localStorage.getItem('pmis-theme-override') || localStorage.getItem('pmis-theme-admin-default');
                   if (theme) document.documentElement.dataset.theme = theme;
                 } catch (e) {}
               })();

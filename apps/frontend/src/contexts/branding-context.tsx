@@ -40,7 +40,8 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
       if (res.data?.branding) setBranding({ ...DEFAULT_BRANDING, ...res.data.branding });
       setSettings(res.data?.settings ?? null);
     }).catch(() => {}).finally(() => setSettingsLoaded(true));
-  }, [user]);
+  // Keyed on the user's id, not the object: refreshUser()/checkAuth replaces the object without changing who is logged in.
+  }, [user?.id]);
 
   useEffect(() => {
     document.documentElement.style.setProperty('--cyber-primary', branding.primaryColor);

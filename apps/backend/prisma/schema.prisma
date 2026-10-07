@@ -65,6 +65,8 @@ enum AuditAction {
   PROJECT_DELETED
   PROJECT_RETENTION_DELETED
   ATTACHMENT_RETENTION_DELETED
+  USER_RETENTION_PURGED
+  TEMPLATE_FIELD_ADDED
   TEMPLATE_UPLOADED
   TEMPLATE_ACTIVATED
   TEMPLATE_DEACTIVATED
@@ -145,6 +147,8 @@ model User {
   fullName      String?   @map("full_name")
   phone         String?   @map("phone")
   designation   String?   @map("designation")
+  // Team lead only: custom team name shown on Quiz/Arcade boards (never used elsewhere in PMIS).
+  quizTeamName  String?   @map("quiz_team_name")
 
   isActive      Boolean   @default(true) @map("is_active")
   deletedAt     DateTime? @map("deleted_at")
@@ -173,6 +177,7 @@ model User {
   quizQuestions    QuizQuestion[]
   quizAttempts     QuizAttempt[]
   quizStats        QuizUserStats?
+  patternMapScores PatternMapScore[]
 
   @@index([assignedTlId])
   @@index([role])
@@ -472,8 +477,9 @@ model PocStep {
 
 model AuditLog {
   id          String     @id @default(cuid())
-  actorId     String     @map("actor_id")
-  actor       User       @relation("AuditActor", fields: [actorId], references: [id])
+  // Null once the acting user has been permanently purged (retention); the entry itself is kept.
+  actorId     String?    @map("actor_id")
+  actor       User?      @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   action      AuditAction
   targetType  String?    @map("target_type")
@@ -585,4 +591,20 @@ model QuizUserStats {
   badges         QuizBadge[]
 
   @@map("quiz_user_stats")
+}
+
+// Arcade "Pattern Map" break-time game. Deliberately separate from the Quiz
+// tables: its scores never feed Quiz points, streaks, scorecard or leaderboard.
+model PatternMapScore {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  user          User     @relation(fields: [userId], references: [id])
+  score         Int
+  roundsCleared Int      @map("rounds_cleared")
+  accuracy      Int
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([score])
+  @@map("pattern_map_scores")
 }

@@ -14,9 +14,11 @@ function makeSettings(attachmentRetentionDays: number, projectRetentionDays: num
 describe('RetentionService.runRetentionSweep', () => {
   let service: RetentionService;
   let prisma: {
-    user: { findFirst: jest.Mock; findMany: jest.Mock };
+    user: { findFirst: jest.Mock; findMany: jest.Mock; delete: jest.Mock };
+    $transaction: jest.Mock;
     pocStep: { findMany: jest.Mock; update: jest.Mock };
-    project: { findMany: jest.Mock };
+    project: { findMany: jest.Mock; updateMany: jest.Mock };
+    [model: string]: any;
   };
   let storage: { deleteFile: jest.Mock };
   let settingsService: { get: jest.Mock };
@@ -25,9 +27,19 @@ describe('RetentionService.runRetentionSweep', () => {
 
   beforeEach(async () => {
     prisma = {
-      user: { findFirst: jest.fn().mockResolvedValue({ id: 'admin1' }), findMany: jest.fn().mockResolvedValue([]) },
+      user: { findFirst: jest.fn().mockResolvedValue({ id: 'admin1' }), findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
+      $transaction: jest.fn().mockResolvedValue([]),
       pocStep: { findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
-      project: { findMany: jest.fn().mockResolvedValue([]) },
+      project: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn() },
+      finding: { updateMany: jest.fn() },
+      reportGeneration: { updateMany: jest.fn() },
+      reportTemplate: { updateMany: jest.fn() },
+      quizQuestion: { updateMany: jest.fn() },
+      vulnerabilityChangeRequest: { updateMany: jest.fn() },
+      quizAttempt: { deleteMany: jest.fn() },
+      quizUserStats: { deleteMany: jest.fn() },
+      patternMapScore: { deleteMany: jest.fn() },
+      auditLog: { deleteMany: jest.fn() },
     };
     storage = { deleteFile: jest.fn() };
     settingsService = { get: jest.fn().mockResolvedValue(makeSettings(90, 365)) };
@@ -81,6 +93,8 @@ describe('RetentionService.runRetentionSweep', () => {
       expect.objectContaining({ where: { isActive: false, deletedAt: { lt: expect.any(Date) } } }),
     );
     expect(projectPurge.purgeProject).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }));
+    expect(prisma.user.delete).toHaveBeenCalledWith({ where: { id: 'u1' } });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'USER_RETENTION_PURGED',

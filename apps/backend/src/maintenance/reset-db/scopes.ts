@@ -12,7 +12,7 @@ export const MENU: { n: number; scope: ResetScope; label: string }[] = [
   { n: 1, scope: 'users', label: 'Reset Users' },
   { n: 2, scope: 'vulnerabilities', label: 'Reset Vulnerability DB' },
   { n: 3, scope: 'projects', label: 'Reset Projects' },
-  { n: 4, scope: 'quiz', label: 'Reset Quiz & Scores' },
+  { n: 4, scope: 'quiz', label: 'Reset Quiz & Arcade Scores' },
   { n: 5, scope: 'everything', label: 'Reset Everything' },
 ];
 export const CANCEL_N = 6;

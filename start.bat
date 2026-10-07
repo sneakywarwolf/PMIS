@@ -35,6 +35,26 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Apply pending DB migrations and regenerate the Prisma client BEFORE the backend starts,
+REM otherwise code that expects newer tables/columns fails at runtime.
+echo Applying database migrations...
+pushd apps\backend
+call npx prisma generate
+if errorlevel 1 (
+    echo [ERROR] prisma generate failed. Is a backend still running? Run stop.bat first.
+    popd
+    pause
+    exit /b 1
+)
+call npx prisma migrate deploy
+if errorlevel 1 (
+    echo [ERROR] Database migration failed. Check the error above.
+    popd
+    pause
+    exit /b 1
+)
+popd
+
 REM Start backend in a minimized window, logs to backend.log
 start /min "VAPT Backend" cmd /c "cd apps\backend && npm run start:dev > backend.log 2>&1"
 

@@ -176,6 +176,15 @@ export class SettingsService {
     };
   }
 
+  /**
+   * Admin-chosen default theme id and nothing else, so the login page can render the right theme
+   * before anyone is authenticated. Deliberately returns no other setting.
+   */
+  async getPublicTheme(): Promise<{ defaultTheme: string }> {
+    const { settings } = await this.get();
+    return { defaultTheme: settings.appearance.defaultTheme };
+  }
+
   // The idle-timeout lookup runs on every authenticated request, so cache it
   // briefly instead of hitting the DB each time.
   // ponytail: per-process cache — other instances pick up a change within the

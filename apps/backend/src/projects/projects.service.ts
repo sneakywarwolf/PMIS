@@ -53,17 +53,27 @@ export class ProjectsService {
     throw new ForbiddenException('Access denied to this project');
   }
 
-  async findAll(user: User) {
-    const where: any = {};
-
-    if (user.role === UserRole.TESTER) {
-      where.testerId = user.id;
-    } else if (user.role === UserRole.TEAM_LEAD || user.role === UserRole.AVP) {
-      where.OR = [
-        { tlId: user.id },
-        { tester: { assignedTlId: user.id } },
-      ];
+  /** Which projects a user may open — mirrors checkProjectAccess, and is shared by the list and Ctrl+K search. */
+  private accessWhere(user: User): any {
+    if (user.role === UserRole.TESTER) return { testerId: user.id };
+    if (user.role === UserRole.TEAM_LEAD || user.role === UserRole.AVP) {
+      return { OR: [{ tlId: user.id }, { tester: { assignedTlId: user.id } }] };
     }
+    return {};
+  }
+
+  /** Minimal project rows for the Ctrl+K palette: only projects the caller can open, and only the fields it displays. */
+  async searchProjects(user: User) {
+    return this.prisma.project.findMany({
+      where: this.accessWhere(user),
+      select: { id: true, name: true, clientName: true, scope: true },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
+  async findAll(user: User) {
+    const where = this.accessWhere(user);
 
     return this.prisma.project.findMany({
       where,

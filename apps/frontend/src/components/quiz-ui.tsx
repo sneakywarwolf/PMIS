@@ -24,6 +24,7 @@ const TABS = [
   { href: '/dashboard/quiz', label: 'Today' },
   { href: '/dashboard/quiz/log', label: 'Question Log' },
   { href: '/dashboard/quiz/scorecard', label: 'Scorecard' },
+  { href: '/dashboard/quiz/arcade', label: 'Arcade' },
 ];
 
 export function QuizHeader({ title, subtitle }: { title: string; subtitle?: string }) {

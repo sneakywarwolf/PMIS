@@ -4,16 +4,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import * as Dialog from '@radix-ui/react-dialog';
 import { CornerDownLeft, FolderOpen, Search } from 'lucide-react';
-import { api } from '@/contexts/auth-context';
-import type { Row } from '@/lib/use-engagements';
+import { api, useAuth } from '@/contexts/auth-context';
+import { isRouteAllowed } from '@/lib/rbac';
 
 type Page = { label: string; href: string; icon: React.ElementType };
 type Item = { key: string; label: string; hint: string; href: string; icon: React.ElementType };
 
 /**
- * ⌘K / Ctrl+K quick switcher: jump to a page or a project. Projects come from
- * the existing /dashboard/engagements endpoint (already role-scoped server-side),
- * fetched once, the first time the palette opens.
+ * ⌘K / Ctrl+K quick switcher: jump to a page or a project. Nothing here is a
+ * source of truth for access: projects come from /projects/search (scoped
+ * server-side by the same rules as opening a project), pages are re-checked
+ * against the route RBAC, and everything is re-fetched on each open so a role
+ * or assignment change shows up without a reload. The backend still enforces
+ * access on every API call and the layout guards every route.
  */
 export function CommandPalette({ pages, open, onOpenChange }: {
   pages: Page[];
@@ -21,10 +24,10 @@ export function CommandPalette({ pages, open, onOpenChange }: {
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
-  const [projects, setProjects] = useState<Row[]>([]);
-  const loaded = useRef(false);
+  const [projects, setProjects] = useState<{ id: string; name: string; clientName: string; scope: string | null }[]>([]);
   const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
@@ -42,21 +45,22 @@ export function CommandPalette({ pages, open, onOpenChange }: {
     if (!open) return;
     setQuery('');
     setActive(0);
-    if (loaded.current) return;
-    loaded.current = true;
-    api.get('/dashboard/engagements', { params: { view: 'team' } })
-      .then((r) => setProjects(r.data))
-      .catch(() => { loaded.current = false; });
-  }, [open]);
+    setProjects([]); // never show a previous fetch (or previous user's) while the fresh, permission-checked list loads
+    let cancelled = false;
+    api.get('/projects/search')
+      .then((r) => { if (!cancelled) setProjects(r.data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [open, user?.id, user?.role]);
 
   const items: Item[] = useMemo(() => {
     const all: Item[] = [
-      ...pages.map((p) => ({ key: p.href, label: p.label, hint: 'Page', href: p.href, icon: p.icon })),
+      ...pages.filter((p) => isRouteAllowed(p.href, user?.role)).map((p) => ({ key: p.href, label: p.label, hint: 'Page', href: p.href, icon: p.icon })),
       ...projects.map((r) => ({ key: r.id, label: r.clientName, hint: r.scope || r.name, href: `/dashboard/projects/${r.id}`, icon: FolderOpen })),
     ];
     const q = query.trim().toLowerCase();
     return (q ? all.filter((i) => `${i.label} ${i.hint}`.toLowerCase().includes(q)) : all).slice(0, 30);
-  }, [pages, projects, query]);
+  }, [pages, projects, query, user?.role]);
 
   useEffect(() => setActive(0), [query]);
   useEffect(() => {
@@ -65,6 +69,7 @@ export function CommandPalette({ pages, open, onOpenChange }: {
 
   const go = (item?: Item) => {
     if (!item) return;
+    if (!isRouteAllowed(item.href, user?.role)) return;
     onOpenChange(false);
     router.push(item.href);
   };
