@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
-import { ChevronRight, Crown, Gamepad2, Users, Zap } from 'lucide-react';
+import { Check, ChevronRight, Crown, Gamepad2, Pencil, Users, Zap } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { TEAM_CHIP, useTeamNames } from '@/lib/use-team-names';
 
-type Row = { id: string; name: string; score: number };
+type Row = { id: string; name: string; score: number; mine?: boolean };
 
 // Medal tints per podium place; the rank number is always printed too, so color is never the only signal.
 const MEDAL = [
@@ -17,7 +18,7 @@ const MEDAL = [
 
 const TOP = 5;
 
-function Board({ title, unit, icon: Icon, accent, href, rows, meId, extra }: {
+function Board({ title, unit, icon: Icon, accent, href, rows, meId, extra, footer, teamOf }: {
   title: string;
   unit: string;
   icon: React.ElementType;
@@ -26,6 +27,8 @@ function Board({ title, unit, icon: Icon, accent, href, rows, meId, extra }: {
   rows: Row[] | null;
   meId?: string;
   extra?: React.ReactNode;
+  footer?: React.ReactNode;
+  teamOf?: Record<string, string>;
 }) {
   const reduce = useReducedMotion();
   const top = rows?.slice(0, TOP) ?? [];
@@ -56,6 +59,7 @@ function Board({ title, unit, icon: Icon, accent, href, rows, meId, extra }: {
           </span>
           <span className="min-w-0 flex-1 truncate text-sm text-gray-100">
             {r.name}
+            {teamOf?.[r.id] && <span className={TEAM_CHIP}>{teamOf[r.id]}</span>}
             {me && <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-white/60">you</span>}
           </span>
           <span className={`font-mono text-sm font-semibold tabular-nums ${accent.text}`}>{r.score.toLocaleString()}</span>
@@ -97,7 +101,51 @@ function Board({ title, unit, icon: Icon, accent, href, rows, meId, extra }: {
           )}
         </ol>
       )}
+      {footer}
     </div>
+  );
+}
+
+/** Team-lead-only editor for the Quiz/Arcade team name. */
+function TeamNameEditor({ current, onSaved }: { current: string | null; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+
+  const save = async (name: string) => {
+    try {
+      await api.put('/quiz/teams/name', { name });
+      setEditing(false);
+      setError('');
+      onSaved();
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'Could not save the team name');
+    }
+  };
+
+  if (!editing) {
+    return (
+      <button type="button" onClick={() => { setValue(current ?? ''); setEditing(true); }} className="relative mt-3 inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white transition-colors">
+        <Pencil className="w-3.5 h-3.5" /> Rename your team
+      </button>
+    );
+  }
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); save(value); }} className="relative mt-3 space-y-1">
+      <div className="flex gap-2">
+        <input
+          autoFocus value={value} maxLength={30} onChange={(e) => setValue(e.target.value)} aria-label="Team name"
+          placeholder="Custom team name (shown on Quiz & Arcade boards)"
+          className="flex-1 min-w-0 rounded-lg border border-gray-700 bg-white/5 px-2.5 py-1.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+        />
+        <button type="submit" aria-label="Save team name" className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2.5 text-amber-300 hover:bg-amber-400/20 transition-colors"><Check className="w-4 h-4" /></button>
+      </div>
+      <div className="flex items-center justify-between text-[11px] text-gray-500">
+        <span>Leave empty and save to reset to the default.</span>
+        <button type="button" onClick={() => setEditing(false)} className="hover:text-white">Cancel</button>
+      </div>
+      {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
+    </form>
   );
 }
 
@@ -107,6 +155,8 @@ export function DashboardRankings() {
   const [quiz, setQuiz] = useState<Row[] | null>(null);
   const [arcade, setArcade] = useState<Row[] | null>(null);
   const [teams, setTeams] = useState<{ quiz: Row[]; arcade: Row[] } | null>(null);
+  const [myTeam, setMyTeam] = useState<{ teamName: string | null; canRename: boolean } | null>(null);
+  const teamOf = useTeamNames();
   const [teamGame, setTeamGame] = useState<'quiz' | 'arcade'>('quiz');
 
   useEffect(() => {
@@ -116,24 +166,31 @@ export function DashboardRankings() {
     api.get('/quiz/arcade/pattern-map/leaderboard')
       .then((r) => setArcade(r.data.map((e: { userId: string; name: string; bestScore: number }) => ({ id: e.userId, name: e.name, score: e.bestScore }))))
       .catch(() => setArcade([]));
-    const toRows = (t: { teamLeadId: string; name: string; score: number }[]): Row[] => t.map((e) => ({ id: e.teamLeadId, name: e.name, score: e.score }));
+    loadTeams();
+  }, []);
+
+  const loadTeams = () => {
+    const toRows = (t: { teamLeadId: string; name: string; score: number; isMine: boolean }[]): Row[] => t.map((e) => ({ id: e.teamLeadId, name: e.name, score: e.score, mine: e.isMine }));
     api.get('/quiz/teams/leaderboard')
       .then((r) => setTeams({ quiz: toRows(r.data.quiz), arcade: toRows(r.data.arcade) }))
       .catch(() => setTeams({ quiz: [], arcade: [] }));
-  }, []);
+    api.get('/quiz/teams/me').then((r) => setMyTeam(r.data)).catch(() => {});
+  };
+  const myTeamId = teams?.[teamGame].find((r) => r.mine)?.id;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
       <Board
-        title="Quiz Champions" unit="points" icon={Zap} href="/dashboard/quiz/scorecard" rows={quiz} meId={user?.id}
+        title="Quiz Champions" unit="points" icon={Zap} href="/dashboard/quiz/scorecard" rows={quiz} meId={user?.id} teamOf={teamOf}
         accent={{ text: 'text-emerald-300', bar: 'bg-gradient-to-r from-emerald-500/30 to-emerald-400/5', glow: 'hover:shadow-lg hover:shadow-emerald-500/10 transition-shadow' }}
       />
       <Board
-        title="Pattern Map" unit="best score" icon={Gamepad2} href="/dashboard/quiz/arcade" rows={arcade} meId={user?.id}
+        title="Pattern Map" unit="best score" icon={Gamepad2} href="/dashboard/quiz/arcade" rows={arcade} meId={user?.id} teamOf={teamOf}
         accent={{ text: 'text-fuchsia-300', bar: 'bg-gradient-to-r from-fuchsia-500/30 to-cyan-400/5', glow: 'hover:shadow-lg hover:shadow-fuchsia-500/10 transition-shadow' }}
       />
       <Board
-        title="Team Showdown" unit="avg" icon={Users} href="/dashboard/quiz/scorecard" rows={teams ? teams[teamGame] : null}
+        title="Team Showdown" unit="avg" icon={Users} href="/dashboard/quiz/scorecard" rows={teams ? teams[teamGame] : null} meId={myTeamId}
+        footer={myTeam?.canRename ? <TeamNameEditor current={myTeam.teamName} onSaved={loadTeams} /> : undefined}
         accent={{ text: 'text-amber-300', bar: 'bg-gradient-to-r from-amber-500/30 to-orange-400/5', glow: 'hover:shadow-lg hover:shadow-amber-500/10 transition-shadow' }}
         extra={
           <span className="flex rounded-md border border-gray-700 text-xs overflow-hidden">

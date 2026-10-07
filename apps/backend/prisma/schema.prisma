@@ -147,6 +147,8 @@ model User {
   fullName      String?   @map("full_name")
   phone         String?   @map("phone")
   designation   String?   @map("designation")
+  // Team lead only: custom team name shown on Quiz/Arcade boards (never used elsewhere in PMIS).
+  quizTeamName  String?   @map("quiz_team_name")
 
   isActive      Boolean   @default(true) @map("is_active")
   deletedAt     DateTime? @map("deleted_at")

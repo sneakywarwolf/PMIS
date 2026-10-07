@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Heart, Play, RotateCcw, Trophy, Volume2, VolumeX } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { QuizHeader } from '@/components/quiz-ui';
+import { TEAM_CHIP, useTeamNames } from '@/lib/use-team-names';
 import { RAMP, cfgFor, makePattern, type Cfg } from '@/lib/pattern-map';
 
 // Pattern Map: standalone break-time game. Its scores live in their own table and never touch Quiz data.
@@ -44,6 +45,7 @@ const PALETTES = [
 
 export default function ArcadePage() {
   const { user } = useAuth();
+  const teamOf = useTeamNames();
   const [phase, setPhase] = useState<Phase>('idle');
   const [roundNo, setRoundNo] = useState(1);
   const [lives, setLives] = useState(LIVES);
@@ -240,7 +242,7 @@ export default function ArcadePage() {
               {board.map((e) => (
                 <tr key={e.userId} className={`border-t border-gray-800 ${e.userId === user?.id ? 'text-emerald-300' : 'text-gray-200'}`}>
                   <td className="py-2 tabular-nums">{e.rank}</td>
-                  <td className="py-2 truncate max-w-[10rem]">{e.name}</td>
+                  <td className="py-2 truncate max-w-[14rem]">{e.name}{teamOf[e.userId] && <span className={TEAM_CHIP}>{teamOf[e.userId]}</span>}</td>
                   <td className="py-2 text-right tabular-nums font-medium">{e.bestScore}</td>
                 </tr>
               ))}
