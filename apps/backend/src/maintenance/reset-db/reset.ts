@@ -281,6 +281,7 @@ async function resetUsers(tx: Tx, hashes: Record<string, string>): Promise<strin
     // Per-user rows can't be reassigned (one answer / score row per user) or would falsify history (audit authorship).
     await tx.quizAttempt.deleteMany({ where: { userId: ids } });
     await tx.quizUserStats.deleteMany({ where: { userId: ids } });
+    await tx.patternMapScore.deleteMany({ where: { userId: ids } });
     await tx.auditLog.deleteMany({ where: { actorId: ids } });
     // Notifications cascade; optional references (reviewers, requesters, TL/manager links) null themselves via ON DELETE SET NULL.
     await tx.user.deleteMany({ where: { id: ids } });

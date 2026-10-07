@@ -86,7 +86,7 @@ describe('runReset — each scope touches only what it should', () => {
     const h = makeHarness({ storage: { f: ['poc/a', 'reports/p/r', 'templates/t', 'other/x'] } });
     await runReset(h.deps, ['everything']);
     expect(touched(h.calls)).toEqual(
-      new Set(['quizAttempt', 'quizUserStats', 'quizQuestion', 'notification', 'pocStep', 'finding', 'reportGeneration', 'project',
+      new Set(['quizAttempt', 'quizUserStats', 'quizQuestion', 'patternMapScore', 'notification', 'pocStep', 'finding', 'reportGeneration', 'project',
         'vulnerabilityChangeRequest', 'vulnerability', 'templateField', 'reportTemplate', 'auditLog', 'appSettings', 'user']),
     );
     expect(h.stored.size).toBe(0);

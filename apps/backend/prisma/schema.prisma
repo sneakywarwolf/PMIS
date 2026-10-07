@@ -173,6 +173,7 @@ model User {
   quizQuestions    QuizQuestion[]
   quizAttempts     QuizAttempt[]
   quizStats        QuizUserStats?
+  patternMapScores PatternMapScore[]
 
   @@index([assignedTlId])
   @@index([role])
@@ -585,4 +586,20 @@ model QuizUserStats {
   badges         QuizBadge[]
 
   @@map("quiz_user_stats")
+}
+
+// Arcade "Pattern Map" break-time game. Deliberately separate from the Quiz
+// tables: its scores never feed Quiz points, streaks, scorecard or leaderboard.
+model PatternMapScore {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  user          User     @relation(fields: [userId], references: [id])
+  score         Int
+  roundsCleared Int      @map("rounds_cleared")
+  accuracy      Int
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([score])
+  @@map("pattern_map_scores")
 }
