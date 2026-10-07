@@ -374,6 +374,34 @@ export class UsersService {
     };
   }
 
+  /**
+   * The caller's own team, safe for any role: names and designations only (no email/phone),
+   * and only people on the caller's team. A tester's team is their lead's; a lead's is their own.
+   */
+  async getMyTeam(user: Pick<User, 'id' | 'role' | 'assignedTlId'>) {
+    const leadId = user.role === UserRole.TESTER ? user.assignedTlId : user.id;
+    if (!leadId) return null;
+
+    const person = { id: true, fullName: true, username: true, designation: true } as const;
+    const [lead, members] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: leadId }, select: { ...person, manager: { select: person } } }),
+      this.prisma.user.findMany({ where: { assignedTlId: leadId, isActive: true }, select: person, orderBy: { fullName: 'asc' } }),
+    ]);
+    if (!lead || (user.role !== UserRole.TESTER && members.length === 0)) return null;
+
+    const shape = (u: { id: string; fullName: string | null; username: string; designation: string | null }) => ({
+      id: u.id,
+      name: u.fullName || u.username,
+      designation: u.designation,
+    });
+    return {
+      teamLead: shape(lead),
+      manager: lead.manager ? shape(lead.manager) : null,
+      members: members.map((m) => ({ ...shape(m), isMe: m.id === user.id })),
+      iAmLead: leadId === user.id,
+    };
+  }
+
   async getTeamHierarchy() {
     const teamLeads = await this.prisma.user.findMany({
       where: { role: { in: TL_ROLES }, isActive: true },

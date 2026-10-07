@@ -233,11 +233,16 @@ export class DashboardService {
         if (!tlId) {
           where = { testerId: user.id };
         } else {
-          const members = await this.prisma.user.findMany({
-            where: { assignedTlId: tlId },
-            select: { id: true },
-          });
-          where = { OR: [{ tlId }, { testerId: { in: members.map((m) => m.id) } }] };
+          // A project belongs to its tester's *current* team (same ownership rule as the TL comparison),
+          // so a project doesn't stay visible to its old TL's team after the tester moves, and
+          // testers never see another team's projects. The lead's own testing work counts as theirs.
+          where = {
+            OR: [
+              { tester: { assignedTlId: tlId } },
+              { testerId: tlId },
+              { tlId, tester: { assignedTlId: null } },
+            ],
+          };
         }
       }
     }

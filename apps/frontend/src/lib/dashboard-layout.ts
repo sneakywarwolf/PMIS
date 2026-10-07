@@ -2,6 +2,7 @@
 
 export const SECTIONS = [
   { id: 'rankings', label: 'Leaderboards' },
+  { id: 'myteam', label: 'My Team' },
   { id: 'engagements', label: 'Engagements' },
   { id: 'charts', label: 'Charts' },
   { id: 'tls', label: 'Team Leads' },
@@ -21,7 +22,12 @@ export function normalize(raw: unknown): Prefs {
   const r = (raw ?? {}) as Partial<Prefs>;
   const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && IDS.includes(x)) : []);
   const order = [...new Set(strings(r.order))];
-  for (const id of IDS) if (!order.includes(id)) order.push(id);
+  // A section added after the user saved their layout goes right after the section that precedes it by default (not at the very end).
+  IDS.forEach((id, i) => {
+    if (order.includes(id)) return;
+    const prev = i > 0 ? order.indexOf(IDS[i - 1]) : -1;
+    order.splice(prev + 1, 0, id);
+  });
   return { order, hidden: [...new Set(strings(r.hidden))] };
 }
 

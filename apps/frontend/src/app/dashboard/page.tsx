@@ -14,6 +14,7 @@ import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
 import { ChartFilter, DashboardEngagements } from '@/components/dashboard-engagements';
 import { DashboardRankings } from '@/components/dashboard-rankings';
+import { MyTeamCard, type MyTeam } from '@/components/my-team-card';
 import { DashboardCustomize, Slot, useDashboardLayout } from '@/components/dashboard-customize';
 import { TlComparison } from '@/components/tl-comparison';
 import { FindingsHeatmap } from '@/components/findings-heatmap';
@@ -39,6 +40,8 @@ export default function DashboardPage() {
   const [quizToday, setQuizToday] = useState<any>(null);
   const [view, setView] = useState<'team' | 'self'>('team');
   const layout = useDashboardLayout(user?.id);
+  const [myTeam, setMyTeam] = useState<MyTeam | null>(null);
+  useEffect(() => { api.get('/users/my-team').then((r) => setMyTeam(r.data || null)).catch(() => setMyTeam(null)); }, [user?.id]);
   const [external, setExternal] = useState<ChartFilter>({});
   // One engagements fetch shared by the table, KPI sparklines and heatmap.
   const engagements = useEngagements(view);
@@ -214,6 +217,16 @@ export default function DashboardPage() {
       </Slot>
 
       <Slot layout={layout} id="engagements">
+      {/* My team */}
+      {myTeam && (
+        <Slot layout={layout} id="myteam">
+          <RevealSection delay={0.04}>
+            <SectionHeading>My Team</SectionHeading>
+            <MyTeamCard team={myTeam} />
+          </RevealSection>
+        </Slot>
+      )}
+
       {/* Engagements */}
       <RevealSection delay={0.05}>
         <div id="engagements" className="scroll-mt-6">

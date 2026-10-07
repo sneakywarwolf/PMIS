@@ -59,6 +59,13 @@ export class UsersController {
     return this.usersService.updateProfile(userId, dto);
   }
 
+  // Open to every role (scoped to the caller's own team in the service). Declared before ':id'.
+  @Get('my-team')
+  @ApiOperation({ summary: "The caller's own team: lead, manager and members (names only)" })
+  getMyTeam(@CurrentUser() user: User) {
+    return this.usersService.getMyTeam(user);
+  }
+
   @Get('team-hierarchy')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get team hierarchy tree' })

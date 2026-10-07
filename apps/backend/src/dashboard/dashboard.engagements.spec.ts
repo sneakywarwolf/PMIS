@@ -37,10 +37,23 @@ describe('DashboardService.getEngagements', () => {
     expect(whereOf()).toEqual({ OR: [{ testerId: 't1' }, { tlId: 't1' }] });
   });
 
-  it('tester team view is scoped to their TL\'s team', async () => {
+  it('tester team view only covers testers currently on their TL\'s team (never another team\'s projects)', async () => {
     await service.getEngagements({ id: 't1', role: UserRole.TESTER, assignedTlId: 'tl' }, 'team');
-    expect(prisma.user.findMany).toHaveBeenCalledWith({ where: { assignedTlId: 'tl' }, select: { id: true } });
-    expect(whereOf()).toEqual({ OR: [{ tlId: 'tl' }, { testerId: { in: ['t1', 't2'] } }] });
+    expect(whereOf()).toEqual({
+      OR: [{ tester: { assignedTlId: 'tl' } }, { testerId: 'tl' }, { tlId: 'tl', tester: { assignedTlId: null } }],
+    });
+    // A bare `{ tlId: 'tl' }` clause would leak projects whose tester has moved to another team.
+    expect(whereOf().OR).not.toContainEqual({ tlId: 'tl' });
+  });
+
+  it('a tester with no team lead only sees their own projects, even in the team view', async () => {
+    await service.getEngagements({ id: 't1', role: UserRole.TESTER, assignedTlId: null }, 'team');
+    expect(whereOf()).toEqual({ testerId: 't1' });
+  });
+
+  it('a team lead\'s team view is their own team', async () => {
+    await service.getEngagements({ id: 'tl', role: UserRole.TEAM_LEAD, assignedTlId: null }, 'team');
+    expect(whereOf().OR[0]).toEqual({ tester: { assignedTlId: 'tl' } });
   });
 
   it('counts severities case-insensitively and folds Informational into info', async () => {
