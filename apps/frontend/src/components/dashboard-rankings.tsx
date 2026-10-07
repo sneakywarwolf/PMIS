@@ -68,7 +68,7 @@ function Board({ title, unit, icon: Icon, accent, href, rows, meId, extra }: {
     <div className={`glass-card relative overflow-hidden rounded-xl p-5 ${accent.glow}`}>
       <div aria-hidden className={`absolute -top-16 -right-16 h-40 w-40 rounded-full blur-3xl opacity-20 ${accent.bar}`} />
       <div className="relative flex items-center justify-between mb-4">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-white whitespace-nowrap">
           <span className={`flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 ${accent.text}`}><Icon className="w-4 h-4" /></span>
           {title}
           <span className="text-[10px] font-medium uppercase tracking-widest text-gray-500">{unit}</span>
@@ -133,7 +133,7 @@ export function DashboardRankings() {
         accent={{ text: 'text-fuchsia-300', bar: 'bg-gradient-to-r from-fuchsia-500/30 to-cyan-400/5', glow: 'hover:shadow-lg hover:shadow-fuchsia-500/10 transition-shadow' }}
       />
       <Board
-        title="Team Showdown" unit="avg / member" icon={Users} href="/dashboard/quiz/scorecard" rows={teams ? teams[teamGame] : null}
+        title="Team Showdown" unit="avg" icon={Users} href="/dashboard/quiz/scorecard" rows={teams ? teams[teamGame] : null}
         accent={{ text: 'text-amber-300', bar: 'bg-gradient-to-r from-amber-500/30 to-orange-400/5', glow: 'hover:shadow-lg hover:shadow-amber-500/10 transition-shadow' }}
         extra={
           <span className="flex rounded-md border border-gray-700 text-xs overflow-hidden">
