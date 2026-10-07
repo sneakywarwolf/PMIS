@@ -28,13 +28,14 @@ const defaultName = (l: { fullName: string | null; username: string }) => `Team 
 export class TeamsService {
   constructor(private readonly prisma: PrismaService, private readonly quiz: QuizService) {}
 
-  /** Only team leads lead a competing team. */
+  /** Team leads (and admins who have testers assigned) lead a competing team. */
   private async loadTeams() {
     const leads = await this.prisma.user.findMany({
-      where: { isActive: true, role: UserRole.TEAM_LEAD },
-      select: { id: true, fullName: true, username: true, quizTeamName: true, testers: { where: { isActive: true }, select: { id: true } } },
+      where: { isActive: true, role: { in: [UserRole.TEAM_LEAD, UserRole.ADMIN] } },
+      select: { id: true, role: true, fullName: true, username: true, quizTeamName: true, testers: { where: { isActive: true }, select: { id: true } } },
     });
-    return leads.map((l) => ({
+    // An admin only counts as a team once testers are assigned to them.
+    return leads.filter((l) => l.role === UserRole.TEAM_LEAD || l.testers.length > 0).map((l) => ({
       teamLeadId: l.id,
       name: l.quizTeamName || defaultName(l),
       customName: l.quizTeamName,
@@ -69,7 +70,7 @@ export class TeamsService {
     return {
       teamName: team?.name ?? null,
       customName: team?.customName ?? null,
-      canRename: role === UserRole.TEAM_LEAD && team?.teamLeadId === userId,
+      canRename: (role === UserRole.TEAM_LEAD || role === UserRole.ADMIN) && team?.teamLeadId === userId,
       // Admins can rename any team (still only a Quiz/Arcade label).
       canRenameAny: role === UserRole.ADMIN,
     };

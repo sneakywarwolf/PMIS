@@ -44,7 +44,7 @@ export class DashboardService {
     includeMembers: boolean,
   ): Promise<CompletionStatsBase & { members?: Array<{ id: string; username: string; totalCompleted: number; byType: Record<ComplianceType, number> }> }> {
     const tl = await this.prisma.user.findUnique({ where: { id: tlId } });
-    if (!tl || tl.role !== UserRole.TEAM_LEAD) {
+    if (!tl || (tl.role !== UserRole.TEAM_LEAD && tl.role !== UserRole.ADMIN)) {
       const empty = buildCompletionStats([], granularity);
       return includeMembers ? { ...empty, members: [] } : empty;
     }

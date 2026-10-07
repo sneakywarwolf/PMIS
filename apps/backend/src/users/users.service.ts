@@ -9,6 +9,9 @@ import * as argon2 from 'argon2';
 import { randomInt } from 'crypto';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
 
+// Roles that can lead a team (be assigned testers). Admins can act as team leads too.
+const TL_ROLES: UserRole[] = [UserRole.TEAM_LEAD, UserRole.AVP, UserRole.ADMIN];
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -101,7 +104,7 @@ export class UsersService {
       const tl = await this.prisma.user.findUnique({
         where: { id: dto.assignedTlId },
       });
-      if (!tl || (tl.role !== UserRole.TEAM_LEAD && tl.role !== UserRole.AVP)) {
+      if (!tl || !TL_ROLES.includes(tl.role)) {
         throw new BadRequestException('Invalid team lead assignment');
       }
     }
@@ -373,7 +376,7 @@ export class UsersService {
 
   async getTeamHierarchy() {
     const teamLeads = await this.prisma.user.findMany({
-      where: { role: { in: [UserRole.TEAM_LEAD, UserRole.AVP] }, isActive: true },
+      where: { role: { in: TL_ROLES }, isActive: true },
       select: {
         id: true,
         username: true,
@@ -395,7 +398,7 @@ export class UsersService {
 
   async getTeamLeads() {
     return this.prisma.user.findMany({
-      where: { role: { in: [UserRole.TEAM_LEAD, UserRole.AVP] }, isActive: true },
+      where: { role: { in: TL_ROLES }, isActive: true },
       select: {
         id: true,
         username: true,
@@ -551,7 +554,7 @@ export class UsersService {
       if (tlName) {
         const tl = allUsers.find(u =>
           u.fullName?.toLowerCase() === tlName.toLowerCase() &&
-          (u.role === UserRole.TEAM_LEAD || u.role === UserRole.AVP)
+          TL_ROLES.includes(u.role)
         );
         if (tl) assignedTlId = tl.id;
       }

@@ -200,8 +200,8 @@ export function DashboardRankings() {
       />
       <Board
         title="Team Showdown" unit="avg" icon={Users} href="/dashboard/quiz/scorecard" rows={teams ? teams[teamGame] : null} meId={myTeamId}
-        footer={myTeam?.canRename ? <TeamNameEditor current={myTeam.teamName} onSaved={loadTeams} />
-          : myTeam?.canRenameAny && teams?.quiz.length ? <TeamNameEditor current={null} onSaved={loadTeams} teams={teams.quiz.map((t) => ({ id: t.id, name: t.name }))} /> : undefined}
+        footer={myTeam?.canRenameAny && teams?.quiz.length ? <TeamNameEditor current={null} onSaved={loadTeams} teams={teams.quiz.map((t) => ({ id: t.id, name: t.name }))} />
+          : myTeam?.canRename ? <TeamNameEditor current={myTeam.teamName} onSaved={loadTeams} /> : undefined}
         accent={{ text: 'text-amber-300', bar: 'bg-gradient-to-r from-amber-500/30 to-orange-400/5', glow: 'hover:shadow-lg hover:shadow-amber-500/10 transition-shadow' }}
         extra={
           <span className="flex rounded-md border border-gray-700 text-xs overflow-hidden">
