@@ -30,7 +30,6 @@ lerna-debug.log*
 # Database
 *.db
 *.db-journal
-prisma/migrations/
 
 # IDE
 .vscode/
@@ -58,3 +57,8 @@ coverage/
 
 # Headroom local tool state
 .claude/.headroom_*
+
+# Local tooling / generated output
+.claude/
+skills-lock.json
+scripts/e2e-output/
