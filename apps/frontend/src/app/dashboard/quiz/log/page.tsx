@@ -75,7 +75,7 @@ export default function QuizLogPage() {
                   <p className="truncate">{item.question}</p>
                   <p className="mt-0.5 font-mono text-xs text-gray-500">{formatDate(item.revealedAt)}</p>
                 </div>
-                <ChevronRight className="w-4 h-4 shrink-0 text-gray-600 transition-transform group-hover:translate-x-0.5 group-hover:text-gray-300" />
+                <ChevronRight className="w-4 h-4 shrink-0 text-gray-500 transition-transform group-hover:translate-x-0.5 group-hover:text-gray-300" />
               </button>
             </motion.li>
           ))}

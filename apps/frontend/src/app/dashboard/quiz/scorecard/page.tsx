@@ -62,7 +62,8 @@ export default function QuizScorecardPage() {
             <div className={`flex h-11 w-11 items-center justify-center rounded-lg ${h.cls}`}><h.icon className="w-5 h-5" /></div>
             <div>
               <p className="text-2xl font-bold text-white tabular-nums">{h.value}</p>
-              <p className="text-xs text-gray-400">{h.label}{h.note ? ` · ${h.note}` : ''}</p>
+              <p className="text-xs text-gray-400">{h.label}</p>
+              {h.note && <p className="text-xs text-gray-500 tabular-nums">{h.note}</p>}
             </div>
           </motion.div>
         ))}
@@ -106,7 +107,7 @@ export default function QuizScorecardPage() {
                 title={b.hint}
                 className={`flex items-center gap-3 rounded-lg border p-3 ${has ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-gray-800 bg-white/[0.02]'}`}
               >
-                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${has ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-800 text-gray-600'}`}>
+                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${has ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-800 text-gray-500'}`}>
                   {has ? <b.icon className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
                 </div>
                 <div className="min-w-0">

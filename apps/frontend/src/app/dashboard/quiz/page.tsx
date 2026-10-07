@@ -304,7 +304,7 @@ export default function QuizPage() {
                       >
                         <span
                           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs font-semibold transition-colors ${
-                            on ? 'border-emerald-400 bg-emerald-500 text-black' : 'border-gray-600 text-gray-400 group-hover:border-teal-400/40 group-hover:text-white'
+                            on ? 'border-emerald-400 bg-emerald-500 text-black' : 'border-gray-700 text-gray-400 group-hover:border-teal-400/40 group-hover:text-white'
                           }`}
                         >
                           {on ? <Check className="w-4 h-4" /> : LETTERS[i]}

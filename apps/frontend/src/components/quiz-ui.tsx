@@ -38,7 +38,7 @@ export function QuizHeader({ title, subtitle }: { title: string; subtitle?: stri
         <h1 className="text-2xl font-semibold text-white">{title}</h1>
         {subtitle && <p className="text-sm text-gray-400 mt-1">{subtitle}</p>}
       </div>
-      <nav aria-label="Quiz sections" className="flex gap-1 overflow-x-auto border-b border-gray-800">
+      <nav aria-label="Quiz sections" className="flex gap-0 sm:gap-1 overflow-x-auto border-b border-gray-800">
         {tabs.map((tab) => {
           const active = pathname === tab.href;
           return (
@@ -46,7 +46,7 @@ export function QuizHeader({ title, subtitle }: { title: string; subtitle?: stri
               key={tab.href}
               href={tab.href}
               aria-current={active ? 'page' : undefined}
-              className={`relative whitespace-nowrap px-3 py-2 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none rounded-t-lg ${
+              className={`relative whitespace-nowrap px-2 sm:px-3 py-2 text-[13px] sm:text-sm transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none rounded-t-lg ${
                 active ? 'text-emerald-400' : 'text-gray-400 hover:text-white'
               }`}
             >
