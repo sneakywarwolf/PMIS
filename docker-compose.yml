@@ -1,52 +1,87 @@
-version: "3.8"
+# PMIS (VAPT Command Center) - production-style deployment.
+#   1. cp .env.example .env   and fill in every CHANGE_ME value
+#   2. docker compose up -d
+#   3. open http://localhost:${FRONTEND_PORT:-3000}
+# Only the frontend is published; the API, database, cache and storage stay on the internal network.
+# ($ in .env values must be written as $$.)
 
 services:
+  frontend:
+    image: ${PMIS_IMAGE_REPO:-sneakywarwolf}/pmis-frontend:${PMIS_VERSION:-latest}
+    build:
+      context: ./apps/frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+
+  backend:
+    image: ${PMIS_IMAGE_REPO:-sneakywarwolf}/pmis-backend:${PMIS_VERSION:-latest}
+    build:
+      context: ./apps/backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: postgresql://pmis:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/pmis?schema=public
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-pmisminio}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      MINIO_BUCKET: vapt-reports
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      SEED_DEMO: ${SEED_DEMO:-false}
+
   postgres:
-    image: postgres:16-alpine
-    container_name: vapt-postgres
+    image: postgres:16.4-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: vapt_user
-      POSTGRES_PASSWORD: vapt_secure_password_2024
-      POSTGRES_DB: vapt_db
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: pmis
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: pmis
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vapt_user -d vapt_db"]
+      test: ["CMD-SHELL", "pg_isready -U pmis -d pmis"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
   redis:
-    image: redis:7-alpine
-    container_name: vapt-redis
+    image: redis:7.4-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
 
   minio:
-    image: minio/minio:latest
-    container_name: vapt-minio
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z}
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: vaptminioadmin
-      MINIO_ROOT_PASSWORD: vaptminioadmin123
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pmisminio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
     volumes:
       - minio_data:/data
-    command: server /data --console-address ":9001"
+    command: server /data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
 
 volumes:
   postgres_data:

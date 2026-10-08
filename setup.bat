@@ -31,7 +31,7 @@ if %CLEAN%==1 (
 
 REM Start infrastructure
 echo [1/6] Starting Docker infrastructure...
-docker-compose up -d
+docker compose -f docker-compose.dev.yml up -d
 
 REM Wait for services to be ready
 echo [2/6] Waiting for services to start...
@@ -42,7 +42,7 @@ echo [3/6] Setting up backend...
 cd apps\backend
 
 if not exist .env (
-    copy ..\..\.env.example .env
+    copy ..\..\.env.dev.example .env
     echo      Created .env file from template
 )
 

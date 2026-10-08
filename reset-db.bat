@@ -34,7 +34,7 @@ if errorlevel 1 (
 
 REM Start infrastructure (in case containers are stopped)
 echo [1/6] Ensuring Docker services are running...
-docker-compose up -d
+docker compose -f docker-compose.dev.yml up -d
 timeout /t 5 /nobreak >nul
 
 cd apps\backend
