@@ -4,6 +4,9 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Prisma's query engine needs OpenSSL on Alpine
+RUN apk add --no-cache openssl
+
 # Copy package files
 COPY package*.json ./
 COPY prisma ./prisma/
@@ -18,27 +21,24 @@ COPY . .
 RUN npx prisma generate
 
 # Build application
-RUN npm run build
+RUN npm run build && find dist -name "*.map" -delete
 
 # Stage 2: Production
 FROM node:20-alpine AS production
 
 WORKDIR /app
 
+# Prisma's query engine needs OpenSSL on Alpine
+RUN apk add --no-cache openssl
+
 # Set Node.js to production
 ENV NODE_ENV=production
 
-# Copy package files
-COPY package*.json ./
-COPY prisma ./prisma/
-
-# Install production dependencies only
-RUN npm ci --only=production && npm cache clean --force
-
-# Generate Prisma client for production
-RUN npx prisma generate
-
-# Copy compiled application from builder
+# ponytail: reuse the builder's node_modules (includes prisma CLI + ts-node for migrate/seed at start);
+# image is larger than a prod-only install. Slim it later if size matters.
+COPY package*.json tsconfig.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/dist ./dist
 
 # Create non-root user
@@ -56,5 +56,5 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD node -e "require('http').get('http://localhost:4000/api/docs', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
 
-# Start application
-CMD ["node", "dist/main"]
+# Apply migrations, seed (idempotent; creates the admin user on first run), then start
+CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/src/main"]

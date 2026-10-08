@@ -506,106 +506,100 @@ Findings displayed sorted by:
 
 ## Quick Start
 
-### Prerequisites
-- Node.js 18+ and npm
-- Docker Desktop (for PostgreSQL, Redis, MinIO)
+### Option A — Run with Docker (recommended, nothing to install but Docker)
 
-### Option 1: Using Scripts (Recommended)
+**You need:** Docker Desktop (Windows/macOS) or Docker Engine + Compose v2 (Linux), ~4 GB free RAM, ~3 GB disk.
 
 ```bash
-# 1. Navigate to project root
-cd vapt-command-center
-
-# 2. First-time setup (installs deps, starts Docker, seeds DB)
-setup.bat
-
-# 3. Start in development mode (shows terminal windows for debugging)
-start-dev.bat
-
-# 4. Or start in silent mode (minimized terminals, logs to files)
-start.bat
-
-# 5. Stop everything
-stop.bat
-
-# 6. Reset application data (keeps Docker running) - interactive menu:
-#    1 Users  2 Vulnerability DB  3 Projects  4 Quiz & Arcade Scores  5 Everything (type RESET)  6 Cancel
-#    Pick several at once, e.g. "1,3". Shows exactly what will be deleted before asking to confirm.
-reset-db.bat
-#    Non-interactive:  reset-db.bat --scopes "users,projects" --yes
-#                      reset-db.bat --scopes everything --confirm RESET
-#                      reset-db.bat --dry-run      (preview only)
+git clone https://github.com/sneakywarwolf/VAPT_Project-Managment.git
+cd VAPT_Project-Managment
+cp .env.example .env          # Windows cmd: copy .env.example .env
 ```
 
-### Option 2: Manual Setup
+Open `.env` and replace every `CHANGE_ME` with a random value (generate one with `openssl rand -hex 32`;
+on Windows PowerShell: `-join ((1..32) | % { '{0:x2}' -f (Get-Random -Max 256) })`). Then:
 
 ```bash
-# Start infrastructure
-docker-compose up -d
-
-# Backend
-cd apps/backend
-npm install
-copy ..\..\.env.example .env
-npx prisma generate
-npx prisma migrate deploy
-npx prisma db seed
-npm run start:dev
-
-# Frontend (new terminal)
-cd apps/frontend
-npm install
-npm run dev
+docker compose up -d
+docker compose logs backend | grep "First login"     # shows the generated admin password
 ```
 
-### Access URLs
-| Service | URL |
+Open **http://localhost:3000** and log in as `admin` with that password. You will be asked to choose a new password.
+First start takes a minute or two (database migrations run automatically).
+
+| Question | Answer |
+|---|---|
+| Different port? | Set `FRONTEND_PORT` in `.env`, then `docker compose up -d` (and set `FRONTEND_URL` to match). |
+| Choose the admin password yourself? | Set `ADMIN_PASSWORD` in `.env` before the first start. |
+| Want sample data to look around? | Set `SEED_DEMO=true` before the first start (adds fake users with **known, insecure** passwords - never in production). |
+| Serving over HTTPS / a domain? | Put a reverse proxy (Caddy, nginx, Traefik) in front of port 3000, set `FRONTEND_URL=https://your.domain` and `COOKIE_SECURE=true`. |
+| Update | Set `PMIS_VERSION` to the new tag, then `docker compose pull && docker compose up -d`. |
+| Stop / start | `docker compose stop` / `docker compose start`. Data lives in Docker volumes and survives `docker compose down` (but **not** `down -v`). |
+| Back up | Database: `docker compose exec postgres pg_dump -U pmis pmis > backup.sql`. Files: back up the `minio_data` volume. |
+| Logs | `docker compose logs -f backend` |
+
+Only the web UI port is published. PostgreSQL, Redis, MinIO and the API are reachable only inside the Docker network.
+
+**Troubleshooting**
+- *Port 3000 already in use* - set `FRONTEND_PORT=3001` (and `FRONTEND_URL`) in `.env`.
+- *`set POSTGRES_PASSWORD in .env` error* - you skipped a `CHANGE_ME` value or `.env` is missing.
+- *Backend keeps restarting* - `docker compose logs backend`. Most often a missing/placeholder JWT secret.
+- *Can't log in over http after setting `COOKIE_SECURE=true`* - that setting needs HTTPS; set it back to `false` for plain http.
+- *Forgot the admin password* - run `docker compose exec postgres psql -U pmis -c "DELETE FROM users WHERE username='admin'"` (check the table name in the schema) then `docker compose restart backend` to re-seed a new admin, or use the reset utility under Development.
+
+### Option B — Development setup (Node.js 18+ and Docker)
+
+Runs Postgres/Redis/MinIO in Docker (`docker-compose.dev.yml`, ports published on localhost, fixed local-only passwords) and the apps with npm.
+
+```bash
+# Windows
+setup.bat           # first-time: installs deps, starts infra, migrates and seeds
+start-dev.bat       # dev servers with visible terminals   (or start.bat for silent mode)
+stop.bat            # stop everything
+reset-db.bat        # interactive reset utility (users / vulnerability DB / projects / quiz / everything)
+#   non-interactive: reset-db.bat --scopes "users,projects" --yes | --scopes everything --confirm RESET | --dry-run
+
+# Linux / macOS: ./setup.sh
+```
+
+Manual:
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+cp .env.dev.example apps/backend/.env       # (setup scripts do this for you)
+cd apps/backend && npm install && npx prisma generate && npx prisma migrate deploy && npx prisma db seed && npm run start:dev
+cd apps/frontend && npm install && npm run dev      # new terminal
+```
+
+In dev the seed prints the generated admin password once; set `ADMIN_PASSWORD=...` before seeding to choose it, and `SEED_DEMO=true` for sample data.
+
+| Service (dev) | URL |
 |---------|-----|
 | Frontend | http://localhost:3000 |
-| Backend API | http://localhost:4000 |
-| Swagger Docs | http://localhost:4000/api/docs |
-| MinIO Console | http://localhost:9001 (vaptminioadmin / vaptminioadmin123) |
+| Backend API / Swagger | http://localhost:4000 / http://localhost:4000/api/docs |
+| MinIO Console | http://localhost:9001 (`vaptminioadmin` / `vaptminioadmin123`, dev only) |
 
 ---
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` at project root:
+**Docker deployment** (`.env` from `.env.example`):
 
-```env
-# Database
-DATABASE_URL="postgresql://vapt_user:vapt_secure_password_2024@localhost:5432/vapt_db?schema=public"
+| Variable | Required | Default | Secret | Purpose |
+|---|---|---|---|---|
+| `POSTGRES_PASSWORD` | yes | - | yes | Database password |
+| `MINIO_ROOT_PASSWORD` | yes | - | yes | File-storage password |
+| `JWT_ACCESS_SECRET` | yes | - | yes | Signs access tokens (backend refuses to start in production if unset) |
+| `JWT_REFRESH_SECRET` | yes | - | yes | Signs refresh tokens |
+| `ADMIN_PASSWORD` | no | random, printed in backend log | yes | First admin password |
+| `SEED_DEMO` | no | `false` | - | Load fake demo data (insecure passwords) |
+| `FRONTEND_PORT` | no | `3000` | - | Host port for the web UI |
+| `FRONTEND_URL` | no | `http://localhost:3000` | - | URL users open in the browser (CORS) |
+| `COOKIE_SECURE` | no | `false` | - | `true` when served over HTTPS |
+| `MINIO_ROOT_USER` | no | `pmisminio` | - | File-storage user |
+| `PMIS_IMAGE_REPO` / `PMIS_VERSION` | no | `sneakywarwolf` / `latest` | - | Which Docker Hub images to run (pin a version in production) |
 
-# Redis
-REDIS_URL="redis://localhost:6379"
-
-# JWT Secrets (generate strong secrets for production)
-JWT_ACCESS_SECRET="vapt-access-secret-change-in-production-2024"
-JWT_REFRESH_SECRET="vapt-refresh-secret-change-in-production-2024"
-JWT_ACCESS_EXPIRY="15m"
-JWT_REFRESH_EXPIRY="7d"
-
-# MinIO / S3
-MINIO_ENDPOINT="localhost"
-MINIO_PORT="9000"
-MINIO_USE_SSL="false"
-MINIO_ACCESS_KEY="vaptminioadmin"
-MINIO_SECRET_KEY="vaptminioadmin123"
-MINIO_BUCKET="vapt-reports"
-
-# Server
-PORT="4000"
-NODE_ENV="development"
-FRONTEND_URL="http://localhost:3000"
-
-# Security
-MAX_LOGIN_ATTEMPTS="5"
-LOCKOUT_DURATION_MINUTES="15"
-
-# Report Generation
-REPORT_MAX_SIZE_MB="50"
-TEMPLATE_MAX_SIZE_MB="10"
-```
+**Development** (`apps/backend/.env` from `.env.dev.example`): additionally `DATABASE_URL`, `REDIS_URL`, `MINIO_*`, `PORT`, `NODE_ENV`, `MAX_LOGIN_ATTEMPTS`, `RATE_LIMIT_PER_MIN`, `AUTH_RATE_LIMIT_PER_MIN`.
 
 ---
 
@@ -705,14 +699,9 @@ vapt-command-center/
 
 ## Default Credentials
 
-All accounts require password change on first login (`isForcePasswordChange: true`):
+There are **no fixed default passwords**. On first start the seed creates `admin` with `ADMIN_PASSWORD` if you set it, otherwise a random password printed once in the backend log (`docker compose logs backend | grep "First login"`). You must change it at first login.
 
-| Role | Username | Password |
-|------|----------|----------|
-| Admin | `admin` | `Admin@1234567890!` |
-| Team Lead | `teamlead` | `Tl@1234567890!` |
-| Tester | `tester1` | `Tester@1234567890!` |
-| Tester | `tester2` | `Tester@1234567890!` |
+With `SEED_DEMO=true` it also creates `teamlead`, `tester1`, `tester2` with the publicly documented passwords `Tl@1234567890!` / `Tester@1234567890!` - **demo only, never on a real deployment**.
 
 > **Login**: You can use either **username** or **email** in the login field.
 
@@ -821,4 +810,6 @@ Login flow now uses explicit two-step lookup: (1) exact username match via `find
 
 ## License
 
-Proprietary — For client deployment with source code protection.
+[MIT](LICENSE). See [SECURITY.md](SECURITY.md) to report vulnerabilities and [CONTRIBUTING.md](CONTRIBUTING.md) to contribute.
+
+**Disclaimer:** PMIS is a tool for managing *authorized* security testing. You are responsible for lawful use and for protecting the vulnerability and client data you store in it. The software is provided "as is", without warranty.

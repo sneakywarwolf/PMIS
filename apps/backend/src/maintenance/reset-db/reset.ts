@@ -141,7 +141,7 @@ export async function describeImpact(
           (await prisma.quizAttempt.count({ where: { userId: owners } })) + (await prisma.quizUserStats.count({ where: { userId: owners } })) + (await prisma.patternMapScore.count({ where: { userId: owners } })) });
       }
     }
-    restored.push('Default accounts: admin, teamlead, tester1, tester2 (default passwords, must change on first login)');
+    restored.push('Default accounts: admin, teamlead, tester1, tester2 (admin: ADMIN_PASSWORD or a random password printed once; others use the documented demo passwords; all must change on first login)');
     restored.push('All login sessions are signed out');
   }
 
