@@ -56,7 +56,7 @@ export function isNewer(a: string, b: string): boolean {
 @Injectable()
 export class UpdateService implements OnModuleInit {
   private readonly logger = new Logger(UpdateService.name);
-  private cache: { at: number; releases: Release[]; error?: string } | null = null;
+  private cache: { at: number; releases: Release[]; changelog: string; error?: string } | null = null;
   readonly version = process.env.APP_VERSION || this.readPackageVersion();
   private readonly timeoutMs = parseInt(process.env.UPDATE_TIMEOUT_MS || '1800000', 10);
 
@@ -99,16 +99,22 @@ export class UpdateService implements OnModuleInit {
     });
   }
 
-  private async fetchReleases(force: boolean): Promise<{ releases: Release[]; error?: string }> {
+  private async fetchReleases(force: boolean): Promise<{ releases: Release[]; changelog: string; error?: string }> {
     if (!force && this.cache && Date.now() - this.cache.at < CHECK_TTL_MS) return this.cache;
-    const repo = process.env.UPDATE_REPO || 'sneakywarwolf/VAPT_Project-Managment';
+    const repo = process.env.UPDATE_REPO || 'sneakywarwolf/PMIS';
     // UPDATE_API_URL: GitHub-compatible releases endpoint override (mirrors / air-gapped sites / tests).
     const url = process.env.UPDATE_API_URL || `https://api.github.com/repos/${repo}/releases?per_page=10`;
+    // UPDATE_GITHUB_TOKEN: read-only token, only needed while the repo is private. Server-side only.
+    const headers: Record<string, string> = { Accept: 'application/vnd.github+json', 'User-Agent': 'pmis-update-check' };
+    if (process.env.UPDATE_GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.UPDATE_GITHUB_TOKEN}`;
+    // Changelog comes from the repo itself; the bundled file is only a fallback (offline / not published yet).
+    const changelogP = process.env.UPDATE_API_URL
+      ? Promise.resolve('')
+      : fetch(`https://raw.githubusercontent.com/${repo}/HEAD/apps/backend/CHANGELOG.md`, { headers, signal: AbortSignal.timeout(8000) })
+          .then((r) => (r.ok ? r.text() : ''))
+          .catch(() => '');
     try {
-      const res = await fetch(url, {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'pmis-update-check' },
-        signal: AbortSignal.timeout(8000),
-      });
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
       if (!res.ok) throw new Error(`GitHub responded ${res.status}`);
       const releases: Release[] = (await res.json())
         .filter((r: any) => !r.draft && !r.prerelease)
@@ -119,10 +125,15 @@ export class UpdateService implements OnModuleInit {
           url: r.html_url,
           publishedAt: r.published_at,
         }));
-      this.cache = { at: Date.now(), releases };
+      this.cache = { at: Date.now(), releases, changelog: (await changelogP) || this.localChangelog() };
     } catch (e: any) {
       // Keep the last good result so a transient outage doesn't hide a known update.
-      this.cache = { at: Date.now(), releases: this.cache?.releases ?? [], error: e.message };
+      this.cache = {
+        at: Date.now(),
+        releases: this.cache?.releases ?? [],
+        changelog: this.cache?.changelog || this.localChangelog(),
+        error: e.message,
+      };
     }
     return this.cache!;
   }
@@ -133,13 +144,13 @@ export class UpdateService implements OnModuleInit {
   }
 
   async getStatus(force = false, isAdmin = false) {
-    const [state, { releases, error }] = await Promise.all([this.getState(), this.fetchReleases(force)]);
+    const [state, { releases, changelog, error }] = await Promise.all([this.getState(), this.fetchReleases(force)]);
     const latest = releases.find((r, _, all) => all.every((o) => !isNewer(o.version, r.version)));
     return {
       appName: process.env.APP_NAME || 'PMIS — VAPT Command Center',
       author: process.env.APP_AUTHOR || 'Sneakywarwolf',
       version: this.version,
-      changelog: this.localChangelog(),
+      changelog,
       latest: latest ? { ...latest, available: isNewer(latest.version, this.version) } : null,
       releases,
       checkError: error ?? null,
