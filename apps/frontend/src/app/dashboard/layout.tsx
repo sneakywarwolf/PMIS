@@ -26,8 +26,10 @@ import {
   EyeOff,
   Menu,
   Search,
+  Info,
 } from 'lucide-react';
 import { CommandPalette } from '@/components/command-palette';
+import { UpdateGate } from '@/components/update-gate';
 import { useAuth, api } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { useIdleTimer } from '@/hooks/use-idle-timer';
@@ -61,6 +63,7 @@ const navItems: NavItem[] = [
   { label: 'Retention', href: '/dashboard/retention', icon: Clock, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
   { label: 'Users', href: '/dashboard/users', icon: Users, roles: ['ADMIN'] },
   { label: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['ADMIN'] },
+  { label: 'About', href: '/dashboard/about', icon: Info, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
 ];
 
 const roleLabel = (role: string) => {
@@ -223,6 +226,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         className="flex-1 min-w-0 transition-all duration-300"
         style={{ marginLeft: isMobile ? 0 : slim ? 72 : 256 }}
       >
+        <UpdateGate />
         {/* Top bar */}
         <div className="flex items-center justify-end px-4 md:px-6 pt-4 gap-3">
           <button
