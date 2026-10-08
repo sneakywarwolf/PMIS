@@ -9,6 +9,13 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
+  if (process.env.NODE_ENV === 'production') {
+    for (const k of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET']) {
+      if (!process.env[k] || process.env[k]!.startsWith('CHANGE_ME')) {
+        throw new Error(`${k} must be set to a strong random value (see .env.example)`);
+      }
+    }
+  }
   // ponytail: 'debug'/'verbose' log every request lifecycle event to stdout,
   // which adds noticeable latency in dev. Opt in with NEST_DEBUG_LOGS=1.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {

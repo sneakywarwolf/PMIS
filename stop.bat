@@ -34,7 +34,7 @@ for %%P in (3000 4000) do (
 
 echo.
 echo [2/2] Stopping Docker containers...
-docker-compose down
+docker compose -f docker-compose.dev.yml down
 
 echo.
 echo ============================================

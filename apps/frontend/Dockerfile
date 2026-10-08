@@ -13,6 +13,10 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Backend address baked into the /api proxy; matches the service name in docker-compose.yml
+ARG BACKEND_URL=http://backend:4000
+ENV BACKEND_URL=$BACKEND_URL
+
 # Build application
 RUN npm run build
 
