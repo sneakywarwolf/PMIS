@@ -8,7 +8,8 @@ describe('reset defaults stay in sync with prisma/seed.ts', () => {
   it.each(DEFAULT_USERS.map((u) => [u.username, u]))('account %s matches the seed', (_name, u: any) => {
     expect(seed).toContain(`username: '${u.username}'`);
     expect(seed).toContain(`email: '${u.email}'`);
-    expect(seed).toContain(`'${u.password}'`);
+    // The seed generates the admin password (or reads ADMIN_PASSWORD); only demo users have fixed ones.
+    if (u.username !== 'admin') expect(seed).toContain(`'${u.password}'`);
     expect(seed).toContain(`role: UserRole.${u.role}`);
   });
 
