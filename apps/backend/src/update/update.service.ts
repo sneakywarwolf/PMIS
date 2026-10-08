@@ -35,7 +35,7 @@ export interface UpdateState {
   error?: string;
 }
 
-interface Release {
+export interface Release {
   version: string;
   name: string;
   notes: string;
@@ -102,8 +102,10 @@ export class UpdateService implements OnModuleInit {
   private async fetchReleases(force: boolean): Promise<{ releases: Release[]; error?: string }> {
     if (!force && this.cache && Date.now() - this.cache.at < CHECK_TTL_MS) return this.cache;
     const repo = process.env.UPDATE_REPO || 'sneakywarwolf/VAPT_Project-Managment';
+    // UPDATE_API_URL: GitHub-compatible releases endpoint override (mirrors / air-gapped sites / tests).
+    const url = process.env.UPDATE_API_URL || `https://api.github.com/repos/${repo}/releases?per_page=10`;
     try {
-      const res = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=10`, {
+      const res = await fetch(url, {
         headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'pmis-update-check' },
         signal: AbortSignal.timeout(8000),
       });

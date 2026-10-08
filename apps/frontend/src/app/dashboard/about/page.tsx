@@ -201,7 +201,7 @@ export default function AboutPage() {
           <h2 className="mb-2 text-sm font-medium text-white">Release notes</h2>
           {latest?.notes && (
             <div className="mb-3 rounded-lg bg-white/5 p-3">
-              <p className="mb-1 text-xs uppercase tracking-wide text-gray-500">
+              <p className="mb-1 text-xs tracking-wide text-gray-500">
                 v{latest.version} · {formatDateTime(latest.publishedAt)}
               </p>
               <pre className="whitespace-pre-wrap break-words font-sans text-sm text-gray-300">{latest.notes}</pre>
