@@ -12,14 +12,14 @@ export class UpdateController {
 
   @Get('status')
   @ApiOperation({ summary: 'Version, release notes and update state (any authenticated user)' })
-  status() {
-    return this.updates.getStatus();
+  status(@CurrentUser('role') role: UserRole) {
+    return this.updates.getStatus(false, role === UserRole.ADMIN);
   }
 
   @Post('check')
   @ApiOperation({ summary: 'Force a fresh check for a newer version (any authenticated user)' })
-  check() {
-    return this.updates.getStatus(true);
+  check(@CurrentUser('role') role: UserRole) {
+    return this.updates.getStatus(true, role === UserRole.ADMIN);
   }
 
   @Post('schedule')

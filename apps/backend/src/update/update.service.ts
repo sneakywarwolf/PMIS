@@ -130,7 +130,7 @@ export class UpdateService implements OnModuleInit {
     return existsSync(p) ? readFileSync(p, 'utf8') : '';
   }
 
-  async getStatus(force = false) {
+  async getStatus(force = false, isAdmin = false) {
     const [state, { releases, error }] = await Promise.all([this.getState(), this.fetchReleases(force)]);
     const latest = releases.find((r, _, all) => all.every((o) => !isNewer(o.version, r.version)));
     return {
@@ -142,7 +142,8 @@ export class UpdateService implements OnModuleInit {
       releases,
       checkError: error ?? null,
       updaterConfigured: !!process.env.UPDATE_COMMAND,
-      update: state,
+      // Operator-only fields (who scheduled it, failure detail) are not exposed to other roles.
+      update: isAdmin ? state : { ...state, scheduledBy: undefined, error: state.error ? 'Update failed' : undefined },
       serverTime: new Date().toISOString(),
     };
   }
@@ -240,7 +241,8 @@ export class UpdateService implements OnModuleInit {
       child.on('error', (e) => resolve(e.message));
       child.on('close', (code) => {
         if (code !== 0) this.logger.error(`Update command exited ${code}: ${tail}`);
-        resolve(code === 0 ? '' : `Update command exited with code ${code}: ${tail}`);
+        // Output stays in server logs only; it can contain paths/hostnames/tokens and is never stored or returned.
+        resolve(code === 0 ? '' : `Update command exited with code ${code} (see server logs)`);
       });
     });
   }
