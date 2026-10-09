@@ -16,7 +16,8 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:4000/:path*',
+        // Baked in at build time; docker images pass BACKEND_URL as a build arg.
+        destination: `${process.env.BACKEND_URL || 'http://localhost:4000'}/:path*`,
       },
     ];
   },

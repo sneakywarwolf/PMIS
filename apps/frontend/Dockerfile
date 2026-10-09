@@ -10,6 +10,10 @@ COPY package*.json ./
 # Install dependencies
 RUN npm ci
 
+# Backend URL for the /api proxy rewrite (baked at build time)
+ARG BACKEND_URL=http://backend:4000
+ENV BACKEND_URL=$BACKEND_URL
+
 # Copy source code
 COPY . .
 
@@ -23,6 +27,7 @@ WORKDIR /app
 
 # Set Node.js to production
 ENV NODE_ENV=production
+ENV NODE_OPTIONS=--max-old-space-size=1024
 
 # Copy package files
 COPY package*.json ./
@@ -45,6 +50,8 @@ USER nextjs
 
 # Expose port
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \n    CMD wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1
 
 # Start application
 CMD ["npm", "start"]

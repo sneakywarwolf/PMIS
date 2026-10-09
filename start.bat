@@ -55,11 +55,26 @@ if errorlevel 1 (
 )
 popd
 
+REM Production builds: next dev / nest --watch compile per request and crash under several simultaneous users.
+echo Building backend and frontend (first run takes a few minutes)...
+call npm run build --prefix appsackend
+if errorlevel 1 (
+    echo [ERROR] Backend build failed.
+    pause
+    exit /b 1
+)
+call npm run build --prefix appsrontend
+if errorlevel 1 (
+    echo [ERROR] Frontend build failed.
+    pause
+    exit /b 1
+)
+
 REM Start backend in a minimized window, logs to backend.log
-start /min "VAPT Backend" cmd /c "cd apps\backend && npm run start:dev > backend.log 2>&1"
+start /min "VAPT Backend" cmd /c "cd apps\backend && npm run start:prod > backend.log 2>&1"
 
 REM Start frontend in a minimized window, logs to frontend.log
-start /min "VAPT Frontend" cmd /c "cd apps\frontend && npm run dev > frontend.log 2>&1"
+start /min "VAPT Frontend" cmd /c "cd apps\frontend && set NODE_OPTIONS=--max-old-space-size=2048 && npm run start > frontend.log 2>&1"
 
 echo.
 echo ============================================
