@@ -483,6 +483,8 @@ model ProjectVulnerability {
   severity    String
   cvssScore   Float?   @map("cvss_score")
   cvssVector  String?  @map("cvss_vector")
+  // nessus | calculated | unresolved (see common/cvss-vector.util.ts); null on records imported before this existed.
+  cvssVectorSource String? @map("cvss_vector_source")
   description String
   impact      String
   remediation String

@@ -12,6 +12,8 @@ export interface NessusFinding {
   severity: NessusSeverity;
   cvssScore: number | null;
   cvssVector: string | null;
+  /** Which CVSS version cvssScore (and cvssVector, if any) belongs to. */
+  cvssVersion: '3' | '2' | null;
   description: string;
   /** Nessus has no "impact" field; its plugin synopsis is the closest equivalent. */
   impact: string;
@@ -108,6 +110,7 @@ export function parseNessusXml(xml: string): NessusFinding[] {
         name,
         severity,
         cvssScore: v3 ?? v2,
+        cvssVersion: v3 !== null ? '3' : v2 !== null ? '2' : null,
         cvssVector: (v3 !== null ? text(item, 'cvss3_vector') : text(item, 'cvss_vector')) || null,
         description: text(item, 'description'),
         impact: text(item, 'synopsis'),
@@ -153,6 +156,7 @@ export function parseNessusCsv(content: string): NessusFinding[] {
       name,
       severity: SEVERITY_BY_RISK[get(idx.risk).toLowerCase()] ?? 'Info',
       cvssScore: v3 ?? toScore(get(idx.v2)),
+      cvssVersion: v3 !== null ? '3' : toScore(get(idx.v2)) !== null ? '2' : null,
       cvssVector: null, // Nessus CSV exports carry scores only, not vector strings
       description: get(idx.description),
       impact: get(idx.synopsis),

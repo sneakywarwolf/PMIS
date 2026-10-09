@@ -3,6 +3,7 @@ import { VULN_INCLUDE, withVulnerability, bySeverityScore } from '../common/find
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { User, UserRole, FindingStatus, ProjectStatus } from '@prisma/client';
+import { resolveCvssVector } from '../common/cvss-vector.util';
 import { findingPocReadiness } from '../common/poc-validation.util';
 import { parseNessusFile } from '../common/nessus-parser.util';
 
@@ -78,7 +79,7 @@ export class FindingsService {
       ...item,
       status: (imported.has(item.key) || names.has(item.name.trim().toLowerCase()) ? 'duplicate' : 'new') as NessusImportStatus,
     }));
-    return { items };
+    return { items, exposure: project.externalInternal };
   }
 
   async previewNessus(projectId: string, file: Express.Multer.File | undefined, user: User) {
@@ -94,7 +95,7 @@ export class FindingsService {
     userAgent: string,
   ) {
     if (selected.length === 0) throw new BadRequestException('Select at least one finding to import');
-    const { items } = await this.nessusPlan(projectId, file, user);
+    const { items, exposure } = await this.nessusPlan(projectId, file, user);
     const byKey = new Map(items.map((i) => [i.key, i]));
     const result = {
       created: [] as { key: string; name: string; findingId: string }[],
@@ -115,6 +116,8 @@ export class FindingsService {
       let projectVulnId: string | undefined;
       try {
         const fill = FindingsService.NESSUS_FILL;
+        // The score is kept as imported; only a missing vector is derived (see cvss-vector.util).
+        const resolved = resolveCvssVector({ score: item.cvssScore, version: item.cvssVersion, existingVector: item.cvssVector, exposure });
         const record = await this.prisma.projectVulnerability.create({
           data: {
             projectId,
@@ -124,7 +127,8 @@ export class FindingsService {
             name: item.name,
             severity: item.severity,
             cvssScore: item.cvssScore,
-            cvssVector: item.cvssVector,
+            cvssVector: resolved.vector,
+            cvssVectorSource: resolved.source,
             description: item.description || fill,
             impact: item.impact || fill,
             remediation: item.remediation || fill,

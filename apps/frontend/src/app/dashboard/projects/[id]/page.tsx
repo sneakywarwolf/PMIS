@@ -63,6 +63,8 @@ interface Vulnerability {
   severity: string;
   cvssScore: number | null;
   cvssVector: string | null;
+  // Only set on project-scoped (Nessus) records: nessus | calculated | unresolved.
+  cvssVectorSource?: 'nessus' | 'calculated' | 'unresolved' | null;
   description: string;
   impact: string;
   remediation: string;
@@ -1198,6 +1200,22 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
             {finding.classification && (
               <span className="px-2 py-0.5 rounded-full text-xs font-medium border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
                 {finding.classification}
+              </span>
+            )}
+            {finding.vulnerability.cvssVectorSource === 'calculated' && (
+              <span
+                title={`Calculated from the imported score and the project's exposure; several vectors can give this score. Review before relying on it.\n${finding.vulnerability.cvssVector ?? ''}`}
+                className="px-2 py-0.5 rounded-full text-xs font-medium border bg-amber-500/10 text-amber-400 border-amber-500/20"
+              >
+                CVSS vector: calculated, review
+              </span>
+            )}
+            {finding.vulnerability.cvssVectorSource === 'unresolved' && (
+              <span
+                title="No vector in the scan, and none could be determined from the score and the project's exposure."
+                className="px-2 py-0.5 rounded-full text-xs font-medium border bg-gray-500/10 text-gray-400 border-gray-500/20"
+              >
+                CVSS vector: unresolved
               </span>
             )}
           </div>

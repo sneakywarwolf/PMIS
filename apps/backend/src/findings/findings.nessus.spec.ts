@@ -11,11 +11,11 @@ const XML = `<?xml version="1.0"?><NessusClientData_v2><Report name="r">
 </ReportHost></Report></NessusClientData_v2>`;
 const file = { originalname: 'scan.nessus', buffer: Buffer.from(XML) } as Express.Multer.File;
 
-function setup(opts: { role: string; subType?: string; testerId?: string; findingCreateFails?: boolean }) {
+function setup(opts: { role: string; subType?: string; testerId?: string; findingCreateFails?: boolean; exposure?: string | null }) {
   let n = 0;
   const prisma: any = {
     project: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'p1', subType: opts.subType ?? 'NETWORK', testerId: opts.testerId ?? 'u1', tlId: null, status: 'IN_PROGRESS', tester: { assignedTlId: null } }),
+      findUnique: jest.fn().mockResolvedValue({ id: 'p1', subType: opts.subType ?? 'NETWORK', testerId: opts.testerId ?? 'u1', tlId: null, status: 'IN_PROGRESS', tester: { assignedTlId: null }, externalInternal: opts.exposure === undefined ? 'External' : opts.exposure }),
       update: jest.fn(),
     },
     projectVulnerability: {
@@ -68,6 +68,21 @@ describe('FindingsService Nessus import (project-scoped)', () => {
     const findings = prisma.finding.create.mock.calls.map((c: any) => c[0].data);
     expect(findings[0]).toMatchObject({ projectId: 'p1', projectVulnId: 'pv1', affectedInstances: ['10.0.0.1:443/tcp'], status: 'DRAFT', createdById: 'u1' });
     expect(findings[0].vulnId).toBeUndefined();
+  });
+
+  it('keeps a scan-provided vector, calculates a missing one from score + exposure, and never changes the score', async () => {
+    const { svc, prisma, user } = setup({ role: 'ADMIN', exposure: 'External' });
+    await svc.importNessus('p1', file, ['100', '200'], user, 'ip', 'ua');
+    const [withVector, withoutVector] = prisma.projectVulnerability.create.mock.calls.map((c: any) => c[0].data);
+    expect(withVector).toMatchObject({ cvssScore: 7.5, cvssVector: 'CVSS:3.0/AV:N', cvssVectorSource: 'nessus' });
+    expect(withoutVector).toMatchObject({ cvssScore: 5, cvssVectorSource: 'calculated' });
+    expect(withoutVector.cvssVector).toMatch(/^AV:N\/AC:.\/Au:.\/C:.\/I:.\/A:.$/); // 5.0 came from CVSS v2
+  });
+
+  it('leaves the vector unresolved when the project has no exposure set', async () => {
+    const { svc, prisma, user } = setup({ role: 'ADMIN', exposure: null });
+    await svc.importNessus('p1', file, ['200'], user, 'ip', 'ua');
+    expect(prisma.projectVulnerability.create.mock.calls[0][0].data).toMatchObject({ cvssScore: 5, cvssVector: null, cvssVectorSource: 'unresolved' });
   });
 
   it('removes the project record if its finding cannot be created', async () => {
