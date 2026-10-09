@@ -37,6 +37,24 @@ describe('parseNessusFile', () => {
     expect(f[1]).toMatchObject({ severity: 'Info', affected: ['10.0.0.2'] });
   });
 
+  it('maps each finding\'s own <cvss3_vector> verbatim, paired with its own score, never falling back to the v2 vector', () => {
+    const item = (id: string, body: string) =>
+      `<ReportHost name="h${id}"><ReportItem port="1" protocol="tcp" severity="3" pluginID="${id}" pluginName="P${id}">${body}</ReportItem></ReportHost>`;
+    const xml = `<?xml version="1.0"?><NessusClientData_v2><Report name="r">`
+      + item('1', '<cvss3_base_score>9.8</cvss3_base_score><cvss3_vector>CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H</cvss3_vector><cvss_vector>AV:N/AC:L/Au:N/C:P/I:P/A:P</cvss_vector><cvss_base_score>7.5</cvss_base_score>')
+      + item('2', '<cvss3_base_score>5.3</cvss3_base_score><cvss3_vector> CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N </cvss3_vector>')
+      + item('3', '<cvss3_base_score>6.5</cvss3_base_score><cvss_vector>AV:N/AC:L/Au:N/C:P/I:P/A:N</cvss_vector>') // v3 score but no v3 vector: do not substitute the v2 one
+      + item('4', '<cvss_base_score>5.0</cvss_base_score><cvss_vector>AV:N/AC:L/Au:N/C:N/I:N/A:P</cvss_vector>')
+      + item('5', '<cvss3_vector>CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H</cvss3_vector>') // vector without a score is still kept
+      + `</Report></NessusClientData_v2>`;
+    const by = Object.fromEntries(parseNessusFile(file('v.nessus', xml)).map((f) => [f.key, f]));
+    expect(by['1']).toMatchObject({ cvssScore: 9.8, cvssVector: 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H', cvssVersion: '3' });
+    expect(by['2']).toMatchObject({ cvssScore: 5.3, cvssVector: 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N' });
+    expect(by['3']).toMatchObject({ cvssScore: 6.5, cvssVector: null });
+    expect(by['4']).toMatchObject({ cvssScore: 5, cvssVector: 'AV:N/AC:L/Au:N/C:N/I:N/A:P', cvssVersion: '2' });
+    expect(by['5']).toMatchObject({ cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' });
+  });
+
   it('parses .csv with quoted multi-line fields and groups by plugin', () => {
     const f = parseNessusFile(file('scan.csv', CSV));
     expect(f).toHaveLength(1);

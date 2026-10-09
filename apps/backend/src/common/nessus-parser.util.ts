@@ -102,6 +102,7 @@ export function parseNessusXml(xml: string): NessusFinding[] {
       const severity = SEVERITY_BY_LEVEL[level] ?? SEVERITY_BY_RISK[text(item, 'risk_factor').toLowerCase()] ?? 'Info';
       const v3 = toScore(text(item, 'cvss3_base_score'));
       const v2 = toScore(text(item, 'cvss_base_score'));
+      const vector3 = text(item, 'cvss3_vector');
       const xrefs = all(item, 'xref');
       const cwe = dedupe([...all(item, 'cwe'), ...xrefs.filter((x) => /^CWE:/i.test(x)).map((x) => 'CWE-' + x.split(':')[1])]);
 
@@ -110,8 +111,9 @@ export function parseNessusXml(xml: string): NessusFinding[] {
         name,
         severity,
         cvssScore: v3 ?? v2,
-        cvssVersion: v3 !== null ? '3' : v2 !== null ? '2' : null,
-        cvssVector: (v3 !== null ? text(item, 'cvss3_vector') : text(item, 'cvss_vector')) || null,
+        cvssVersion: v3 !== null || vector3 ? '3' : v2 !== null ? '2' : null,
+        // The scan's own <cvss3_vector> is used as-is whenever present; the v2 vector only when the item has no v3 data at all.
+        cvssVector: vector3 || (v3 === null ? text(item, 'cvss_vector') : '') || null,
         description: text(item, 'description'),
         impact: text(item, 'synopsis'),
         remediation: text(item, 'solution'),
