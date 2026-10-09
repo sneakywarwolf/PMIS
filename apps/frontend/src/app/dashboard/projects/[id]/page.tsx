@@ -696,6 +696,8 @@ export default function ProjectDetailPage() {
                 finding={finding}
                 index={index}
                 canEdit={canEditFindings}
+                network={project.subType === 'NETWORK'}
+                typeIndicator={project.subType === 'NETWORK' && findingFilter === 'ALL' ? finding.findingType ?? null : null}
                 onEdit={() => { setEditingFinding(finding); setShowAddModal(true); }}
                 onDelete={() => handleDeleteFinding(finding.id)}
               />
@@ -1158,10 +1160,14 @@ function InfoField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
+function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, onDelete }: {
   finding: Finding;
   index: number;
   canEdit: boolean;
+  // Network projects: show CVSS vector and CVE IDs, and the VA/PT indicator instead of the classification badge.
+  network: boolean;
+  // 'VA' | 'PT' only while the All tab is selected; null under a VA/PT tab (the tab already says which).
+  typeIndicator: 'VA' | 'PT' | null;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -1197,9 +1203,21 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[finding.vulnerability.severity] || severityColors.Info}`}>
               {finding.vulnerability.severity}
             </span>
-            {finding.classification && (
+            {!network && finding.classification && (
               <span className="px-2 py-0.5 rounded-full text-xs font-medium border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
                 {finding.classification}
+              </span>
+            )}
+            {typeIndicator && (
+              <span
+                title={typeIndicator === 'VA' ? 'VA finding (imported from a Nessus scan)' : 'PT finding (added from the Vulnerability DB)'}
+                className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                  typeIndicator === 'VA'
+                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                    : 'bg-violet-500/10 text-violet-400 border-violet-500/20'
+                }`}
+              >
+                {typeIndicator}
               </span>
             )}
             {finding.vulnerability.cvssVectorSource === 'calculated' && (
@@ -1222,6 +1240,12 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
           <p className="text-xs text-gray-500 mt-0.5 truncate">
             CVSS: {cvss} {finding.cvssScoreOverride !== null && finding.cvssScoreOverride !== undefined && (
               <span className="text-amber-400">(overridden)</span>
+            )}
+            {network && (
+              <>
+                {' | '}
+                <span className="font-mono" title="CVSS vector">{finding.cvssVectorOverride ?? finding.vulnerability.cvssVector ?? '-'}</span>
+              </>
             )}
             {finding.vulnerability.cveId && <span className="text-cyan-400 ml-2">{finding.vulnerability.cveId}</span>}
           </p>
@@ -1278,6 +1302,12 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
                   <p className="text-white">{finding.reportStatus}</p>
                 </div>
               </div>
+              {network && finding.vulnerability.cveId && (
+                <div>
+                  <p className="text-gray-500 text-xs">CVE ID(s)</p>
+                  <p className="text-cyan-400 text-sm mt-1 break-words">{finding.vulnerability.cveId}</p>
+                </div>
+              )}
               {finding.affectedInstances.length > 0 && (
                 <div>
                   <p className="text-gray-500 text-xs">Affected Instances</p>
