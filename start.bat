@@ -15,7 +15,7 @@ if errorlevel 1 (
 
 REM Start infrastructure
 echo [1/3] Starting Docker infrastructure...
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f docker-compose.dev.yml up -d --wait
 
 echo [2/3] Waiting for services to start...
 timeout /t 5 /nobreak >nul
@@ -57,13 +57,13 @@ popd
 
 REM Production builds: next dev / nest --watch compile per request and crash under several simultaneous users.
 echo Building backend and frontend (first run takes a few minutes)...
-call npm run build --prefix appsackend
+call npm run build --prefix apps\backend
 if errorlevel 1 (
     echo [ERROR] Backend build failed.
     pause
     exit /b 1
 )
-call npm run build --prefix appsrontend
+call npm run build --prefix apps\frontend
 if errorlevel 1 (
     echo [ERROR] Frontend build failed.
     pause
