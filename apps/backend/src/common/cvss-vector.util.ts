@@ -107,3 +107,8 @@ export function resolveCvssVector(input: {
   const vector = input.version === '3' ? findV3(input.score, avs) : findV2(input.score, avs);
   return vector ? { vector, source: 'calculated' } : { vector: null, source: 'unresolved' };
 }
+
+/** Display/print form of a vector: version prefix (CVSS:3.1/ ...) removed. Stored values keep it. */
+export function stripCvssPrefix(vector: string | null | undefined): string {
+  return (vector ?? '').trim().replace(/^CVSS:\d+(?:\.\d+)?\//i, '');
+}

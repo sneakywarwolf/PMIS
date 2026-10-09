@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { stripCvssPrefix } from '../common/cvss-vector.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
@@ -498,7 +499,7 @@ export class VulnerabilitiesService {
         this.escapeCsv(v.name),
         v.severity,
         v.cvssScore ?? '',
-        this.escapeCsv(v.cvssVector ?? ''),
+        this.escapeCsv(stripCvssPrefix(v.cvssVector)),
         this.escapeCsv(v.description),
         this.escapeCsv(v.impact),
         this.escapeCsv(v.remediation),

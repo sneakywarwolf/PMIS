@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { stripCvssPrefix } from '../common/cvss-vector.util';
 import * as JSZip from 'jszip';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import { NmapPortRecord } from '../common/nmap-parser.util';
@@ -1083,7 +1084,7 @@ export class DocxManipulatorService {
    */
   resolveFindingParameter(normalizedName: string, finding: FindingData): string | undefined {
     const cvssCombined = finding.cvssScore != null
-      ? `${finding.cvssScore}${finding.cvssVector ? ` | ${finding.cvssVector}` : ''}`
+      ? `${finding.cvssScore}${finding.cvssVector ? ` | ${stripCvssPrefix(finding.cvssVector)}` : ''}`
       : 'N/A';
     const cveCwe = [finding.cveId, finding.cweId].filter(Boolean).join(' / ') || 'N/A';
 
@@ -1096,7 +1097,7 @@ export class DocxManipulatorService {
       severity: finding.severity,
       cvss_score: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
       score_value: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
-      cvss_vector: finding.cvssVector || 'N/A',
+      cvss_vector: stripCvssPrefix(finding.cvssVector) || 'N/A',
       cvss: cvssCombined,
       cve_cwe: cveCwe,
       cve_id: finding.cveId || 'N/A',

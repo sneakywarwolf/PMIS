@@ -1,4 +1,5 @@
-import { computeCvss2, computeCvss31, resolveCvssVector } from './cvss-vector.util';
+import { computeCvss2, computeCvss31, resolveCvssVector, stripCvssPrefix } from './cvss-vector.util';
+import { DocxManipulatorService } from '../reports/docx-manipulator.service';
 
 const parse = (v: string) => Object.fromEntries(v.replace(/^CVSS:3\.1\//, '').split('/').map((p) => p.split(':')));
 
@@ -13,6 +14,24 @@ describe('CVSS scoring (known reference values)', () => {
     expect(computeCvss2(parse('AV:N/AC:L/Au:N/C:P/I:P/A:P'))).toBe(7.5);
     expect(computeCvss2(parse('AV:N/AC:L/Au:N/C:C/I:C/A:C'))).toBe(10);
     expect(computeCvss2(parse('AV:N/AC:L/Au:N/C:N/I:N/A:N'))).toBe(0);
+  });
+});
+
+describe('stripCvssPrefix / printed vectors', () => {
+  it('removes any version prefix and leaves the vector itself', () => {
+    const v = 'AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H';
+    for (const p of ['CVSS:3.1/', 'CVSS:3.0/', 'CVSS:2.0/']) expect(stripCvssPrefix(p + v)).toBe(v);
+    expect(stripCvssPrefix(v)).toBe(v);
+    expect(stripCvssPrefix(null)).toBe('');
+  });
+
+  it('reports and the Issue Log print the vector without the prefix, storage is untouched', () => {
+    const finding: any = { no: 1, title: 't', severity: 'High', cvssScore: 9.8, cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H' };
+    const docx = new DocxManipulatorService();
+    expect(docx.resolveFindingParameter('cvss_vector', finding)).toBe('AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H');
+    expect(docx.resolveFindingParameter('cvss', finding)).toBe('9.8 | AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H');
+    expect(finding.cvssVector).toMatch(/^CVSS:3\.1\//);
+    expect(docx.resolveFindingParameter('cvss_vector', { ...finding, cvssVector: null })).toBe('N/A');
   });
 });
 

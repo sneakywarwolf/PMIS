@@ -31,6 +31,7 @@ import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
 import { PasswordGeneratorButton } from '@/components/password-generator-button';
 import { NessusImportDialog } from '@/components/nessus-import-dialog';
+import { stripCvssPrefix } from '@/lib/cvss';
 import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
 import { formatReportDate } from '@/lib/report-date';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
@@ -1222,7 +1223,7 @@ function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, 
             )}
             {finding.vulnerability.cvssVectorSource === 'calculated' && (
               <span
-                title={`Calculated from the imported score and the project's exposure; several vectors can give this score. Review before relying on it.\n${finding.vulnerability.cvssVector ?? ''}`}
+                title={`Calculated from the imported score and the project's exposure; several vectors can give this score. Review before relying on it.\n${stripCvssPrefix(finding.vulnerability.cvssVector)}`}
                 className="px-2 py-0.5 rounded-full text-xs font-medium border bg-amber-500/10 text-amber-400 border-amber-500/20"
               >
                 CVSS vector: calculated, review
@@ -1244,7 +1245,7 @@ function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, 
             {network && (
               <>
                 {' | '}
-                <span className="font-mono" title="CVSS vector">{finding.cvssVectorOverride ?? finding.vulnerability.cvssVector ?? '-'}</span>
+                <span className="font-mono" title="CVSS vector">{stripCvssPrefix(finding.cvssVectorOverride ?? finding.vulnerability.cvssVector) || '-'}</span>
               </>
             )}
             {finding.vulnerability.cveId && <span className="text-cyan-400 ml-2">{finding.vulnerability.cveId}</span>}
@@ -1822,9 +1823,9 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                 <label className="block text-xs text-gray-400 mb-1">CVSS Vector Override</label>
                 <input
                   type="text"
-                  value={form.cvssVectorOverride}
+                  value={stripCvssPrefix(form.cvssVectorOverride)}
                   onChange={(e) => setForm({ ...form, cvssVectorOverride: e.target.value })}
-                  placeholder={selectedVuln?.cvssVector || 'Default from DB'}
+                  placeholder={stripCvssPrefix(selectedVuln?.cvssVector) || 'Default from DB'}
                   className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 text-sm text-white font-mono text-xs"
                 />
               </div>
@@ -2090,7 +2091,7 @@ function CvssCalculator({ initialVector, onApply }: {
           Apply to Finding
         </button>
       </div>
-      <p className="text-xs text-gray-500 font-mono break-all">{vector}</p>
+      <p className="text-xs text-gray-500 font-mono break-all">{stripCvssPrefix(vector)}</p>
     </div>
   );
 }
