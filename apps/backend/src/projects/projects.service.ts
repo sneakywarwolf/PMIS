@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { VULN_INCLUDE, withVulnerability, bySeverityScore } from '../common/finding-vulnerability.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ProjectPurgeService } from '../common/project-purge.service';
@@ -109,22 +110,21 @@ export class ProjectsService {
         template: true,
         findings: {
           include: {
-            vulnerability: true,
+            ...VULN_INCLUDE,
             pocSteps: {
               orderBy: { stepNo: 'asc' },
             },
           },
-          orderBy: [
-            { cvssScoreOverride: { sort: 'desc', nulls: 'last' } },
-            { vulnerability: { cvssScore: 'desc' } },
-          ],
         },
       },
     });
     if (!result) return result;
     return {
       ...result,
-      findings: result.findings.map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps), pocReadiness: getPocReadiness(f.pocSteps) })),
+      findings: result.findings
+        .map(withVulnerability)
+        .sort(bySeverityScore)
+        .map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps), pocReadiness: getPocReadiness(f.pocSteps) })),
     };
   }
 

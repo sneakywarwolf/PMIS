@@ -7,68 +7,73 @@ const XML = `<?xml version="1.0"?><NessusClientData_v2><Report name="r">
   <ReportItem port="22" protocol="tcp" severity="2" pluginID="200" pluginName="SSH Weak Algorithms"><cvss_base_score>5.0</cvss_base_score><description>d</description><synopsis>s</synopsis><solution>fix</solution></ReportItem>
   <ReportItem port="80" protocol="tcp" severity="1" pluginID="300" pluginName="Already Imported"><description>d</description></ReportItem>
   <ReportItem port="21" protocol="tcp" severity="4" pluginID="400" pluginName="Not Selected"><description>d</description></ReportItem>
+  <ReportItem port="8080" protocol="tcp" severity="2" pluginID="500" pluginName="Same Name As Library Finding"><description>d</description></ReportItem>
 </ReportHost></Report></NessusClientData_v2>`;
 const file = { originalname: 'scan.nessus', buffer: Buffer.from(XML) } as Express.Multer.File;
 
-function setup(opts: { role: string; subType?: string; testerId?: string }) {
+function setup(opts: { role: string; subType?: string; testerId?: string; findingCreateFails?: boolean }) {
+  let n = 0;
   const prisma: any = {
     project: {
       findUnique: jest.fn().mockResolvedValue({ id: 'p1', subType: opts.subType ?? 'NETWORK', testerId: opts.testerId ?? 'u1', tlId: null, status: 'IN_PROGRESS', tester: { assignedTlId: null } }),
       update: jest.fn(),
     },
-    vulnerability: {
-      findMany: jest.fn().mockImplementation(({ where }: any) =>
-        Promise.resolve(where.status === 'APPROVED' ? [{ id: 'v-tls', name: 'tls weak cipher', cveId: null, cvssScore: 7.5 }] : []),
-      ),
+    projectVulnerability: {
+      findMany: jest.fn().mockResolvedValue([{ sourceKey: '300' }]),
+      create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'pv' + ++n, ...data })),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     finding: {
-      findMany: jest.fn().mockResolvedValue([{ vulnId: 'v-x', testerNotes: 'Imported from Nessus. [Nessus plugin 300]' }]),
-      create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'f-' + data.vulnId, ...data })),
+      // existing finding that came from the GLOBAL library and shares a name with plugin 500
+      findMany: jest.fn().mockResolvedValue([{ vulnerability: { name: 'Same Name As Library Finding' }, projectVulnerability: null }]),
+      create: jest.fn().mockImplementation(({ data }: any) =>
+        opts.findingCreateFails
+          ? Promise.reject(new Error('boom'))
+          : Promise.resolve({ id: 'f' + n, ...data, vulnerability: null, projectVulnerability: { id: data.projectVulnId } }),
+      ),
     },
+    // Deliberately absent: any use of the global library would throw `undefined.findMany/create`.
+    vulnerability: undefined,
   };
   const audit: any = { log: jest.fn() };
-  const vulns: any = {
-    create: jest.fn().mockResolvedValue({ id: 'v-new' }),
-    request: jest.fn().mockResolvedValue({ id: 'v-req' }),
-  };
   const user: any = { id: 'u1', role: opts.role };
-  return { svc: new FindingsService(prisma, audit, vulns), prisma, vulns, user };
+  return { svc: new FindingsService(prisma, audit), prisma, user };
 }
 
-describe('FindingsService Nessus import', () => {
-  it('previews statuses without writing anything', async () => {
+describe('FindingsService Nessus import (project-scoped)', () => {
+  it('previews as new/duplicate without writing anything', async () => {
     const { svc, prisma, user } = setup({ role: 'TESTER' });
     const { items } = await svc.previewNessus('p1', file, user);
     expect(Object.fromEntries(items.map((i) => [i.key, i.status]))).toEqual({
-      '100': 'ready', '200': 'needs-approval', '300': 'duplicate', '400': 'needs-approval',
+      '100': 'new', '200': 'new', '300': 'duplicate', '400': 'new', '500': 'duplicate',
     });
     expect(prisma.finding.create).not.toHaveBeenCalled();
+    expect(prisma.projectVulnerability.create).not.toHaveBeenCalled();
   });
 
-  it('Admin: imports only selected findings, adding library entries via the existing Admin path', async () => {
-    const { svc, prisma, vulns, user } = setup({ role: 'ADMIN' });
-    const r = await svc.importNessus('p1', file, ['100', '200', '300'], user, 'ip', 'ua');
+  it.each(['ADMIN', 'TESTER'])('%s: imports only selected findings into the project, never touching the global library', async (role) => {
+    const { svc, prisma, user } = setup({ role });
+    const r = await svc.importNessus('p1', file, ['100', '200', '300', '500'], user, 'ip', 'ua');
     expect(r.created.map((c) => c.key)).toEqual(['100', '200']);
-    expect(r.skipped.map((s) => s.key)).toEqual(['300']);
-    expect(vulns.create).toHaveBeenCalledTimes(1);
-    expect(vulns.create.mock.calls[0][0]).toMatchObject({ name: 'SSH Weak Algorithms', severity: 'Medium', category: 'NETWORK' });
-    const created = prisma.finding.create.mock.calls.map((c: any) => c[0].data);
-    expect(created).toHaveLength(2); // plugin 400 was not selected
-    expect(created[0]).toMatchObject({ vulnId: 'v-tls', affectedInstances: ['10.0.0.1:443/tcp'], status: 'DRAFT' });
-    expect(created[0].testerNotes).toContain('[Nessus plugin 100]');
-    expect(created[0].cvssScoreOverride).toBeUndefined(); // same score as the library entry
-    expect(created[1]).toMatchObject({ vulnId: 'v-new', cvssScoreOverride: 5 }); // new entry from Nessus CVSS v2
+    expect(r.skipped.map((s) => s.key)).toEqual(['300', '500']);
+    expect(prisma.projectVulnerability.create).toHaveBeenCalledTimes(2); // plugin 400 was not selected
+
+    const records = prisma.projectVulnerability.create.mock.calls.map((c: any) => c[0].data);
+    expect(records[0]).toMatchObject({
+      projectId: 'p1', source: 'nessus', sourceKey: '100', name: 'TLS Weak Cipher', severity: 'High',
+      cvssScore: 7.5, cvssVector: 'CVSS:3.0/AV:N', impact: 's', remediation: 'fix',
+    });
+    const findings = prisma.finding.create.mock.calls.map((c: any) => c[0].data);
+    expect(findings[0]).toMatchObject({ projectId: 'p1', projectVulnId: 'pv1', affectedInstances: ['10.0.0.1:443/tcp'], status: 'DRAFT', createdById: 'u1' });
+    expect(findings[0].vulnId).toBeUndefined();
   });
 
-  it('Tester: unmatched findings go through the approval request, no finding is created', async () => {
-    const { svc, prisma, vulns, user } = setup({ role: 'TESTER' });
-    const r = await svc.importNessus('p1', file, ['100', '200'], user, 'ip', 'ua');
-    expect(vulns.request).toHaveBeenCalledTimes(1);
-    expect(vulns.request.mock.calls[0][1]).toBe('u1');
-    expect(vulns.create).not.toHaveBeenCalled();
-    expect(r.requested.map((x) => x.key)).toEqual(['200']);
-    expect(r.created.map((x) => x.key)).toEqual(['100']);
-    expect(prisma.finding.create).toHaveBeenCalledTimes(1);
+  it('removes the project record if its finding cannot be created', async () => {
+    const { svc, prisma, user } = setup({ role: 'ADMIN', findingCreateFails: true });
+    const r = await svc.importNessus('p1', file, ['100'], user, 'ip', 'ua');
+    expect(r.failed).toHaveLength(1);
+    expect(r.created).toHaveLength(0);
+    expect(prisma.projectVulnerability.deleteMany).toHaveBeenCalledWith({ where: { id: 'pv1' } });
   });
 
   it('reports unknown plugin IDs instead of importing them', async () => {
@@ -78,7 +83,7 @@ describe('FindingsService Nessus import', () => {
     expect(prisma.finding.create).not.toHaveBeenCalled();
   });
 
-  it('rejects empty selection, non-Network projects and other testers\' projects', async () => {
+  it("rejects empty selection, non-Network projects and other testers' projects", async () => {
     await expect(setup({ role: 'ADMIN' }).svc.importNessus('p1', file, [], { id: 'u1', role: 'ADMIN' } as any, '', '')).rejects.toThrow(BadRequestException);
     const web = setup({ role: 'ADMIN', subType: 'WEB' });
     await expect(web.svc.previewNessus('p1', file, web.user)).rejects.toThrow(BadRequestException);

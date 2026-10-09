@@ -226,6 +226,7 @@ model Project {
   networkScope       Json?    @map("network_scope")
   quarter            String?  @map("quarter")
   nmapPorts          Json?    @map("nmap_ports")
+  projectVulnerabilities ProjectVulnerability[]
   // Structured rows for {Tool Name}/{Tool Version}/{Open Source/Licensed} —
   // toolsUsed (free text) is kept in sync as a derived summary so the
   // existing {Tools Used} single-line placeholder keeps working.
@@ -428,8 +429,11 @@ model Finding {
   projectId    String        @map("project_id")
   project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  vulnId       String        @map("vuln_id")
-  vulnerability Vulnerability @relation(fields: [vulnId], references: [id])
+  // Exactly one of vulnId (global Vulnerability DB) or projectVulnId (project-scoped, e.g. Nessus import).
+  vulnId       String?       @map("vuln_id")
+  vulnerability Vulnerability? @relation(fields: [vulnId], references: [id], onDelete: Restrict)
+  projectVulnId String?      @map("project_vuln_id")
+  projectVulnerability ProjectVulnerability? @relation(fields: [projectVulnId], references: [id], onDelete: Cascade)
 
   evidencePaths String[]     @map("evidence_paths")
   testerNotes   String       @map("tester_notes")
@@ -457,6 +461,37 @@ model Finding {
   @@index([status])
   @@index([reportStatus])
   @@map("findings")
+}
+
+// A vulnerability record owned by ONE project (created by scan imports such as Nessus). It has the
+// same content fields as Vulnerability so reports can use it unchanged, but it lives in its own
+// table: it never appears in, or changes, the global Vulnerability DB, and other projects can't see it.
+model ProjectVulnerability {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Identifier from the source tool (Nessus plugin ID); with projectId it prevents duplicate imports.
+  source      String   @default("nessus")
+  sourceKey   String   @map("source_key")
+
+  name        String
+  severity    String
+  cvssScore   Float?   @map("cvss_score")
+  cvssVector  String?  @map("cvss_vector")
+  description String
+  impact      String
+  remediation String
+  references  String
+  cveId       String?  @map("cve_id")
+  cweId       String?  @map("cwe_id")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  findings    Finding[]
+
+  @@unique([projectId, source, sourceKey])
+  @@map("project_vulnerabilities")
 }
 
 model PocStep {

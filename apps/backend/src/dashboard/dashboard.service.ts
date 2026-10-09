@@ -204,12 +204,12 @@ export class DashboardService {
 
     const findings = await this.prisma.finding.findMany({
       where,
-      include: { vulnerability: true },
+      include: { vulnerability: true, projectVulnerability: true },
     });
 
     // Group by severity
     const bySeverity = findings.reduce((acc: any, f) => {
-      const sev = f.vulnerability.severity;
+      const sev = (f.vulnerability ?? f.projectVulnerability)!.severity;
       acc[sev] = (acc[sev] || 0) + 1;
       return acc;
     }, {});
@@ -272,13 +272,13 @@ export class DashboardService {
     const findings = projects.length
       ? await this.prisma.finding.findMany({
           where: { projectId: { in: projects.map((p) => p.id) } },
-          select: { projectId: true, vulnerability: { select: { severity: true } } },
+          select: { projectId: true, vulnerability: { select: { severity: true } }, projectVulnerability: { select: { severity: true } } },
         })
       : [];
 
     const counts = new Map<string, Record<string, number>>();
     for (const f of findings) {
-      const sev = severityKey(f.vulnerability.severity);
+      const sev = severityKey((f.vulnerability ?? f.projectVulnerability)!.severity);
       const row = counts.get(f.projectId) ?? { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
       row[sev] += 1;
       counts.set(f.projectId, row);
@@ -311,7 +311,9 @@ export class DashboardService {
       this.prisma.project.findMany({ select: { id: true, status: true, testerId: true, tlId: true } }),
       // ponytail: loads every finding to bucket severity (it's a relation field, so no groupBy);
       // move to a raw SQL aggregate if the findings table gets large.
-      this.prisma.finding.findMany({ select: { projectId: true, vulnerability: { select: { severity: true } } } }),
+      this.prisma.finding.findMany({
+        select: { projectId: true, vulnerability: { select: { severity: true } }, projectVulnerability: { select: { severity: true } } },
+      }),
     ]);
 
     const testerToTl = new Map(testers.map((t) => [t.id, t.assignedTlId]));
@@ -340,7 +342,7 @@ export class DashboardService {
     }
     for (const f of findings) {
       const team = teams.get(owner.get(f.projectId) ?? '');
-      if (team) team.vulnCounts[severityKey(f.vulnerability.severity)] += 1;
+      if (team) team.vulnCounts[severityKey((f.vulnerability ?? f.projectVulnerability)!.severity)] += 1;
     }
 
     return [...teams.values()].sort((a, b) => a.tlName.localeCompare(b.tlName));

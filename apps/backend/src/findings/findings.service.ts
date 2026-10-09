@@ -1,26 +1,19 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { VULN_INCLUDE, withVulnerability, bySeverityScore } from '../common/finding-vulnerability.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { VulnerabilitiesService } from '../vulnerabilities/vulnerabilities.service';
-import { User, UserRole, FindingStatus, ProjectStatus, VulnerabilityStatus } from '@prisma/client';
+import { User, UserRole, FindingStatus, ProjectStatus } from '@prisma/client';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
-import { parseNessusFile, NessusFinding } from '../common/nessus-parser.util';
+import { parseNessusFile } from '../common/nessus-parser.util';
 
-/**
- * ready              matches an approved library entry: the finding is created directly
- * new-library-entry  no match, importer is an Admin: library entry is created (existing Admin-only path), then the finding
- * needs-approval     no match, importer is not an Admin: a library request is filed; the finding is NOT created until it is approved
- * awaiting-approval  a library request with the same name is already pending
- * duplicate          this project already has the finding
- */
-export type NessusImportStatus = 'ready' | 'new-library-entry' | 'needs-approval' | 'awaiting-approval' | 'duplicate';
+/** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) */
+export type NessusImportStatus = 'new' | 'duplicate';
 
 @Injectable()
 export class FindingsService {
   constructor(
     private prisma: PrismaService,
     private auditService: AuditService,
-    private vulnerabilitiesService: VulnerabilitiesService,
   ) {}
 
   private async checkProjectAccess(projectId: string, user: User) {
@@ -52,16 +45,13 @@ export class FindingsService {
   }
 
   // ─── Nessus import (VA findings for Network projects) ───
-  // Uploaded files are parsed server-side as data only. Findings are created through
-  // `create()`, so project access, tester ownership, DRAFT status and audit logging are
-  // unchanged. Library entries follow the existing rules: Admin creates directly,
-  // everyone else files a request that needs approval.
+  // Imported findings are PROJECT-SCOPED: each becomes a ProjectVulnerability owned by this
+  // project plus a normal Finding pointing at it. Nothing is written to, or matched against, the
+  // global Vulnerability DB, so no library entries or approvals are involved and other projects
+  // never see these records. The Finding itself goes through `create()` (access checks, tester
+  // ownership, DRAFT status, audit) like any other finding.
 
   private static readonly NESSUS_FILL = 'Not provided by Nessus.';
-
-  private nessusMarker(key: string) {
-    return `[Nessus plugin ${key}]`;
-  }
 
   private async nessusPlan(projectId: string, file: Express.Multer.File | undefined, user: User) {
     const project = await this.checkProjectAccess(projectId, user);
@@ -73,37 +63,26 @@ export class FindingsService {
     }
     const parsed = parseNessusFile(file);
 
-    const [library, pending, existing] = await Promise.all([
-      this.prisma.vulnerability.findMany({
-        where: { status: VulnerabilityStatus.APPROVED, isActive: true },
-        select: { id: true, name: true, cveId: true, cvssScore: true },
+    // Duplicate = same Nessus plugin already imported here, or a finding with the same name already in this project.
+    const [scoped, existing] = await Promise.all([
+      this.prisma.projectVulnerability.findMany({ where: { projectId, source: 'nessus' }, select: { sourceKey: true } }),
+      this.prisma.finding.findMany({
+        where: { projectId },
+        select: { vulnerability: { select: { name: true } }, projectVulnerability: { select: { name: true } } },
       }),
-      this.prisma.vulnerability.findMany({
-        where: { status: VulnerabilityStatus.PENDING, isActive: true },
-        select: { name: true },
-      }),
-      this.prisma.finding.findMany({ where: { projectId }, select: { vulnId: true, testerNotes: true } }),
     ]);
-    const byName = new Map(library.map((v) => [v.name.trim().toLowerCase(), v]));
-    const byCve = new Map(library.filter((v) => v.cveId).map((v) => [v.cveId!.trim().toLowerCase(), v]));
-    const pendingNames = new Set(pending.map((v) => v.name.trim().toLowerCase()));
+    const imported = new Set(scoped.map((v) => v.sourceKey));
+    const names = new Set(existing.map((f) => (f.vulnerability ?? f.projectVulnerability)!.name.trim().toLowerCase()));
 
-    const items = parsed.map((item) => {
-      const match = byName.get(item.name.trim().toLowerCase()) ?? (item.cveId ? byCve.get(item.cveId.toLowerCase()) : undefined);
-      const marker = this.nessusMarker(item.key);
-      let status: NessusImportStatus;
-      if (existing.some((f) => (match && f.vulnId === match.id) || f.testerNotes.includes(marker))) status = 'duplicate';
-      else if (match) status = 'ready';
-      else if (pendingNames.has(item.name.trim().toLowerCase())) status = 'awaiting-approval';
-      else status = user.role === UserRole.ADMIN ? 'new-library-entry' : 'needs-approval';
-      return { ...item, status, matchedVulnId: match?.id ?? null, matchedCvssScore: match?.cvssScore ?? null };
-    });
+    const items = parsed.map((item) => ({
+      ...item,
+      status: (imported.has(item.key) || names.has(item.name.trim().toLowerCase()) ? 'duplicate' : 'new') as NessusImportStatus,
+    }));
     return { items };
   }
 
   async previewNessus(projectId: string, file: Express.Multer.File | undefined, user: User) {
-    const { items } = await this.nessusPlan(projectId, file, user);
-    return { items: items.map(({ matchedCvssScore, ...item }) => item) };
+    return this.nessusPlan(projectId, file, user);
   }
 
   async importNessus(
@@ -119,7 +98,6 @@ export class FindingsService {
     const byKey = new Map(items.map((i) => [i.key, i]));
     const result = {
       created: [] as { key: string; name: string; findingId: string }[],
-      requested: [] as { key: string; name: string }[],
       skipped: [] as { key: string; name: string; reason: string }[],
       failed: [] as { key: string; name: string; error: string }[],
     };
@@ -130,54 +108,45 @@ export class FindingsService {
         result.failed.push({ key, name: key, error: 'Not found in the uploaded file' });
         continue;
       }
+      if (item.status === 'duplicate') {
+        result.skipped.push({ key, name: item.name, reason: 'Already in this project' });
+        continue;
+      }
+      let projectVulnId: string | undefined;
       try {
-        if (item.status === 'duplicate') {
-          result.skipped.push({ key, name: item.name, reason: 'Already in this project' });
-        } else if (item.status === 'awaiting-approval') {
-          result.skipped.push({ key, name: item.name, reason: 'A library request for it is already awaiting approval' });
-        } else if (item.status === 'needs-approval') {
-          await this.vulnerabilitiesService.request(this.libraryFields(item), user.id);
-          result.requested.push({ key, name: item.name });
-        } else {
-          const vulnId =
-            item.matchedVulnId ?? (await this.vulnerabilitiesService.create(this.libraryFields(item), user.id)).id;
-          const scoreDiffers = item.cvssScore !== null && item.cvssScore !== item.matchedCvssScore;
-          const finding = await this.create(
-            {
-              projectId,
-              vulnId,
-              testerNotes: `Imported from Nessus. ${this.nessusMarker(key)}`,
-              affectedInstances: item.affected,
-              ...(scoreDiffers && { cvssScoreOverride: item.cvssScore!, cvssVectorOverride: item.cvssVector ?? undefined }),
-            },
-            user,
-            ipAddress,
-            userAgent,
-          );
-          result.created.push({ key, name: item.name, findingId: finding.id });
-        }
+        const fill = FindingsService.NESSUS_FILL;
+        const record = await this.prisma.projectVulnerability.create({
+          data: {
+            projectId,
+            source: 'nessus',
+            sourceKey: item.key,
+            name: item.name,
+            severity: item.severity,
+            cvssScore: item.cvssScore,
+            cvssVector: item.cvssVector,
+            description: item.description || fill,
+            impact: item.impact || fill,
+            remediation: item.remediation || fill,
+            references: item.references || fill,
+            cveId: item.cveId,
+            cweId: item.cweId,
+          },
+        });
+        projectVulnId = record.id;
+        const finding = await this.create(
+          { projectId, projectVulnId, testerNotes: 'Imported from Nessus.', affectedInstances: item.affected },
+          user,
+          ipAddress,
+          userAgent,
+        );
+        result.created.push({ key, name: item.name, findingId: finding.id });
       } catch (e: any) {
+        // Don't leave an orphaned project record behind if the finding could not be created.
+        if (projectVulnId) await this.prisma.projectVulnerability.deleteMany({ where: { id: projectVulnId } });
         result.failed.push({ key, name: item.name, error: e.message || 'Import failed' });
       }
     }
     return result;
-  }
-
-  private libraryFields(item: NessusFinding) {
-    const fill = FindingsService.NESSUS_FILL;
-    return {
-      name: item.name,
-      severity: item.severity,
-      cvssScore: item.cvssScore ?? undefined,
-      cvssVector: item.cvssVector ?? undefined,
-      description: item.description || fill,
-      impact: item.impact || fill,
-      remediation: item.remediation || fill,
-      references: item.references || fill,
-      cveId: item.cveId ?? undefined,
-      cweId: item.cweId ?? undefined,
-      category: 'NETWORK',
-    };
   }
 
   async findByProject(projectId: string, user: User) {
@@ -186,25 +155,21 @@ export class FindingsService {
     const findings = await this.prisma.finding.findMany({
       where: { projectId },
       include: {
-        vulnerability: true,
+        ...VULN_INCLUDE,
         pocSteps: {
           orderBy: { stepNo: 'asc' },
         },
       },
-      orderBy: [
-        { cvssScoreOverride: { sort: 'desc', nulls: 'last' } },
-        { vulnerability: { cvssScore: 'desc' } },
-      ],
     });
 
-    return findings.map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps), pocReadiness: getPocReadiness(f.pocSteps) }));
+    return findings.map(withVulnerability).sort(bySeverityScore).map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps), pocReadiness: getPocReadiness(f.pocSteps) }));
   }
 
   async findOne(id: string, user: User) {
     const finding = await this.prisma.finding.findUnique({
       where: { id },
       include: {
-        vulnerability: true,
+        ...VULN_INCLUDE,
         project: { include: { tester: true, tl: true } },
         pocSteps: {
           orderBy: { stepNo: 'asc' },
@@ -217,12 +182,14 @@ export class FindingsService {
     }
 
     await this.checkProjectAccess(finding.projectId, user);
-    return { ...finding, pocComplete: isFindingReportReady(finding.pocSteps), pocReadiness: getPocReadiness(finding.pocSteps) };
+    return { ...withVulnerability(finding), pocComplete: isFindingReportReady(finding.pocSteps), pocReadiness: getPocReadiness(finding.pocSteps) };
   }
 
   async create(data: {
     projectId: string;
-    vulnId: string;
+    vulnId?: string;
+    // Set instead of vulnId for project-scoped records (scan imports); never both.
+    projectVulnId?: string;
     testerNotes: string;
     evidencePaths?: string[];
     affectedInstances?: string[];
@@ -243,6 +210,7 @@ export class FindingsService {
       data: {
         projectId: data.projectId,
         vulnId: data.vulnId,
+        projectVulnId: data.projectVulnId,
         testerNotes: data.testerNotes,
         evidencePaths: data.evidencePaths || [],
         affectedInstances: data.affectedInstances || [],
@@ -255,7 +223,7 @@ export class FindingsService {
         createdById: user.id,
         status: FindingStatus.DRAFT,
       },
-      include: { vulnerability: true, pocSteps: true },
+      include: { ...VULN_INCLUDE, pocSteps: true },
     });
 
     // Auto-update project status: NOT_STARTED -> IN_PROGRESS
@@ -276,7 +244,7 @@ export class FindingsService {
       details: { projectId: data.projectId, vulnId: data.vulnId },
     });
 
-    return finding;
+    return withVulnerability(finding);
   }
 
   async update(id: string, data: any, user: User, ipAddress: string, userAgent: string) {
@@ -311,7 +279,7 @@ export class FindingsService {
         ...(data.cvssVectorOverride !== undefined && { cvssVectorOverride: data.cvssVectorOverride }),
         ...(data.status !== undefined && { status: data.status }),
       },
-      include: { vulnerability: true, pocSteps: true },
+      include: { ...VULN_INCLUDE, pocSteps: true },
     });
 
     await this.auditService.log({
@@ -324,7 +292,7 @@ export class FindingsService {
       details: data,
     });
 
-    return updated;
+    return withVulnerability(updated);
   }
 
   async remove(id: string, user: User, ipAddress: string, userAgent: string) {
@@ -344,6 +312,8 @@ export class FindingsService {
     }
 
     await this.prisma.finding.delete({ where: { id } });
+    // A project-scoped vulnerability record only exists for its finding; drop it so the import can be redone.
+    if (finding.projectVulnId) await this.prisma.projectVulnerability.deleteMany({ where: { id: finding.projectVulnId } });
 
     await this.auditService.log({
       actorId: user.id,

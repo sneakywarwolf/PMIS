@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Loader2, Search } from 'lucide-react';
 import { api } from '@/contexts/auth-context';
 
-type Status = 'ready' | 'new-library-entry' | 'needs-approval' | 'awaiting-approval' | 'duplicate';
+type Status = 'new' | 'duplicate';
 
 interface Item {
   key: string;
@@ -19,7 +19,6 @@ interface Item {
 
 interface ImportResult {
   created: { key: string; name: string }[];
-  requested: { key: string; name: string }[];
   skipped: { key: string; name: string; reason: string }[];
   failed: { key: string; name: string; error: string }[];
 }
@@ -33,11 +32,8 @@ const severityColors: Record<string, string> = {
 };
 
 const STATUS: Record<Status, { label: string; cls: string; hint: string; selectable: boolean }> = {
-  ready: { label: 'In library', cls: 'text-emerald-400', hint: 'Matches an approved Vulnerability DB entry. The finding is added as a draft.', selectable: true },
-  'new-library-entry': { label: 'Adds to library', cls: 'text-blue-400', hint: 'No library match. As Admin, a library entry is created, then the finding is added.', selectable: true },
-  'needs-approval': { label: 'Needs approval', cls: 'text-amber-400', hint: 'No library match. A request is sent for approval; add the finding once it is approved.', selectable: true },
-  'awaiting-approval': { label: 'Awaiting approval', cls: 'text-gray-500', hint: 'A library request for this finding is already pending.', selectable: false },
-  duplicate: { label: 'Already added', cls: 'text-gray-500', hint: 'This project already has this finding.', selectable: false },
+  new: { label: 'New', cls: 'text-emerald-400', hint: 'Will be added to this project only. It is not added to the global Vulnerability DB.', selectable: true },
+  duplicate: { label: 'Already in project', cls: 'text-gray-500', hint: 'This project already has this finding.', selectable: false },
 };
 
 const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Info'];
@@ -120,7 +116,6 @@ export function NessusImportDialog({
     });
   const add = (list: Item[]) => setSelected((p) => new Set([...p, ...selectable(list).map((i) => i.key)]));
 
-  const needsApproval = (items ?? []).filter((i) => selected.has(i.key) && i.status === 'needs-approval').length;
   const infoSelected = (items ?? []).filter((i) => selected.has(i.key) && !isVuln(i)).length;
   const vulnSelected = selected.size - infoSelected;
 
@@ -185,7 +180,7 @@ export function NessusImportDialog({
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div className="min-w-0">
             <h2 id="nessus-title" className="text-lg font-semibold text-white">Import Nessus findings</h2>
-            <p className="text-xs text-gray-500 truncate">{file.name}</p>
+            <p className="text-xs text-gray-500 truncate">{file.name} · added to this project only, not the global Vulnerability DB</p>
           </div>
           <button onClick={close} disabled={importing} aria-label="Close" className="text-gray-400 hover:text-white disabled:opacity-50">
             <X className="w-5 h-5" />
@@ -196,13 +191,9 @@ export function NessusImportDialog({
           <div className="p-6 space-y-4 overflow-y-auto text-sm">
             <p className="text-white">
               {result.created.length} finding{result.created.length === 1 ? '' : 's'} added
-              {result.requested.length > 0 && `, ${result.requested.length} library request${result.requested.length === 1 ? '' : 's'} sent for approval`}
               {result.skipped.length > 0 && `, ${result.skipped.length} skipped`}
               {result.failed.length > 0 && `, ${result.failed.length} failed`}.
             </p>
-            {result.requested.length > 0 && (
-              <p className="text-amber-400">Requested findings are added once approvers approve their library entries. Import the file again afterwards to add them.</p>
-            )}
             {[...result.skipped.map((s) => ({ ...s, msg: s.reason })), ...result.failed.map((f) => ({ ...f, msg: f.error }))].map((r) => (
               <p key={r.key} className="text-gray-400">
                 <span className="text-gray-300">{r.name}</span>: {r.msg}
@@ -278,7 +269,6 @@ export function NessusImportDialog({
             <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-t border-gray-700">
               <p className="text-xs text-amber-400">
                 {infoSelected > 0 && `${infoSelected} informational item${infoSelected === 1 ? ' is' : 's are'} selected and will be imported as findings. `}
-                {needsApproval > 0 && `${needsApproval} selected finding${needsApproval === 1 ? ' has' : 's have'} no library entry yet and will be sent for approval instead of being added.`}
                 {error && <span role="alert" className="text-red-400">{error}</span>}
               </p>
               <div className="flex gap-2">
