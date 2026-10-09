@@ -42,6 +42,10 @@ const STATUS: Record<Status, { label: string; cls: string; hint: string; selecta
 
 const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Info'];
 
+// Nessus mixes real vulnerabilities with informational plugins (OS fingerprint, open ports,
+// service detection...). Only plugins that carry a CVSS score are treated as vulnerabilities.
+const isVuln = (i: Item) => i.cvssScore !== null && i.cvssScore > 0;
+
 export function NessusImportDialog({
   projectId,
   file,
@@ -71,7 +75,12 @@ export function NessusImportDialog({
   useEffect(() => {
     api
       .post('/findings/nessus/preview', body(), { headers: { 'Content-Type': 'multipart/form-data' } })
-      .then((res) => setItems(res.data.items))
+      .then((res) => {
+        const found: Item[] = res.data.items;
+        setItems(found);
+        // Pre-select every importable vulnerability (has a CVSS score); informational stays opt-in.
+        setSelected(new Set(found.filter((i) => isVuln(i) && STATUS[i.status].selectable).map((i) => i.key)));
+      })
       .catch((e) => setError(e.response?.data?.message || 'Could not read this file.'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -89,14 +98,19 @@ export function NessusImportDialog({
 
   const visible = useMemo(
     () =>
-      (items ?? []).filter(
-        (i) =>
-          (!severity || i.severity === severity) &&
-          (!query || `${i.name} ${i.cveId ?? ''} ${i.key}`.toLowerCase().includes(query.toLowerCase())),
-      ),
+      (items ?? [])
+        .filter(
+          (i) =>
+            (!severity || i.severity === severity) &&
+            (!query || `${i.name} ${i.cveId ?? ''} ${i.key}`.toLowerCase().includes(query.toLowerCase())),
+        )
+        .sort((a, b) => (b.cvssScore ?? -1) - (a.cvssScore ?? -1)),
     [items, query, severity],
   );
-  const selectableVisible = visible.filter((i) => STATUS[i.status].selectable);
+  const vulns = visible.filter(isVuln);
+  const infos = visible.filter((i) => !isVuln(i));
+  const selectable = (list: Item[]) => list.filter((i) => STATUS[i.status].selectable);
+  const totalVulns = (items ?? []).filter(isVuln).length;
 
   const toggle = (key: string) =>
     setSelected((prev) => {
@@ -104,8 +118,10 @@ export function NessusImportDialog({
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
+  const add = (list: Item[]) => setSelected((p) => new Set([...p, ...selectable(list).map((i) => i.key)]));
 
   const needsApproval = (items ?? []).filter((i) => selected.has(i.key) && i.status === 'needs-approval').length;
+  const infoSelected = (items ?? []).filter((i) => selected.has(i.key) && !isVuln(i)).length;
 
   const runImport = async () => {
     setImporting(true);
@@ -121,6 +137,41 @@ export function NessusImportDialog({
       setImporting(false);
     }
   };
+
+  const renderRow = (i: Item) => {
+    const st = STATUS[i.status];
+    return (
+      <tr key={i.key} className={`border-b border-gray-800 ${st.selectable ? 'hover:bg-white/5' : 'opacity-60'}`}>
+        <td className="p-3">
+          <input type="checkbox" checked={selected.has(i.key)} disabled={!st.selectable} onChange={() => toggle(i.key)} aria-label={`Select ${i.name}`} />
+        </td>
+        <td className="p-3">
+          <p className="text-white">{i.name}</p>
+          <p className="text-xs text-gray-500 font-mono">Plugin {i.key}{i.cveId && ` · ${i.cveId}`}</p>
+        </td>
+        <td className="p-3">
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[i.severity] || severityColors.Info}`}>{i.severity}</span>
+        </td>
+        <td className="p-3 font-mono tabular-nums text-gray-300" title={i.cvssVector ?? undefined}>{i.cvssScore ?? '—'}</td>
+        <td className="p-3 text-gray-300" title={i.affected.join('\n')}>{i.affected.length} host{i.affected.length === 1 ? '' : 's'}</td>
+        <td className={`p-3 ${st.cls}`} title={st.hint}>{st.label}</td>
+      </tr>
+    );
+  };
+
+  const section = (title: string, note: string, list: Item[]) =>
+    list.length > 0 && (
+      <>
+        <tr className="bg-gray-800/40">
+          <td colSpan={6} className="px-3 py-2 text-xs">
+            <span className="font-semibold text-gray-200">{title} ({list.length})</span>
+            <span className="ml-2 text-gray-500">{note}</span>
+            <button onClick={() => add(list)} className="ml-3 text-emerald-400 hover:text-emerald-300">Select all</button>
+          </td>
+        </tr>
+        {list.map(renderRow)}
+      </>
+    );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -178,14 +229,10 @@ export function NessusImportDialog({
                 <option value="">All severities</option>
                 {SEVERITIES.map((s) => <option key={s}>{s}</option>)}
               </select>
-              <button
-                onClick={() => setSelected((p) => new Set([...p, ...selectableVisible.map((i) => i.key)]))}
-                className="text-sm text-emerald-400 hover:text-emerald-300"
-              >
-                Select shown ({selectableVisible.length})
-              </button>
-              <button onClick={() => setSelected(new Set())} className="text-sm text-gray-400 hover:text-white">Clear</button>
-              <span className="ml-auto text-xs text-gray-500">{items.length} found · {selected.size} selected</span>
+              <button onClick={() => setSelected(new Set())} className="text-sm text-gray-400 hover:text-white">Clear selection</button>
+              <span className="ml-auto text-xs text-gray-500">
+                {totalVulns} vulnerabilit{totalVulns === 1 ? 'y' : 'ies'} · {items.length - totalVulns} informational · {selected.size} selected
+              </span>
             </div>
 
             <div className="overflow-auto flex-1">
@@ -201,26 +248,8 @@ export function NessusImportDialog({
                   </tr>
                 </thead>
                 <tbody>
-                  {visible.map((i) => {
-                    const st = STATUS[i.status];
-                    return (
-                      <tr key={i.key} className={`border-b border-gray-800 ${st.selectable ? 'hover:bg-white/5' : 'opacity-60'}`}>
-                        <td className="p-3">
-                          <input type="checkbox" checked={selected.has(i.key)} disabled={!st.selectable} onChange={() => toggle(i.key)} aria-label={`Select ${i.name}`} />
-                        </td>
-                        <td className="p-3">
-                          <p className="text-white">{i.name}</p>
-                          <p className="text-xs text-gray-500 font-mono">Plugin {i.key}{i.cveId && ` · ${i.cveId}`}</p>
-                        </td>
-                        <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[i.severity] || severityColors.Info}`}>{i.severity}</span>
-                        </td>
-                        <td className="p-3 font-mono tabular-nums text-gray-300" title={i.cvssVector ?? undefined}>{i.cvssScore ?? '—'}</td>
-                        <td className="p-3 text-gray-300" title={i.affected.join('\n')}>{i.affected.length} host{i.affected.length === 1 ? '' : 's'}</td>
-                        <td className={`p-3 ${st.cls}`} title={st.hint}>{st.label}</td>
-                      </tr>
-                    );
-                  })}
+                  {section('Vulnerabilities with a CVSS score', 'Selected by default.', vulns)}
+                  {section('Informational, no CVSS score', 'Scanner information gathering, not vulnerabilities. Not selected by default.', infos)}
                   {visible.length === 0 && (
                     <tr><td colSpan={6} className="p-6 text-center text-gray-500">No findings match the filters.</td></tr>
                   )}
@@ -230,6 +259,7 @@ export function NessusImportDialog({
 
             <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-t border-gray-700">
               <p className="text-xs text-amber-400">
+                {infoSelected > 0 && `${infoSelected} informational item${infoSelected === 1 ? ' is' : 's are'} selected and will be imported as findings. `}
                 {needsApproval > 0 && `${needsApproval} selected finding${needsApproval === 1 ? ' has' : 's have'} no library entry yet and will be sent for approval instead of being added.`}
                 {error && <span role="alert" className="text-red-400">{error}</span>}
               </p>
