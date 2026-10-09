@@ -240,7 +240,18 @@ export default function ProjectDetailPage() {
   const handleNessusFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (file) setNessusFile(file);
+    if (!file) return;
+    // Matches the server's 25 MB upload limit; checked here so nothing is uploaded just to be rejected.
+    if (file.size > 25 * 1024 * 1024) {
+      showToast(
+        file.name.toLowerCase().endsWith('.nessus')
+          ? 'This .nessus file is larger than 25 MB. Please export the scan as a CSV file from Nessus and upload that instead.'
+          : 'This file is larger than 25 MB, which is the upload limit.',
+        'error',
+      );
+      return;
+    }
+    setNessusFile(file);
   };
 
   const handleGenerateReport = async () => {

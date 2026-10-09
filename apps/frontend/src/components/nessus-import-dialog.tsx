@@ -77,7 +77,13 @@ export function NessusImportDialog({
         // Pre-select every importable vulnerability (has a CVSS score); informational stays opt-in.
         setSelected(new Set(found.filter((i) => isVuln(i) && STATUS[i.status].selectable).map((i) => i.key)));
       })
-      .catch((e) => setError(e.response?.data?.message || 'Could not read this file.'));
+      .catch((e) =>
+        setError(
+          e.response?.status === 413
+            ? `This file is larger than 25 MB.${file.name.toLowerCase().endsWith('.nessus') ? ' Please export the scan as a CSV file from Nessus and upload that instead.' : ''}`
+            : e.response?.data?.message || 'Could not read this file.',
+        ),
+      );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
