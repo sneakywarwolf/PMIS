@@ -68,12 +68,12 @@ export class ProjectsController {
   async reassign(
     @Param('id') id: string,
     @Body() dto: ReassignProjectDto,
-    @CurrentUser('id') tlId: string,
+    @CurrentUser() user: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.projectsService.reassign(id, dto, tlId, ipAddress, userAgent);
+    return this.projectsService.reassign(id, dto, user, ipAddress, userAgent);
   }
 
   @Delete(':id')

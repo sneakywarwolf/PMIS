@@ -4,7 +4,7 @@ import { ProjectsService } from './projects.service';
 describe('ProjectsService.searchProjects — Ctrl+K scoping', () => {
   const run = async (role: UserRole) => {
     const findMany = jest.fn().mockResolvedValue([]);
-    const svc = new ProjectsService({ project: { findMany } } as any, {} as any, {} as any);
+    const svc = new ProjectsService({ project: { findMany } } as any, {} as any, {} as any, {} as any);
     await svc.searchProjects({ id: 'u1', role } as any);
     return findMany.mock.calls[0][0];
   };

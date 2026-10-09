@@ -3,7 +3,8 @@ import { VULN_INCLUDE, withVulnerability, bySeverityScore } from '../common/find
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ProjectPurgeService } from '../common/project-purge.service';
-import { User, UserRole, ProjectStatus } from '@prisma/client';
+import { User, UserRole, ProjectStatus, NotificationType } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
 import { parseNmapScan, NmapPortRecord } from '../common/nmap-parser.util';
@@ -27,6 +28,7 @@ export class ProjectsService {
     private prisma: PrismaService,
     private auditService: AuditService,
     private projectPurge: ProjectPurgeService,
+    private notifications: NotificationsService,
   ) {}
 
   private async checkProjectAccess(projectId: string, user: User) {
@@ -256,36 +258,71 @@ export class ProjectsService {
     return project;
   }
 
-  async reassign(id: string, dto: ReassignProjectDto, tlId: string, ipAddress: string, userAgent: string) {
-    const project = await this.prisma.project.findUnique({ where: { id } });
+  /**
+   * Admin: any project to any active tester. TL/AVP: only projects they can open, and only to
+   * testers on their own team. Findings, reports and access all key off project.testerId, so
+   * moving it moves them together; nothing is copied or deleted. tlId follows the new tester's
+   * team so TL access and the dashboards stay consistent.
+   */
+  async reassign(id: string, dto: ReassignProjectDto, actor: User, ipAddress: string, userAgent: string) {
+    const project = await this.prisma.project.findUnique({ where: { id }, include: { tester: true } });
     if (!project) {
       throw new NotFoundException('Project not found');
     }
 
-    const newTester = await this.prisma.user.findUnique({
-      where: { id: dto.testerId },
-    });
-
-    if (!newTester || newTester.role !== UserRole.TESTER || newTester.assignedTlId !== tlId) {
-      throw new BadRequestException('Invalid tester assignment');
+    const isAdmin = actor.role === UserRole.ADMIN;
+    if (!isAdmin && project.tlId !== actor.id && project.tester.assignedTlId !== actor.id) {
+      throw new ForbiddenException('You can only reassign projects from your own team');
     }
 
-    await this.prisma.project.update({
+    const newTester = await this.prisma.user.findUnique({ where: { id: dto.testerId } });
+    if (
+      !newTester ||
+      newTester.role !== UserRole.TESTER ||
+      !newTester.isActive ||
+      newTester.deletedAt ||
+      (!isAdmin && newTester.assignedTlId !== actor.id)
+    ) {
+      throw new BadRequestException('Invalid tester assignment');
+    }
+    if (newTester.id === project.testerId) {
+      throw new BadRequestException('Project is already assigned to this tester');
+    }
+
+    const updated = await this.prisma.project.update({
       where: { id },
-      data: { testerId: dto.testerId },
+      data: { testerId: newTester.id, tlId: newTester.assignedTlId ?? project.tlId },
+      include: {
+        tester: { select: { id: true, username: true, email: true, fullName: true } },
+        tl: { select: { id: true, username: true, email: true, fullName: true } },
+      },
     });
 
     await this.auditService.log({
-      actorId: tlId,
+      actorId: actor.id,
       action: 'PROJECT_REASSIGNED',
       targetType: 'PROJECT',
       targetId: id,
       ipAddress,
       userAgent,
-      details: { newTesterId: dto.testerId },
+      details: { previousTesterId: project.testerId, newTesterId: newTester.id },
     });
 
-    return { message: 'Project reassigned successfully' };
+    // The assignment is already committed; a failed notification must not undo or fail it.
+    try {
+      await this.notifications.create({
+        userId: newTester.id,
+        type: NotificationType.PROJECT_ASSIGNED,
+        title: 'Project assigned to you',
+        message: `You have been assigned the project "${project.name}" (${project.clientName}).`,
+        linkUrl: `/dashboard/projects/${id}`,
+        relatedId: id,
+      });
+    } catch {
+      // ponytail: best-effort, no retry queue; add one if missed notifications matter.
+    }
+
+    return { message: 'Project reassigned successfully', tester: updated.tester, tl: updated.tl };
   }
 
   /**

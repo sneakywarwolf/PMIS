@@ -1,3 +1,4 @@
+import { NotificationsService } from '../notifications/notifications.service';
 import { Test } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
 import { UserRole, ProjectStatus } from '@prisma/client';
@@ -40,6 +41,7 @@ describe('ProjectsService.update — start date editing', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: AuditService, useValue: audit },
         { provide: SettingsService, useValue: {} },
+        { provide: NotificationsService, useValue: {} },
         { provide: ProjectPurgeService, useValue: {} },
       ],
     }).compile();
@@ -89,6 +91,7 @@ describe('ProjectsService.remove', () => {
         { provide: PrismaService, useValue: {} },
         { provide: AuditService, useValue: audit },
         { provide: SettingsService, useValue: {} },
+        { provide: NotificationsService, useValue: {} },
         { provide: ProjectPurgeService, useValue: projectPurge },
       ],
     }).compile();

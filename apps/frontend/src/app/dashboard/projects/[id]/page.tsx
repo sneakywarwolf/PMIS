@@ -457,7 +457,11 @@ export default function ProjectDetailPage() {
           )}
           <InfoField label="Quarter/Frequency" value={project.quarter || 'N/A'} />
           <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} />
-          <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
+          {user?.role !== 'TESTER' ? (
+            <AssignedTesterField project={project} onChanged={fetchProject} />
+          ) : (
+            <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
+          )}
           <InfoField label="Team Lead" value={project.tl.fullName || project.tl.username} />
           <InfoField label="Template" value={project.template?.name || 'Default'} />
         </div>
@@ -1039,6 +1043,77 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
       </motion.div>
     </div>,
     document.body
+  );
+}
+
+// Admin: every active tester. TL/AVP: GET /users already returns only their own team, and the
+// server re-checks the team on save.
+function AssignedTesterField({ project, onChanged }: {
+  project: { id: string; tester: { id: string; username: string; fullName?: string | null } };
+  onChanged: () => void;
+}) {
+  const showToast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [testers, setTesters] = useState<{ id: string; username: string; fullName?: string | null }[]>([]);
+  const [selected, setSelected] = useState(project.tester.id);
+  const [saving, setSaving] = useState(false);
+
+  const startEditing = async () => {
+    try {
+      const { data } = await api.get('/users');
+      setTesters(data.filter((u: any) => u.role === 'TESTER' && u.isActive && !u.deletedAt));
+      setSelected(project.tester.id);
+      setEditing(true);
+    } catch {
+      showToast('Could not load testers', 'error');
+    }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.post(`/projects/${project.id}/reassign`, { testerId: selected });
+      showToast('Tester reassigned', 'success');
+      setEditing(false);
+      onChanged();
+    } catch (e: any) {
+      showToast(e.response?.data?.message || 'Could not reassign project', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!editing) {
+    return (
+      <div>
+        <p className="text-gray-500 text-xs">Assigned Tester</p>
+        <p className="text-white font-medium">
+          {project.tester.fullName || project.tester.username}{' '}
+          <button onClick={startEditing} className="ml-1 text-xs text-emerald-400 hover:text-emerald-300">Change</button>
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <p className="text-gray-500 text-xs">Assigned Tester</p>
+      <div className="flex items-center gap-2">
+        <select
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+          className="px-2 py-1 rounded-lg text-sm bg-gray-800 border border-gray-700 focus:border-emerald-500 outline-none text-white"
+        >
+          {!testers.some((t) => t.id === project.tester.id) && (
+            <option value={project.tester.id}>{project.tester.fullName || project.tester.username}</option>
+          )}
+          {testers.map((t) => (
+            <option key={t.id} value={t.id}>{t.fullName || t.username}</option>
+          ))}
+        </select>
+        <button onClick={save} disabled={saving || selected === project.tester.id} className="text-xs text-emerald-400 hover:text-emerald-300 disabled:opacity-50">Save</button>
+        <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-300">Cancel</button>
+      </div>
+    </div>
   );
 }
 
