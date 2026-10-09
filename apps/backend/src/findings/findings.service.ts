@@ -119,6 +119,7 @@ export class FindingsService {
           data: {
             projectId,
             source: 'nessus',
+            classification: 'VA Finding',
             sourceKey: item.key,
             name: item.name,
             severity: item.severity,

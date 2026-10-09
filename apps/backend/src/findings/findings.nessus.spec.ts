@@ -62,7 +62,7 @@ describe('FindingsService Nessus import (project-scoped)', () => {
 
     const records = prisma.projectVulnerability.create.mock.calls.map((c: any) => c[0].data);
     expect(records[0]).toMatchObject({
-      projectId: 'p1', source: 'nessus', sourceKey: '100', name: 'TLS Weak Cipher', severity: 'High',
+      projectId: 'p1', source: 'nessus', classification: 'VA Finding', sourceKey: '100', name: 'TLS Weak Cipher', severity: 'High',
       cvssScore: 7.5, cvssVector: 'CVSS:3.0/AV:N', impact: 's', remediation: 'fix',
     });
     const findings = prisma.finding.create.mock.calls.map((c: any) => c[0].data);

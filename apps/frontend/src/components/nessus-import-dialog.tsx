@@ -32,7 +32,7 @@ const severityColors: Record<string, string> = {
 };
 
 const STATUS: Record<Status, { label: string; cls: string; hint: string; selectable: boolean }> = {
-  new: { label: 'New', cls: 'text-emerald-400', hint: 'Will be added to this project only. It is not added to the global Vulnerability DB.', selectable: true },
+  new: { label: 'New', cls: 'text-emerald-400', hint: 'Will be added to this project as a VA Finding. It is not added to the global Vulnerability DB.', selectable: true },
   duplicate: { label: 'Already in project', cls: 'text-gray-500', hint: 'This project already has this finding.', selectable: false },
 };
 
@@ -180,7 +180,7 @@ export function NessusImportDialog({
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div className="min-w-0">
             <h2 id="nessus-title" className="text-lg font-semibold text-white">Import Nessus findings</h2>
-            <p className="text-xs text-gray-500 truncate">{file.name} · added to this project only, not the global Vulnerability DB</p>
+            <p className="text-xs text-gray-500 truncate">{file.name} · imported as VA Findings, added to this project only (not the global Vulnerability DB)</p>
           </div>
           <button onClick={close} disabled={importing} aria-label="Close" className="text-gray-400 hover:text-white disabled:opacity-50">
             <X className="w-5 h-5" />

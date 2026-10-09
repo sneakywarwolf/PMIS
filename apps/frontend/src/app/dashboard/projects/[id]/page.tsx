@@ -84,6 +84,8 @@ interface Finding {
   projectId: string;
   vulnId: string;
   vulnerability: Vulnerability;
+  // 'VA Finding' for scan imports (Nessus); null for findings from the Vulnerability DB.
+  classification?: string | null;
   testerNotes: string;
   evidencePaths: string[];
   status: string;
@@ -1077,6 +1079,11 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[finding.vulnerability.severity] || severityColors.Info}`}>
               {finding.vulnerability.severity}
             </span>
+            {finding.classification && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
+                {finding.classification}
+              </span>
+            )}
           </div>
           <p className="text-xs text-gray-500 mt-0.5 truncate">
             CVSS: {cvss} {finding.cvssScoreOverride !== null && finding.cvssScoreOverride !== undefined && (
@@ -1595,7 +1602,10 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
 
           {finding && (
             <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700">
-              <p className="text-sm text-white font-medium">{finding.vulnerability.name}</p>
+              <p className="text-sm text-white font-medium">
+                {finding.vulnerability.name}
+                {finding.classification && <span className="ml-2 px-2 py-0.5 rounded-full text-xs border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">{finding.classification}</span>}
+              </p>
               <p className="text-xs text-gray-500">{finding.vulnerability.description.substring(0, 120)}...</p>
             </div>
           )}

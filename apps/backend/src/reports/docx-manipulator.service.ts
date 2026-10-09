@@ -76,6 +76,8 @@ export interface FindingData {
   authenticationType: string | null;
   vulnerabilityDependency: string | null;
   reportStatus: string;
+  /** e.g. 'VA Finding' for scan imports; null for library findings. */
+  classification?: string | null;
   pocSteps: PocStepData[];
 }
 

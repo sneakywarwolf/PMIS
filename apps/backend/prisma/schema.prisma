@@ -474,6 +474,8 @@ model ProjectVulnerability {
   // Identifier from the source tool (Nessus plugin ID); with projectId it prevents duplicate imports.
   source      String   @default("nessus")
   sourceKey   String   @map("source_key")
+  // How the finding is classified in PMIS; every scan-imported record is a VA Finding.
+  classification String @default("VA Finding")
 
   name        String
   severity    String

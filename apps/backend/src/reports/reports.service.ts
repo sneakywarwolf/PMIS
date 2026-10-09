@@ -716,6 +716,7 @@ export class ReportsService {
           authenticationType: f.authenticationType,
           vulnerabilityDependency: f.vulnerabilityDependency,
           reportStatus: f.reportStatus,
+          classification: f.classification,
           pocSteps,
         });
       }
