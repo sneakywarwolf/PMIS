@@ -7,6 +7,11 @@ import { Public } from './decorators/roles.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
+// Secure cookies need HTTPS; set COOKIE_SECURE=false to run the production build over plain HTTP.
+const COOKIE_SECURE = process.env.COOKIE_SECURE
+  ? process.env.COOKIE_SECURE === 'true'
+  : process.env.NODE_ENV === 'production';
+
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
@@ -38,14 +43,14 @@ export class AuthController {
 
     response.cookie('access_token', result.access_token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: COOKIE_SECURE,
       sameSite: 'strict',
       maxAge: accessMaxAge,
     });
 
     response.cookie('refresh_token', result.refresh_token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: COOKIE_SECURE,
       sameSite: 'strict',
       maxAge: refreshMaxAge,
     });
@@ -73,14 +78,14 @@ export class AuthController {
 
     response.cookie('access_token', result.access_token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: COOKIE_SECURE,
       sameSite: 'strict',
       maxAge: result.access_expiry_seconds * 1000,
     });
 
     response.cookie('refresh_token', result.refresh_token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: COOKIE_SECURE,
       sameSite: 'strict',
       maxAge: result.refresh_expiry_seconds * 1000,
     });

@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Prisma engines need openssl on alpine
+# Prisma's query engine needs OpenSSL on Alpine
 RUN apk add --no-cache openssl
 
 # Copy package files
@@ -21,34 +21,40 @@ COPY . .
 RUN npx prisma generate
 
 # Build application
-RUN npm run build
+RUN npm run build && find dist -name "*.map" -delete
 
 # Stage 2: Production
 FROM node:20-alpine AS production
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-# Cap V8 heap below the container limit so Node GCs instead of being OOM-killed
-ENV NODE_OPTIONS=--max-old-space-size=1024
-
+# Prisma's query engine needs OpenSSL on Alpine
 RUN apk add --no-cache openssl
 
-COPY package*.json ./
-COPY prisma ./prisma/
+# Set Node.js to production
+ENV NODE_ENV=production
 
-# ponytail: full node_modules (incl. prisma CLI + generated client) so `migrate deploy`
-# runs at start; slimmer image possible by running migrations as a separate job.
+# ponytail: reuse the builder's node_modules (includes prisma CLI + ts-node for migrate/seed at start);
+# image is larger than a prod-only install. Slim it later if size matters.
+COPY package*.json tsconfig.json ./
 COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/dist ./dist
-COPY CHANGELOG.md ./
 
-RUN addgroup -g 1001 -S nodejs &&     adduser -S nodejs -u 1001 &&     chown -R nodejs:nodejs /app
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Change ownership
+RUN chown -R nodejs:nodejs /app
 USER nodejs
 
+# Expose port
 EXPOSE 4000
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3     CMD node -e "require('http').get('http://localhost:4000/api/docs', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:4000/api/docs', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
 
-# Apply pending migrations (Prisma takes an advisory lock, safe with replicas), then start
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main"]
+# Apply migrations, seed (idempotent; creates the admin user on first run), then start
+CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/src/main"]

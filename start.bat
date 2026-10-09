@@ -15,7 +15,7 @@ if errorlevel 1 (
 
 REM Start infrastructure
 echo [1/3] Starting Docker infrastructure...
-docker-compose up -d
+docker compose -f docker-compose.dev.yml up -d
 
 echo [2/3] Waiting for services to start...
 timeout /t 5 /nobreak >nul
