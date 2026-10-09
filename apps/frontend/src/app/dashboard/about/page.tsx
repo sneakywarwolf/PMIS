@@ -16,7 +16,6 @@ interface Release {
 
 interface AboutStatus {
   appName: string;
-  author: string;
   version: string;
   changelog: string;
   latest: (Release & { available: boolean }) | null;
@@ -94,7 +93,18 @@ export default function AboutPage() {
   const canSchedule = isAdmin && status.updaterConfigured && !!latest?.available && update.status !== 'SCHEDULED' && update.status !== 'IN_PROGRESS';
   const rows: [string, React.ReactNode][] = [
     ['Application', status.appName],
-    ['Author / Company', status.author],
+    [
+      'Visionary Thinker',
+      <span key="a">
+        <a href="https://www.linkedin.com/in/nirmalchak/" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50">
+          Nirmal Chakraborty
+        </a>
+        <span className="mx-2 text-gray-600">|</span>
+        <a href="https://sneakywarwolf.github.io/" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50">
+          Sneakywarwolf
+        </a>
+      </span>,
+    ],
     ['Current version', <span key="v" className="font-mono">v{status.version}</span>],
     ['Update status', STATUS_LABEL[update.status]],
     [

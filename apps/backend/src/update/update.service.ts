@@ -148,7 +148,6 @@ export class UpdateService implements OnModuleInit {
     const latest = releases.find((r, _, all) => all.every((o) => !isNewer(o.version, r.version)));
     return {
       appName: process.env.APP_NAME || 'PMIS — VAPT Command Center',
-      author: process.env.APP_AUTHOR || 'Sneakywarwolf',
       version: this.version,
       changelog,
       latest: latest ? { ...latest, available: isNewer(latest.version, this.version) } : null,
