@@ -19,6 +19,7 @@ const STATE_ID = 'update-state';
 const LOCK_KEY = 'update:lock';
 const REMINDER_MS = 10 * 60 * 1000;
 const CHECK_TTL_MS = 10 * 60 * 1000;
+const FORCE_COOLDOWN_MS = 30 * 1000;
 const DESTRUCTIVE = /\b(reset|seed|drop|truncate|wipe)\b|--force-reset|db\s+push/i;
 
 export type UpdateStatus = 'IDLE' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'FAILED';
@@ -82,7 +83,12 @@ export class UpdateService implements OnModuleInit {
       await this.setState({ ...s, status: 'COMPLETED', finishedAt: new Date().toISOString() });
     } else if (Date.now() - new Date(s.startedAt!).getTime() > this.timeoutMs) {
       await this.setState({ ...s, status: 'FAILED', finishedAt: new Date().toISOString(), error: 'Update did not complete' });
+    } else {
+      return;
     }
+    // The process that held the lock was restarted by the update and can no longer release it;
+    // without this a newly scheduled update would wait up to timeout+60s for the lock to expire.
+    await this.redis.del(LOCK_KEY);
   }
 
   async getState(): Promise<UpdateState> {
@@ -100,7 +106,10 @@ export class UpdateService implements OnModuleInit {
   }
 
   private async fetchReleases(force: boolean): Promise<{ releases: Release[]; changelog: string; error?: string }> {
-    if (!force && this.cache && Date.now() - this.cache.at < CHECK_TTL_MS) return this.cache;
+    // A forced check is still rate-limited: any user can press "Check for updates", and GitHub only
+    // allows ~60 unauthenticated calls/hour per server, so repeated presses reuse the fresh result.
+    const maxAge = force ? FORCE_COOLDOWN_MS : CHECK_TTL_MS;
+    if (this.cache && Date.now() - this.cache.at < maxAge) return this.cache;
     const repo = process.env.UPDATE_REPO || 'sneakywarwolf/PMIS';
     // UPDATE_API_URL: GitHub-compatible releases endpoint override (mirrors / air-gapped sites / tests).
     const url = process.env.UPDATE_API_URL || `https://api.github.com/repos/${repo}/releases?per_page=10`;
