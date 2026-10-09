@@ -122,6 +122,7 @@ export function NessusImportDialog({
 
   const needsApproval = (items ?? []).filter((i) => selected.has(i.key) && i.status === 'needs-approval').length;
   const infoSelected = (items ?? []).filter((i) => selected.has(i.key) && !isVuln(i)).length;
+  const vulnSelected = selected.size - infoSelected;
 
   const runImport = async () => {
     setImporting(true);
@@ -230,9 +231,26 @@ export function NessusImportDialog({
                 {SEVERITIES.map((s) => <option key={s}>{s}</option>)}
               </select>
               <button onClick={() => setSelected(new Set())} className="text-sm text-gray-400 hover:text-white">Clear selection</button>
-              <span className="ml-auto text-xs text-gray-500">
-                {totalVulns} vulnerabilit{totalVulns === 1 ? 'y' : 'ies'} · {items.length - totalVulns} informational · {selected.size} selected
-              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-6 py-3 border-b border-gray-800" aria-live="polite">
+              {[
+                { label: 'Total found', value: items.length, cls: 'text-white', sub: 'in the file' },
+                { label: 'Vulnerabilities', value: totalVulns, cls: 'text-red-400', sub: 'with a CVSS score' },
+                { label: 'Informational', value: items.length - totalVulns, cls: 'text-gray-300', sub: 'no CVSS score' },
+                {
+                  label: 'Selected',
+                  value: selected.size,
+                  cls: 'text-emerald-400',
+                  sub: `${vulnSelected} vulnerabilit${vulnSelected === 1 ? 'y' : 'ies'} · ${infoSelected} informational`,
+                },
+              ].map((s) => (
+                <div key={s.label} className="rounded-lg border border-gray-800 bg-gray-800/30 px-3 py-2">
+                  <p className="text-xs uppercase tracking-wide text-gray-500">{s.label}</p>
+                  <p className={`text-xl font-semibold tabular-nums ${s.cls}`}>{s.value}</p>
+                  <p className="text-xs text-gray-500">{s.sub}</p>
+                </div>
+              ))}
             </div>
 
             <div className="overflow-auto flex-1">
