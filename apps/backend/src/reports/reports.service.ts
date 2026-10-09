@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
+import { VULN_INCLUDE, withVulnerability } from '../common/finding-vulnerability.util';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -715,6 +716,7 @@ export class ReportsService {
           authenticationType: f.authenticationType,
           vulnerabilityDependency: f.vulnerabilityDependency,
           reportStatus: f.reportStatus,
+          classification: f.classification,
           pocSteps,
         });
       }
@@ -923,7 +925,7 @@ export class ReportsService {
         tl: { include: { manager: true } },
         findings: {
           include: {
-            vulnerability: true,
+            ...VULN_INCLUDE,
             pocSteps: { orderBy: { stepNo: 'asc' } },
           },
         },
@@ -938,7 +940,8 @@ export class ReportsService {
       throw new NotFoundException('Project not found');
     }
 
-    return project;
+    // Global-library and project-scoped (e.g. Nessus) findings both reach the report as `f.vulnerability`.
+    return { ...project, findings: project.findings.map(withVulnerability) };
   }
 
   private buildContacts(project: any) {

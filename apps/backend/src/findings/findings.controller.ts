@@ -34,6 +34,45 @@ export class FindingsController {
     return { path: objectName };
   }
 
+  @Post('nessus/preview')
+  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Parse a Nessus .nessus/.csv export and list its findings (no data is written)' })
+  async previewNessus(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('projectId') projectId: string,
+    @CurrentUser() user: User,
+  ) {
+    if (!projectId) throw new BadRequestException('projectId is required');
+    return this.findingsService.previewNessus(projectId, file, user);
+  }
+
+  @Post('nessus/import')
+  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Import only the selected findings (by Nessus plugin ID) from a Nessus export' })
+  async importNessus(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('projectId') projectId: string,
+    @Body('selected') selectedRaw: string,
+    @CurrentUser() user: User,
+    @Req() request: any,
+  ) {
+    if (!projectId) throw new BadRequestException('projectId is required');
+    let selected: unknown;
+    try {
+      selected = JSON.parse(selectedRaw);
+    } catch {
+      selected = null;
+    }
+    if (!Array.isArray(selected) || !selected.every((k) => typeof k === 'string')) {
+      throw new BadRequestException('selected must be a JSON array of plugin IDs');
+    }
+    const ipAddress = request.ip || 'unknown';
+    const userAgent = request.headers['user-agent'] || 'unknown';
+    return this.findingsService.importNessus(projectId, file, selected as string[], user, ipAddress, userAgent);
+  }
+
   @Get('project/:projectId')
   @ApiOperation({ summary: 'Get findings for a project' })
   async findByProject(

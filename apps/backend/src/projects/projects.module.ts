@@ -1,3 +1,4 @@
+import { NotificationsModule } from '../notifications/notifications.module';
 import { Module } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { ProjectsController } from './projects.controller';
@@ -6,7 +7,7 @@ import { AuditModule } from '../audit/audit.module';
 import { ProjectPurgeModule } from '../common/project-purge.module';
 
 @Module({
-  imports: [PrismaModule, AuditModule, ProjectPurgeModule],
+  imports: [PrismaModule, AuditModule, ProjectPurgeModule, NotificationsModule],
   controllers: [ProjectsController],
   providers: [ProjectsService],
   exports: [ProjectsService],
