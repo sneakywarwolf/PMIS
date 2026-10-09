@@ -30,6 +30,7 @@ import { triggerDownload } from '@/lib/download';
 import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
 import { PasswordGeneratorButton } from '@/components/password-generator-button';
+import { NessusImportDialog } from '@/components/nessus-import-dialog';
 import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
 import { formatReportDate } from '@/lib/report-date';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
@@ -230,6 +231,14 @@ export default function ProjectDetailPage() {
     } finally {
       setUploadingNmap(false);
     }
+  };
+
+  const nessusInputRef = useRef<HTMLInputElement>(null);
+  const [nessusFile, setNessusFile] = useState<File | null>(null);
+  const handleNessusFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) setNessusFile(file);
   };
 
   const handleGenerateReport = async () => {
@@ -573,6 +582,29 @@ export default function ProjectDetailPage() {
                   {uploadingNmap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                   Add Ports
                 </button>
+                <input
+                  ref={nessusInputRef}
+                  type="file"
+                  accept=".nessus,.csv"
+                  className="hidden"
+                  onChange={handleNessusFileSelected}
+                />
+                <button
+                  onClick={() => nessusInputRef.current?.click()}
+                  title="Add VA findings here"
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm"
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  Nessus
+                </button>
+                {nessusFile && (
+                  <NessusImportDialog
+                    projectId={project.id}
+                    file={nessusFile}
+                    onClose={() => setNessusFile(null)}
+                    onImported={fetchProject}
+                  />
+                )}
               </>
             )}
             <button
