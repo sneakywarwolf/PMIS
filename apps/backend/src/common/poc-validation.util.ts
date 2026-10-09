@@ -41,3 +41,15 @@ export function getPocReadiness(pocSteps: PocStepLike[]): PocReadiness {
 export function isFindingReportReady(pocSteps: PocStepLike[]): boolean {
   return getPocReadiness(pocSteps) === 'ready';
 }
+
+/**
+ * VA findings (Nessus imports, which are project-scoped) in Network projects don't need Steps/PoC to
+ * be report-ready. PT findings and every other project type keep the full requirement.
+ */
+export function findingPocReadiness(
+  finding: { projectScoped?: boolean; pocSteps: PocStepLike[] },
+  projectSubType: string,
+): PocReadiness {
+  if (projectSubType === 'NETWORK' && finding.projectScoped) return 'ready';
+  return getPocReadiness(finding.pocSteps);
+}

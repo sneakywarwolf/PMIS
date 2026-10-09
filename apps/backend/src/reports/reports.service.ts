@@ -12,7 +12,7 @@ import { SettingsService } from '../settings/settings.service';
 import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, ReportGenerationStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
-import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
+import { findingPocReadiness } from '../common/poc-validation.util';
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
@@ -500,7 +500,7 @@ export class ReportsService {
 
     for (const finding of project.findings) {
       const vulnName = finding.vulnerability?.name || finding.id;
-      const readiness = getPocReadiness(finding.pocSteps);
+      const readiness = findingPocReadiness(finding, project.subType);
       if (readiness === 'both_missing') {
         missing.push({ field: 'pocStepsAndScreenshot', label: 'Steps & PoC Missing', source: `Finding: ${vulnName}` });
       } else if (readiness === 'steps_missing') {
@@ -509,7 +509,7 @@ export class ReportsService {
         missing.push({ field: 'pocScreenshot', label: 'PoC Missing', source: `Finding: ${vulnName}` });
       }
     }
-    const pocGateBlocked = project.findings.some((f) => getPocReadiness(f.pocSteps) !== 'ready');
+    const pocGateBlocked = project.findings.some((f) => findingPocReadiness(f, project.subType) !== 'ready');
 
     const nextVersion = await this.getNextReportVersion(projectId);
     const reportDate = await this.getFormattedReportDateParam();
@@ -544,7 +544,7 @@ export class ReportsService {
   ) {
     const project = await this.loadProjectForReport(projectId, user);
 
-    const pocGateBlocked = project.findings.some((f) => !isFindingReportReady(f.pocSteps));
+    const pocGateBlocked = project.findings.some((f) => findingPocReadiness(f, project.subType) !== 'ready');
     if (pocGateBlocked) {
       throw new BadRequestException('Report Generation not allowed until Steps and PoC screenshots/attachments are added.');
     }

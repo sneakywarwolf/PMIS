@@ -6,7 +6,7 @@ import { ProjectPurgeService } from '../common/project-purge.service';
 import { User, UserRole, ProjectStatus, NotificationType } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
-import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
+import { findingPocReadiness } from '../common/poc-validation.util';
 import { parseNmapScan, NmapPortRecord } from '../common/nmap-parser.util';
 
 /**
@@ -126,7 +126,7 @@ export class ProjectsService {
       findings: result.findings
         .map(withVulnerability)
         .sort(bySeverityScore)
-        .map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps), pocReadiness: getPocReadiness(f.pocSteps) })),
+        .map((f) => { const pocReadiness = findingPocReadiness(f, result.subType); return { ...f, pocComplete: pocReadiness === 'ready', pocReadiness }; }),
     };
   }
 

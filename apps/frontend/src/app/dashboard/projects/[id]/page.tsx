@@ -86,6 +86,8 @@ interface Finding {
   vulnerability: Vulnerability;
   // 'VA Finding' for scan imports (Nessus); null for findings from the Vulnerability DB.
   classification?: string | null;
+  // 'VA' = Nessus import (project-scoped), 'PT' = added from the Vulnerability DB.
+  findingType?: 'VA' | 'PT';
   testerNotes: string;
   evidencePaths: string[];
   status: string;
@@ -155,6 +157,7 @@ export default function ProjectDetailPage() {
   const [generatingReport, setGeneratingReport] = useState(false);
   const [reportResult, setReportResult] = useState<any>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [findingFilter, setFindingFilter] = useState<'ALL' | 'VA' | 'PT'>('ALL');
 
   const fetchProject = useCallback(async () => {
     try {
@@ -643,6 +646,30 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
+        {project.subType === 'NETWORK' && (
+          <div className="flex items-center gap-2" role="tablist" aria-label="Filter findings">
+            {(['ALL', 'VA', 'PT'] as const).map((key) => {
+              const count = key === 'ALL' ? project.findings.length : project.findings.filter((f) => f.findingType === key).length;
+              const label = key === 'ALL' ? 'All' : key === 'VA' ? 'VA Findings' : 'PT Findings';
+              return (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={findingFilter === key}
+                  onClick={() => setFindingFilter(key)}
+                  className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
+                    findingFilter === key
+                      ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30'
+                      : 'bg-gray-800/50 text-gray-400 border-gray-700 hover:text-white'
+                  }`}
+                >
+                  {label} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {project.findings.length === 0 ? (
           <div className="text-center py-12 glass-card rounded-xl">
             <ShieldAlert className="w-12 h-12 text-gray-600 mx-auto mb-3" />
@@ -658,7 +685,10 @@ export default function ProjectDetailPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {project.findings.map((finding, index) => (
+            {(project.subType === 'NETWORK' && findingFilter !== 'ALL'
+              ? project.findings.filter((f) => f.findingType === findingFilter)
+              : project.findings
+            ).map((finding, index) => (
               <FindingCard
                 key={finding.id}
                 finding={finding}

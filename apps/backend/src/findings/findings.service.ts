@@ -3,7 +3,7 @@ import { VULN_INCLUDE, withVulnerability, bySeverityScore } from '../common/find
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { User, UserRole, FindingStatus, ProjectStatus } from '@prisma/client';
-import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
+import { findingPocReadiness } from '../common/poc-validation.util';
 import { parseNessusFile } from '../common/nessus-parser.util';
 
 /** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) */
@@ -151,7 +151,7 @@ export class FindingsService {
   }
 
   async findByProject(projectId: string, user: User) {
-    await this.checkProjectAccess(projectId, user);
+    const project = await this.checkProjectAccess(projectId, user);
 
     const findings = await this.prisma.finding.findMany({
       where: { projectId },
@@ -163,7 +163,7 @@ export class FindingsService {
       },
     });
 
-    return findings.map(withVulnerability).sort(bySeverityScore).map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps), pocReadiness: getPocReadiness(f.pocSteps) }));
+    return findings.map(withVulnerability).sort(bySeverityScore).map((f) => { const pocReadiness = findingPocReadiness(f, project.subType); return { ...f, pocComplete: pocReadiness === 'ready', pocReadiness }; });
   }
 
   async findOne(id: string, user: User) {
@@ -183,7 +183,9 @@ export class FindingsService {
     }
 
     await this.checkProjectAccess(finding.projectId, user);
-    return { ...withVulnerability(finding), pocComplete: isFindingReportReady(finding.pocSteps), pocReadiness: getPocReadiness(finding.pocSteps) };
+    const shaped = withVulnerability(finding);
+    const pocReadiness = findingPocReadiness(shaped, finding.project.subType);
+    return { ...shaped, pocComplete: pocReadiness === 'ready', pocReadiness };
   }
 
   async create(data: {
