@@ -22,6 +22,8 @@ function setup(opts: { role: string; subType?: string; testerId?: string; findin
       findMany: jest.fn().mockResolvedValue([{ sourceKey: '300' }]),
       create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'pv' + ++n, ...data })),
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      // ownership lookup used by create(): only records of project p1 exist
+      findFirst: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.projectId === 'p1' ? { id: where.id } : null)),
     },
     finding: {
       // existing finding that came from the GLOBAL library and shares a name with plugin 500
@@ -74,6 +76,16 @@ describe('FindingsService Nessus import (project-scoped)', () => {
     expect(r.failed).toHaveLength(1);
     expect(r.created).toHaveLength(0);
     expect(prisma.projectVulnerability.deleteMany).toHaveBeenCalledWith({ where: { id: 'pv1' } });
+  });
+
+  it('create() refuses a projectVulnId from another project, or both/neither vulnerability source', async () => {
+    const { svc, prisma, user } = setup({ role: 'ADMIN' });
+    // project p1 is accessible (mock), but the record id is looked up for project 'p2' -> not owned
+    prisma.project.findUnique.mockResolvedValue({ id: 'p2', subType: 'NETWORK', testerId: 'u1', tlId: null, status: 'IN_PROGRESS', tester: { assignedTlId: null } });
+    await expect(svc.create({ projectId: 'p2', projectVulnId: 'foreign', testerNotes: 'x' }, user, 'ip', 'ua')).rejects.toThrow(ForbiddenException);
+    await expect(svc.create({ projectId: 'p1', vulnId: 'v', projectVulnId: 'pv', testerNotes: 'x' }, user, 'ip', 'ua')).rejects.toThrow(BadRequestException);
+    await expect(svc.create({ projectId: 'p1', testerNotes: 'x' }, user, 'ip', 'ua')).rejects.toThrow(BadRequestException);
+    expect(prisma.finding.create).not.toHaveBeenCalled();
   });
 
   it('reports unknown plugin IDs instead of importing them', async () => {

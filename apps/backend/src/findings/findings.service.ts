@@ -206,6 +206,19 @@ export class FindingsService {
       throw new ForbiddenException('Cannot add findings to this project');
     }
 
+    // A finding has exactly one vulnerability source, and a project-scoped record must belong to this project
+    // (the request body is client-controlled, so never trust a projectVulnId from it).
+    if (!data.vulnId === !data.projectVulnId) {
+      throw new BadRequestException('Provide exactly one of vulnId or projectVulnId');
+    }
+    if (data.projectVulnId) {
+      const owned = await this.prisma.projectVulnerability.findFirst({
+        where: { id: data.projectVulnId, projectId: data.projectId },
+        select: { id: true },
+      });
+      if (!owned) throw new ForbiddenException('Invalid project vulnerability');
+    }
+
     const finding = await this.prisma.finding.create({
       data: {
         projectId: data.projectId,
@@ -313,7 +326,7 @@ export class FindingsService {
 
     await this.prisma.finding.delete({ where: { id } });
     // A project-scoped vulnerability record only exists for its finding; drop it so the import can be redone.
-    if (finding.projectVulnId) await this.prisma.projectVulnerability.deleteMany({ where: { id: finding.projectVulnId } });
+    if (finding.projectVulnId) await this.prisma.projectVulnerability.deleteMany({ where: { id: finding.projectVulnId, projectId: finding.projectId } });
 
     await this.auditService.log({
       actorId: user.id,
