@@ -98,6 +98,11 @@ enum TemplateCategory {
   ASV
 }
 
+enum ReportFormat {
+  WORD
+  EXCEL
+}
+
 enum TemplateSubType {
   WEB
   API
@@ -272,6 +277,8 @@ model ReportTemplate {
   category      TemplateCategory @default(VAPT) @map("category")
   subType       TemplateSubType  @default(WEB) @map("sub_type")
   projectType   String    @map("project_type")
+  /// Word (.docx) or Excel (.xlsx) template; activation only replaces a template of the same format.
+  reportFormat  ReportFormat @default(WORD) @map("report_format")
 
   effectiveFrom DateTime  @map("effective_from")
   effectiveTo   DateTime? @map("effective_to")
@@ -290,6 +297,7 @@ model ReportTemplate {
   @@index([category])
   @@index([subType])
   @@index([projectType])
+  @@index([reportFormat])
   @@index([isActive])
   @@index([effectiveFrom])
   @@map("report_templates")

@@ -3,7 +3,7 @@ import { VULN_INCLUDE, withVulnerability, bySeverityScore } from '../common/find
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ProjectPurgeService } from '../common/project-purge.service';
-import { User, UserRole, ProjectStatus, NotificationType } from '@prisma/client';
+import { User, UserRole, ProjectStatus, NotificationType, ReportFormat } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
 import { findingPocReadiness } from '../common/poc-validation.util';
@@ -138,6 +138,7 @@ export class ProjectsService {
           isActive: true,
           category: dto.category,
           subType: dto.subType,
+          reportFormat: ReportFormat.WORD,
         },
         orderBy: { effectiveFrom: 'desc' },
       });

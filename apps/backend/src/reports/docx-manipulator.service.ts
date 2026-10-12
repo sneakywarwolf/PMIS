@@ -529,7 +529,7 @@ export class DocxManipulatorService {
    * verbatim from the old highlight-based replacer so resolution behavior
    * is unchanged; only the placeholder syntax it's applied to is new.
    */
-  private buildResolver(rules: FieldRule[]): (normalizedName: string) => string | undefined {
+  buildResolver(rules: FieldRule[]): (normalizedName: string) => string | undefined {
     return (normalizedName: string) => {
       const rule = rules.find((r) =>
         r.requireAll
@@ -1564,6 +1564,11 @@ export class DocxManipulatorService {
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '')
       .substring(0, 100);
+  }
+
+  /** Same grouping used for Word placeholders; lets other template formats categorise names identically. */
+  categorizeFieldName(text: string): TemplateField['category'] {
+    return this.categorizeField(text);
   }
 
   private categorizeField(text: string): TemplateField['category'] {

@@ -5,7 +5,7 @@ import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { User, UserRole, TemplateCategory, TemplateSubType } from '@prisma/client';
+import { User, UserRole, TemplateCategory, TemplateSubType, ReportFormat } from '@prisma/client';
 
 @ApiTags('Reports & Templates')
 @Controller('reports')
@@ -24,6 +24,7 @@ export class ReportsController {
       name: string;
       category: TemplateCategory;
       subType: TemplateSubType;
+      reportFormat?: ReportFormat;
       effectiveFrom: string;
       effectiveTo?: string;
     },
@@ -42,6 +43,7 @@ export class ReportsController {
       adminId,
       ipAddress,
       userAgent,
+      body.reportFormat ?? ReportFormat.WORD,
     );
   }
 
@@ -50,8 +52,9 @@ export class ReportsController {
   async getTemplates(
     @Query('category') category?: TemplateCategory,
     @Query('subType') subType?: TemplateSubType,
+    @Query('reportFormat') reportFormat?: ReportFormat,
   ) {
-    return this.reportsService.getTemplates(category, subType);
+    return this.reportsService.getTemplates(category, subType, false, reportFormat);
   }
 
   @Get('templates/all')
@@ -60,8 +63,9 @@ export class ReportsController {
   async getAllTemplates(
     @Query('category') category?: TemplateCategory,
     @Query('subType') subType?: TemplateSubType,
+    @Query('reportFormat') reportFormat?: ReportFormat,
   ) {
-    return this.reportsService.getTemplates(category, subType, true);
+    return this.reportsService.getTemplates(category, subType, true, reportFormat);
   }
 
   @Post('templates/:id/fields')
@@ -141,7 +145,7 @@ export class ReportsController {
   @Post('generate')
   @ApiOperation({ summary: 'Generate report — all data pulled automatically from project, profiles and findings' })
   async generateReport(
-    @Body() body: { projectId: string },
+    @Body() body: { projectId: string; reportFormat?: ReportFormat },
     @CurrentUser() user: User,
     @Req() request: any,
   ) {
@@ -155,6 +159,7 @@ export class ReportsController {
       user,
       ipAddress,
       userAgent,
+      body.reportFormat ?? ReportFormat.WORD,
     );
   }
 

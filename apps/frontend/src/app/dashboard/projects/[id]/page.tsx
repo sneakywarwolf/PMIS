@@ -160,6 +160,7 @@ export default function ProjectDetailPage() {
   const [generatingReport, setGeneratingReport] = useState(false);
   const [reportResult, setReportResult] = useState<any>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showFormatMenu, setShowFormatMenu] = useState(false);
   const [findingFilter, setFindingFilter] = useState<'ALL' | 'VA' | 'PT'>('ALL');
 
   const fetchProject = useCallback(async () => {
@@ -260,13 +261,14 @@ export default function ProjectDetailPage() {
     setNessusFile(file);
   };
 
-  const handleGenerateReport = async () => {
+  const handleGenerateReport = async (reportFormat: 'WORD' | 'EXCEL' = 'WORD') => {
     if (!project) return;
+    setShowFormatMenu(false);
     setGeneratingReport(true);
     try {
       // Generation runs in a background queue so it doesn't block other
       // users generating reports at the same time — poll until it's done.
-      const queued = await api.post('/reports/generate', { projectId: project.id });
+      const queued = await api.post('/reports/generate', reportFormat === 'EXCEL' ? { projectId: project.id, reportFormat } : { projectId: project.id });
       const reportId = queued.data.reportId;
 
       let status = queued.data.status;
@@ -637,14 +639,29 @@ export default function ProjectDetailPage() {
               <AlertTriangle className="w-4 h-4" />
               Issue Log
             </button>
-            <button
-              onClick={handleGenerateReport}
-              disabled={generatingReport}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
-            >
-              {generatingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-              {generatingReport ? 'Generating...' : 'Report'}
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => (project.subType === 'NETWORK' ? setShowFormatMenu((v) => !v) : handleGenerateReport())}
+                disabled={generatingReport}
+                aria-haspopup={project.subType === 'NETWORK' ? 'menu' : undefined}
+                aria-expanded={project.subType === 'NETWORK' ? showFormatMenu : undefined}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+              >
+                {generatingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                {generatingReport ? 'Generating...' : 'Report'}
+                {project.subType === 'NETWORK' && !generatingReport && <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+              {project.subType === 'NETWORK' && showFormatMenu && (
+                <div role="menu" className="absolute right-0 mt-1 z-20 w-56 rounded-lg border border-gray-700 bg-gray-900 shadow-xl overflow-hidden">
+                  <button role="menuitem" onClick={() => handleGenerateReport('WORD')} className="w-full text-left px-4 py-2.5 text-sm text-gray-200 hover:bg-white/5">
+                    Word Report (.docx)
+                  </button>
+                  <button role="menuitem" onClick={() => handleGenerateReport('EXCEL')} className="w-full text-left px-4 py-2.5 text-sm text-gray-200 hover:bg-white/5 border-t border-gray-800">
+                    Excel Report (.xlsx)
+                  </button>
+                </div>
+              )}
+            </div>
             <PasswordGeneratorButton />
           </div>
         </div>
@@ -805,7 +822,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
   useEffect(() => {
     const fetchTemplates = async () => {
       try {
-        const res = await api.get(`/reports/templates?category=${form.complianceType}`);
+        const res = await api.get(`/reports/templates?category=${form.complianceType}&reportFormat=WORD`);
         setTemplates(res.data);
       } catch (error) {
         console.error('Failed to fetch templates:', error);

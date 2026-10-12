@@ -74,7 +74,7 @@ export default function NewProjectPage() {
 
   useEffect(() => {
     let cancelled = false;
-    api.get(`/reports/templates?category=${form.category}&subType=${form.subType}`)
+    api.get(`/reports/templates?category=${form.category}&subType=${form.subType}&reportFormat=WORD`)
       .then(async (res) => {
         const template = res.data[0];
         if (!template) return;

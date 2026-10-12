@@ -4,6 +4,7 @@ import { ReportsService } from './reports.service';
 import { ReportsController } from './reports.controller';
 import { StorageService } from './storage.service';
 import { DocxManipulatorService } from './docx-manipulator.service';
+import { XlsxTemplateService } from './xlsx-template.service';
 import { ReportGenerationProcessor } from './report-generation.processor';
 import { REPORT_GENERATION_QUEUE } from './report-generation.types';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -18,7 +19,7 @@ import { SettingsModule } from '../settings/settings.module';
     BullModule.registerQueue({ name: REPORT_GENERATION_QUEUE }),
   ],
   controllers: [ReportsController],
-  providers: [ReportsService, StorageService, DocxManipulatorService, ReportGenerationProcessor],
+  providers: [ReportsService, StorageService, DocxManipulatorService, XlsxTemplateService, ReportGenerationProcessor],
   exports: [ReportsService, StorageService, DocxManipulatorService],
 })
 export class ReportsModule {}
