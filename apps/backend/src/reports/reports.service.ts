@@ -1352,7 +1352,8 @@ export class ReportsService {
       .replace(/\s+/g, '-') // no spaces, ever — applies to both static text and resolved values
       .replace(/[<>:"/\\|?*]+/g, '-') // strip filesystem-invalid characters
       .replace(/-{2,}/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replace(/_{2,}/g, '_') // an empty value (e.g. no {Quarter}) must not leave "__" between its neighbours
+      .replace(/^[-_]+|[-_]+$/g, '');
 
     return `${sanitizedBase || 'Report'}${ext}`;
   }
