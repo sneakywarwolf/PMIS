@@ -8,7 +8,8 @@ import { findingPocReadiness } from '../common/poc-validation.util';
 import { parseNessusFile } from '../common/nessus-parser.util';
 
 /** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) */
-export type NessusImportStatus = 'new' | 'duplicate';
+// 'refresh' = already imported, but its plugin output was not captured then (older import): the same file can add it.
+export type NessusImportStatus = 'new' | 'duplicate' | 'refresh';
 
 @Injectable()
 export class FindingsService {
@@ -66,18 +67,24 @@ export class FindingsService {
 
     // Duplicate = same Nessus plugin already imported here, or a finding with the same name already in this project.
     const [scoped, existing] = await Promise.all([
-      this.prisma.projectVulnerability.findMany({ where: { projectId, source: 'nessus' }, select: { sourceKey: true } }),
+      this.prisma.projectVulnerability.findMany({
+        where: { projectId, source: 'nessus' },
+        select: { sourceKey: true, findings: { select: { proofOfConcept: true } } },
+      }),
       this.prisma.finding.findMany({
         where: { projectId },
         select: { vulnerability: { select: { name: true } }, projectVulnerability: { select: { name: true } } },
       }),
     ]);
     const imported = new Set(scoped.map((v) => v.sourceKey));
+    const lacksOutput = new Set(scoped.filter((v) => (v.findings ?? []).some((f) => !f.proofOfConcept)).map((v) => v.sourceKey));
     const names = new Set(existing.map((f) => (f.vulnerability ?? f.projectVulnerability)!.name.trim().toLowerCase()));
 
     const items = parsed.map((item) => ({
       ...item,
-      status: (imported.has(item.key) || names.has(item.name.trim().toLowerCase()) ? 'duplicate' : 'new') as NessusImportStatus,
+      status: (imported.has(item.key)
+        ? (item.pluginOutputs.length > 0 && lacksOutput.has(item.key) ? 'refresh' : 'duplicate')
+        : names.has(item.name.trim().toLowerCase()) ? 'duplicate' : 'new') as NessusImportStatus,
     }));
     return { items, exposure: project.externalInternal };
   }
@@ -99,6 +106,34 @@ export class FindingsService {
     return text.length > FindingsService.NESSUS_POC_MAX ? text.slice(0, FindingsService.NESSUS_POC_MAX) + '\n[output truncated]' : text;
   }
 
+  /**
+   * Older imports kept no plugin output. For a finding already imported from the same plugin, add the
+   * output as its PoC and the single 'Observe the output.' step. Only findings with no PoC yet are touched,
+   * only those two things are written, and an existing step is never duplicated or changed.
+   */
+  private async addNessusOutput(projectId: string, sourceKey: string, poc: string, user: User, ipAddress: string, userAgent: string) {
+    const records = await this.prisma.projectVulnerability.findMany({
+      where: { projectId, source: 'nessus', sourceKey },
+      select: { findings: { where: { projectId }, select: { id: true, proofOfConcept: true, pocSteps: { select: { id: true } } } } },
+    });
+    for (const finding of records.flatMap((r) => r.findings)) {
+      if (finding.proofOfConcept) continue;
+      await this.prisma.finding.update({ where: { id: finding.id }, data: { proofOfConcept: poc } });
+      if (finding.pocSteps.length === 0) {
+        await this.prisma.pocStep.create({ data: { findingId: finding.id, stepNo: 1, description: FindingsService.NESSUS_POC_STEP } });
+      }
+      await this.auditService.log({
+        actorId: user.id,
+        action: 'PROJECT_UPDATED',
+        targetType: 'FINDING',
+        targetId: finding.id,
+        ipAddress,
+        userAgent,
+        details: { nessusOutputAdded: true },
+      });
+    }
+  }
+
   async importNessus(
     projectId: string,
     file: Express.Multer.File | undefined,
@@ -114,6 +149,7 @@ export class FindingsService {
       created: [] as { key: string; name: string; findingId: string }[],
       skipped: [] as { key: string; name: string; reason: string }[],
       failed: [] as { key: string; name: string; error: string }[],
+      refreshed: [] as { key: string; name: string }[],
     };
 
     for (const key of new Set(selected)) {
@@ -124,6 +160,15 @@ export class FindingsService {
       }
       if (item.status === 'duplicate') {
         result.skipped.push({ key, name: item.name, reason: 'Already in this project' });
+        continue;
+      }
+      if (item.status === 'refresh') {
+        try {
+          await this.addNessusOutput(projectId, item.key, FindingsService.nessusPocText(item.pluginOutputs)!, user, ipAddress, userAgent);
+          result.refreshed.push({ key, name: item.name });
+        } catch (e: any) {
+          result.failed.push({ key, name: item.name, error: e.message || 'Update failed' });
+        }
         continue;
       }
       let projectVulnId: string | undefined;
