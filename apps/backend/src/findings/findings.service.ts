@@ -83,7 +83,20 @@ export class FindingsService {
   }
 
   async previewNessus(projectId: string, file: Express.Multer.File | undefined, user: User) {
-    return this.nessusPlan(projectId, file, user);
+    const { items, exposure } = await this.nessusPlan(projectId, file, user);
+    // Plugin outputs can be large and are not shown in the preview.
+    return { items: items.map(({ pluginOutputs, ...rest }) => rest), exposure };
+  }
+
+  static readonly NESSUS_POC_STEP = 'Observe the output.';
+  private static readonly NESSUS_POC_MAX = 32000;
+
+  /** Plugin output as captured; with several hosts each block is headed by its host:port. Null when the scan has none. */
+  static nessusPocText(outputs: { at: string; text: string }[]): string | null {
+    if (!outputs.length) return null;
+    const text = outputs.length === 1 ? outputs[0].text : outputs.map((o) => `[${o.at}]\n${o.text}`).join('\n\n');
+    // ponytail: hard cap keeps one chatty plugin from bloating the DB and the report; marked, never silent.
+    return text.length > FindingsService.NESSUS_POC_MAX ? text.slice(0, FindingsService.NESSUS_POC_MAX) + '\n[output truncated]' : text;
   }
 
   async importNessus(
@@ -138,12 +151,15 @@ export class FindingsService {
           },
         });
         projectVulnId = record.id;
+        const poc = FindingsService.nessusPocText(item.pluginOutputs);
         const finding = await this.create(
-          { projectId, projectVulnId, testerNotes: 'Imported from Nessus.', affectedInstances: item.affected },
+          { projectId, projectVulnId, testerNotes: 'Imported from Nessus.', affectedInstances: item.affected, proofOfConcept: poc ?? undefined },
           user,
           ipAddress,
           userAgent,
         );
+        // Only when the scan has plugin output: one testing step pointing at it. No output, no step, nothing invented.
+        if (poc) await this.prisma.pocStep.create({ data: { findingId: finding.id, stepNo: 1, description: FindingsService.NESSUS_POC_STEP } });
         result.created.push({ key, name: item.name, findingId: finding.id });
       } catch (e: any) {
         // Don't leave an orphaned project record behind if the finding could not be created.

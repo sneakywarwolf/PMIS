@@ -717,6 +717,8 @@ export class ReportsService {
           vulnerabilityDependency: f.vulnerabilityDependency,
           reportStatus: f.reportStatus,
           classification: f.classification,
+          // Scan-imported (VA) findings only: PT findings never get scan output printed.
+          pocText: f.classification ? (f as any).proofOfConcept : null,
           pocSteps,
         });
       }

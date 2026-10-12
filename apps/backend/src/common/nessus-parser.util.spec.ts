@@ -55,6 +55,20 @@ describe('parseNessusFile', () => {
     expect(by['5']).toMatchObject({ cvssVector: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' });
   });
 
+  it('keeps <plugin_output> per host with its endpoint, skips empty/missing ones, and never invents any', () => {
+    const item = (host: string, port: string, body: string) =>
+      `<ReportHost name="${host}"><ReportItem port="${port}" protocol="tcp" severity="2" pluginID="9" pluginName="P">${body}</ReportItem></ReportHost>`;
+    const xml = `<?xml version="1.0"?><NessusClientData_v2><Report name="r">`
+      + item('10.0.0.1', '443', '<plugin_output>\n  line1\nline2 &amp; <b>x</b>\n</plugin_output>'.replace('<b>x</b>', 'x'))
+      + item('10.0.0.2', '443', '<plugin_output>   </plugin_output>')
+      + item('10.0.0.3', '80', '')
+      + item('10.0.0.4', '8080', '<plugin_output>second</plugin_output>')
+      + `</Report></NessusClientData_v2>`;
+    const [f] = parseNessusFile(file('o.nessus', xml));
+    expect(f.pluginOutputs).toEqual([{ at: '10.0.0.1:443/tcp', text: 'line1\nline2 & x' }, { at: '10.0.0.4:8080/tcp', text: 'second' }]);
+    expect(parseNessusFile(file('c.csv', CSV))[0].pluginOutputs).toEqual([]);
+  });
+
   it('parses .csv with quoted multi-line fields and groups by plugin', () => {
     const f = parseNessusFile(file('scan.csv', CSV));
     expect(f).toHaveLength(1);

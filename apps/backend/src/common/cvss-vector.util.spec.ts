@@ -35,6 +35,27 @@ describe('stripCvssPrefix / printed vectors', () => {
   });
 });
 
+describe('report PoC text for VA findings', () => {
+  const render = (finding: any) => {
+    const { DOMParser, XMLSerializer } = require('@xmldom/xmldom');
+    const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    const cell = () => `<w:tc><w:p><w:r><w:t>x</w:t></w:r></w:p></w:tc>`;
+    const doc = new DOMParser().parseFromString(`<w:tbl xmlns:w="${W}"><w:tr>${cell()}${cell()}</w:tr></w:tbl>`, 'text/xml');
+    const docx: any = new DocxManipulatorService();
+    const row = doc.getElementsByTagNameNS(W, 'tr')[0];
+    const cells = Array.from(row.getElementsByTagNameNS(W, 'tc'));
+    return { docx, cell: cells[1], text: () => new XMLSerializer().serializeToString(cells[1]) };
+  };
+
+  it('writes the text with line breaks into the snapshot cell', () => {
+    const { docx, cell, text } = render({});
+    docx.setCellMultilineText(cell, 'line1\nline2 & more');
+    expect(text()).toContain('line1');
+    expect(text()).toContain('<w:br/>');
+    expect(text()).toContain('line2 &amp; more');
+  });
+});
+
 describe('resolveCvssVector', () => {
   const base = { existingVector: null, exposure: 'External' };
 

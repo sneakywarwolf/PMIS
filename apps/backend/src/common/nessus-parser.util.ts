@@ -22,6 +22,8 @@ export interface NessusFinding {
   cveId: string | null;
   cweId: string | null;
   affected: string[];
+  /** <plugin_output> per host:port the plugin fired on (empty/missing outputs are not recorded). .nessus only. */
+  pluginOutputs: { at: string; text: string }[];
 }
 
 const SEVERITY_BY_LEVEL: NessusSeverity[] = ['Info', 'Low', 'Medium', 'High', 'Critical'];
@@ -71,7 +73,10 @@ function toScore(raw: string | null | undefined): number | null {
 function merge(map: Map<string, NessusFinding>, f: NessusFinding) {
   const existing = map.get(f.key);
   if (!existing) map.set(f.key, f);
-  else existing.affected = dedupe([...existing.affected, ...f.affected]);
+  else {
+    existing.affected = dedupe([...existing.affected, ...f.affected]);
+    existing.pluginOutputs.push(...f.pluginOutputs);
+  }
 }
 
 export function parseNessusXml(xml: string): NessusFinding[] {
@@ -103,6 +108,9 @@ export function parseNessusXml(xml: string): NessusFinding[] {
       const v3 = toScore(text(item, 'cvss3_base_score'));
       const v2 = toScore(text(item, 'cvss_base_score'));
       const vector3 = text(item, 'cvss3_vector');
+      const at = endpoint(hostName, item.getAttribute('port') || '', item.getAttribute('protocol') || '');
+      // Raw text as exported; only surrounding blank space is trimmed. Missing/empty stays empty, nothing is invented.
+      const output = text(item, 'plugin_output');
       const xrefs = all(item, 'xref');
       const cwe = dedupe([...all(item, 'cwe'), ...xrefs.filter((x) => /^CWE:/i.test(x)).map((x) => 'CWE-' + x.split(':')[1])]);
 
@@ -120,7 +128,8 @@ export function parseNessusXml(xml: string): NessusFinding[] {
         references: dedupe([...text(item, 'see_also').split(/\s+/), ...xrefs.filter((x) => !/^CWE:/i.test(x))]).join('\n'),
         cveId: dedupe(all(item, 'cve')).join(', ') || null,
         cweId: cwe.join(', ') || null,
-        affected: [endpoint(hostName, item.getAttribute('port') || '', item.getAttribute('protocol') || '')],
+        affected: [at],
+        pluginOutputs: output ? [{ at, text: output }] : [],
       });
     }
   }
@@ -167,6 +176,7 @@ export function parseNessusCsv(content: string): NessusFinding[] {
       cveId: dedupe(get(idx.cve).split(/[,\s]+/)).join(', ') || null,
       cweId: get(idx.cwe) || null,
       affected: [endpoint(get(idx.host), get(idx.port), get(idx.protocol))],
+      pluginOutputs: [],
     });
   }
   return [...out.values()];

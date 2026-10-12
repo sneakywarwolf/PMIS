@@ -79,6 +79,8 @@ export interface FindingData {
   reportStatus: string;
   /** e.g. 'VA Finding' for scan imports; null for library findings. */
   classification?: string | null;
+  /** Scan plugin output; printed in the PoC snapshot cell of VA findings' steps that have no screenshot. */
+  pocText?: string | null;
   pocSteps: PocStepData[];
 }
 
@@ -1034,6 +1036,8 @@ export class DocxManipulatorService {
           const img = step.imageKey ? imageRegistry.get(step.imageKey) : undefined;
           if (img) {
             this.setCellImage(doc, cells[1], img);
+          } else if (finding.pocText) {
+            this.setCellMultilineText(cells[1], finding.pocText);
           } else {
             this.replaceCellValue(cells[1], 'N/A');
           }
@@ -1483,6 +1487,22 @@ export class DocxManipulatorService {
       for (const r of runs) {
         if (r !== target) this.setRunText(r, '');
       }
+    }
+  }
+
+  /** Like replaceCellValue, but keeps line breaks (Word ignores \n inside a text run). */
+  private setCellMultilineText(cell: Element, value: string): void {
+    const [first, ...rest] = value.split(/\r?\n/);
+    this.replaceCellValue(cell, first);
+    const run = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'r')).find((r) => this.getRunText(r) === first);
+    if (!run) return;
+    const doc = run.ownerDocument;
+    for (const line of rest) {
+      run.appendChild(doc.createElementNS(this.W_NS, 'w:br'));
+      const t = doc.createElementNS(this.W_NS, 'w:t');
+      t.setAttribute('xml:space', 'preserve');
+      t.textContent = line;
+      run.appendChild(t);
     }
   }
 

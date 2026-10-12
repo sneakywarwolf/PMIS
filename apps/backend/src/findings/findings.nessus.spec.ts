@@ -3,7 +3,8 @@ import { FindingsService } from './findings.service';
 
 const XML = `<?xml version="1.0"?><NessusClientData_v2><Report name="r">
 <ReportHost name="10.0.0.1">
-  <ReportItem port="443" protocol="tcp" severity="3" pluginID="100" pluginName="TLS Weak Cipher"><cvss3_base_score>7.5</cvss3_base_score><cvss3_vector>CVSS:3.0/AV:N</cvss3_vector><description>d</description><synopsis>s</synopsis><solution>fix</solution></ReportItem>
+  <ReportItem port="443" protocol="tcp" severity="3" pluginID="100" pluginName="TLS Weak Cipher"><cvss3_base_score>7.5</cvss3_base_score><cvss3_vector>CVSS:3.0/AV:N</cvss3_vector><description>d</description><synopsis>s</synopsis><solution>fix</solution><plugin_output>Port 443 offers TLS 1.0
+and 3DES</plugin_output></ReportItem>
   <ReportItem port="22" protocol="tcp" severity="2" pluginID="200" pluginName="SSH Weak Algorithms"><cvss_base_score>5.0</cvss_base_score><description>d</description><synopsis>s</synopsis><solution>fix</solution></ReportItem>
   <ReportItem port="80" protocol="tcp" severity="1" pluginID="300" pluginName="Already Imported"><description>d</description></ReportItem>
   <ReportItem port="21" protocol="tcp" severity="4" pluginID="400" pluginName="Not Selected"><description>d</description></ReportItem>
@@ -34,6 +35,7 @@ function setup(opts: { role: string; subType?: string; testerId?: string; findin
           : Promise.resolve({ id: 'f' + n, ...data, vulnerability: null, projectVulnerability: { id: data.projectVulnId } }),
       ),
     },
+    pocStep: { create: jest.fn().mockResolvedValue({}) },
     // Deliberately absent: any use of the global library would throw `undefined.findMany/create`.
     vulnerability: undefined,
   };
@@ -83,6 +85,30 @@ describe('FindingsService Nessus import (project-scoped)', () => {
     const { svc, prisma, user } = setup({ role: 'ADMIN', exposure: null });
     await svc.importNessus('p1', file, ['200'], user, 'ip', 'ua');
     expect(prisma.projectVulnerability.create.mock.calls[0][0].data).toMatchObject({ cvssScore: 5, cvssVector: null, cvssVectorSource: 'unresolved' });
+  });
+
+  it('stores plugin output as the PoC with one "Observe the output." step; none when the scan has no output', async () => {
+    const { svc, prisma, user } = setup({ role: 'ADMIN' });
+    await svc.importNessus('p1', file, ['100', '200'], user, 'ip', 'ua');
+    const [withOutput, without] = prisma.finding.create.mock.calls.map((c: any) => c[0].data);
+    expect(withOutput.proofOfConcept).toBe('Port 443 offers TLS 1.0\nand 3DES');
+    expect(without.proofOfConcept).toBeUndefined();
+    expect(prisma.pocStep.create).toHaveBeenCalledTimes(1); // only the finding that has output
+    expect(prisma.pocStep.create).toHaveBeenCalledWith({ data: { findingId: 'f1', stepNo: 1, description: 'Observe the output.' } });
+  });
+
+  it('keeps each host\'s output with its host, and truncates visibly', () => {
+    expect(FindingsService.nessusPocText([])).toBeNull();
+    expect(FindingsService.nessusPocText([{ at: 'h:1/tcp', text: 'a' }, { at: 'h2:1/tcp', text: 'b' }])).toBe('[h:1/tcp]\na\n\n[h2:1/tcp]\nb');
+    const big = FindingsService.nessusPocText([{ at: 'h', text: 'x'.repeat(40000) }])!;
+    expect(big.endsWith('\n[output truncated]')).toBe(true);
+    expect(big.length).toBeLessThan(32100);
+  });
+
+  it('the preview does not carry plugin outputs', async () => {
+    const { svc, user } = setup({ role: 'ADMIN' });
+    const { items } = await svc.previewNessus('p1', file, user);
+    expect(items.every((i: any) => !('pluginOutputs' in i))).toBe(true);
   });
 
   it('removes the project record if its finding cannot be created', async () => {
