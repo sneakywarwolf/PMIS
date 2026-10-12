@@ -328,7 +328,11 @@ export class DocxManipulatorService {
     }
 
     // Step 4.5: severity charts (e.g. Cert-In "Risk Matrix") — counts from the findings
-    await this.updateSeverityCharts(zip, findings);
+    await this.updateSeverityCharts(
+      zip,
+      findings,
+      vaTables.length > 0 ? { va: findings.filter((f) => f.findingType === 'VA'), pt: findings.filter((f) => f.findingType !== 'VA') } : undefined,
+    );
 
     // Step 5: serialize back
     const serializer = new XMLSerializer();
@@ -422,17 +426,26 @@ export class DocxManipulatorService {
    * (what Word renders) and in the embedded workbook (so "Edit Data" in Word
    * shows the same numbers). Charts without severity series are untouched.
    */
-  private async updateSeverityCharts(zip: any, findings: FindingData[]): Promise<void> {
-    const counts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-    for (const f of findings) {
-      const k = (f.severity || '').toLowerCase().startsWith('info') ? 'info' : (f.severity || '').toLowerCase();
-      if (k in counts) counts[k]++;
-    }
+  private async updateSeverityCharts(
+    zip: any,
+    findings: FindingData[],
+    split?: { va: FindingData[]; pt: FindingData[] },
+  ): Promise<void> {
+    const countsOf = (list: FindingData[]) => {
+      const counts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+      for (const f of list) {
+        const k = (f.severity || '').toLowerCase().startsWith('info') ? 'info' : (f.severity || '').toLowerCase();
+        if (k in counts) counts[k]++;
+      }
+      return counts;
+    };
+    const allCounts = countsOf(findings);
     const sevKey = (name: string) => (name.toLowerCase().startsWith('info') ? 'info' : name.toLowerCase());
 
-    for (const chartPath of Object.keys(zip.files).filter((n) => /^word\/charts\/chart[^/]*\.xml$/.test(n))) {
-      let xml: string = await zip.file(chartPath).async('text');
+    /** Fills one chart's XML from `counts`; null when the chart has no severity series/categories. */
+    const fillChart = (xml: string, counts: Record<string, number>) => {
       const cellUpdates: Record<string, number> = {};
+      let matched = false;
 
       const updated = xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (ser) => {
         const name = ser.match(/<c:tx>[\s\S]*?<c:v>([^<]*)<\/c:v>/)?.[1]?.trim() ?? '';
@@ -441,23 +454,49 @@ export class DocxManipulatorService {
         const cats = [...(ser.match(/<c:cat>[\s\S]*?<\/c:cat>/)?.[0] ?? '').matchAll(/<c:pt idx="(\d+)"><c:v>([^<]*)<\/c:v>/g)];
         const catIdx = cats.find((m) => sevKey(m[2].trim()) === key)?.[1];
         if (catIdx === undefined) return ser;
+        matched = true;
         const ref = ser.match(/<c:val>[\s\S]*?<c:f>([^<]*)<\/c:f>/)?.[1] ?? '';
         const col = ref.match(/\$([A-Z]+)\$(\d+)/);
         if (col) cellUpdates[`${col[1]}${parseInt(col[2], 10) + parseInt(catIdx, 10)}`] = counts[key];
         return ser.replace(/(<c:val>[\s\S]*?<c:ptCount val="\d+"\/>)[\s\S]*?(<\/c:numCache>)/, `$1<c:pt idx="${catIdx}"><c:v>${counts[key]}</c:v></c:pt>$2`);
       });
       let result = updated;
-      if (result === xml) {
+      if (!matched) {
         // Alternate layout: one series whose categories are the severities
         // (value i = count of category i), e.g. a simple "Risk Matrix" bar/pie.
         result = xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (ser) => {
           const cats = [...(ser.match(/<c:cat>[\s\S]*?<\/c:cat>/)?.[0] ?? '').matchAll(/<c:pt idx="(\d+)"><c:v>([^<]*)<\/c:v>/g)];
           if (cats.length === 0 || !cats.every((m) => sevKey(m[2].trim()) in counts)) return ser;
+          matched = true;
           const pts = cats.map((m) => `<c:pt idx="${m[1]}"><c:v>${counts[sevKey(m[2].trim())]}</c:v></c:pt>`).join('');
           return ser.replace(/(<c:val>[\s\S]*?<c:ptCount val="\d+"\/>)[\s\S]*?(<\/c:numCache>)/, `$1${pts}$2`);
         });
-        if (result === xml) continue;
       }
+      return matched ? { result, cellUpdates } : null;
+    };
+
+    let chartPaths = Object.keys(zip.files).filter((n) => /^word\/charts\/chart[^/]*\.xml$/.test(n));
+    if (split) {
+      // Charts in the order they appear in the document (not file-name order).
+      const order = await this.chartPartsInDocumentOrder(zip);
+      const rank = (c: string) => (order.indexOf(c) === -1 ? order.length : order.indexOf(c));
+      chartPaths = chartPaths.sort((a, b) => rank(a) - rank(b));
+    }
+
+    let severityChartIndex = 0;
+    for (const chartPath of chartPaths) {
+      const xml: string = await zip.file(chartPath).async('text');
+      let filled = fillChart(xml, allCounts);
+      if (!filled) continue;
+
+      if (split) {
+        // A chart titled "VA…"/"PT…" belongs to that group; otherwise the first severity chart in the
+        // document is the VA chart and the second the PT chart. Any further chart keeps the combined counts.
+        const kind = this.chartTitleKind(xml) ?? (severityChartIndex === 0 ? 'VA' : severityChartIndex === 1 ? 'PT' : null);
+        severityChartIndex++;
+        if (kind) filled = fillChart(xml, countsOf(kind === 'VA' ? split.va : split.pt))!;
+      }
+      const { result, cellUpdates } = filled;
       zip.file(chartPath, result);
 
       // Embedded workbook (best-effort: only cells the template already has)
@@ -476,6 +515,33 @@ export class DocxManipulatorService {
       wb.file(sheetPath, sheet);
       zip.file(`word/${target}`, await wb.generateAsync({ type: 'nodebuffer' }));
     }
+  }
+
+  /** 'VA' / 'PT' when the chart's own title says so (axis titles ignored); null when absent or ambiguous. */
+  private chartTitleKind(chartXml: string): 'VA' | 'PT' | null {
+    const title = chartXml.split('<c:plotArea>')[0].match(/<c:title>[\s\S]*?<\/c:title>/)?.[0] ?? '';
+    const text = [...title.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]).join(' ');
+    const va = /\bVA\b|vulnerability assessment/i.test(text);
+    const pt = /\bPT\b|penetration test/i.test(text);
+    return va && !pt ? 'VA' : pt && !va ? 'PT' : null;
+  }
+
+  /** word/charts/*.xml parts in the order the document references them. */
+  private async chartPartsInDocumentOrder(zip: any): Promise<string[]> {
+    const docXml: string = (await zip.file('word/document.xml')?.async('text')) ?? '';
+    const rels: string = (await zip.file('word/_rels/document.xml.rels')?.async('text')) ?? '';
+    const targets = new Map<string, string>();
+    for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = m[0].match(/\bId="([^"]+)"/)?.[1];
+      const target = m[0].match(/\bTarget="([^"]+)"/)?.[1];
+      if (id && target) targets.set(id, target);
+    }
+    const out: string[] = [];
+    for (const m of docXml.matchAll(/<c:chart\b[^>]*\br:id="([^"]+)"/g)) {
+      const target = targets.get(m[1]);
+      if (target && /charts\/chart[^/]*\.xml$/.test(target)) out.push(target.startsWith('/') ? target.slice(1) : `word/${target}`);
+    }
+    return out;
   }
 
   /**

@@ -130,3 +130,90 @@ describe('Network Word report: VA / PT tables', () => {
     expect(svc.resolveFindingParameter('vulnerability_name', finding('PT', 'PT-One', 1))).toBe('PT-One'); // PT placeholders unchanged
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Executive-summary severity charts: one for VA findings, one for PT findings
+// ---------------------------------------------------------------------------------------------
+const C = 'http://schemas.openxmlformats.org/drawingml/2006/chart';
+const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const SEV = ['Critical', 'High', 'Medium', 'Low', 'Info'];
+
+/** A bar chart with one series per severity (the layout existing templates use), all cached as 0. */
+const chartXml = (title?: string) =>
+  `<c:chartSpace xmlns:c="${C}" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><c:chart>`
+  + (title ? `<c:title><c:tx><c:rich><a:p><a:r><a:t>${title}</a:t></a:r></a:p></c:rich></c:tx></c:title>` : '')
+  + '<c:plotArea><c:barChart>'
+  + SEV.map((s, i) =>
+    `<c:ser><c:idx val="${i}"/><c:tx><c:strRef><c:f>Sheet1!$${String.fromCharCode(66 + i)}$1</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${s}</c:v></c:pt></c:strCache></c:strRef></c:tx>`
+    + `<c:cat><c:strRef><c:f>Sheet1!$A$2</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${s}</c:v></c:pt></c:strCache></c:strRef></c:cat>`
+    + `<c:val><c:numRef><c:f>Sheet1!$${String.fromCharCode(66 + i)}$2</c:f><c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="1"/><c:pt idx="0"><c:v>0</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>`).join('')
+  + '</c:barChart></c:plotArea></c:chart></c:chartSpace>';
+
+const chartRef = (rId: string) => `<w:p><w:r><w:drawing><c:chart xmlns:c="${C}" xmlns:r="${R}" r:id="${rId}"/></w:drawing></w:r></w:p>`;
+
+/** chart1.xml is referenced SECOND in the document and chart2.xml FIRST, so file order and document order differ. */
+async function docxWithCharts(titles: [string?, string?] = []) {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+  zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="${W}"><w:body>${chartRef('rId8')}${chartRef('rId7')}${sixTables}</w:body></w:document>`);
+  zip.file('word/_rels/document.xml.rels',
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    + '<Relationship Id="rId7" Type="x" Target="charts/chart1.xml"/><Relationship Id="rId8" Type="x" Target="charts/chart2.xml"/></Relationships>');
+  zip.file('word/charts/chart1.xml', chartXml(titles[1]));
+  zip.file('word/charts/chart2.xml', chartXml(titles[0]));
+  return zip.generateAsync({ type: 'nodebuffer' }) as Promise<Buffer>;
+}
+
+async function chartValues(buffer: Buffer, chart: 'chart1' | 'chart2') {
+  const xml: string = await (await JSZip.loadAsync(buffer)).file(`word/charts/${chart}.xml`).async('text');
+  return Object.fromEntries(
+    [...xml.matchAll(/<c:ser>[\s\S]*?<\/c:ser>/g)].map((m) => [
+      m[0].match(/<c:tx>[\s\S]*?<c:v>([^<]*)<\/c:v>/)![1],
+      Number(m[0].match(/<c:val>[\s\S]*?<c:pt idx="0"><c:v>([^<]*)<\/c:v>/)![1]),
+    ]),
+  );
+}
+
+const sev = (type: 'VA' | 'PT', name: string, severity: string): FindingData => ({ ...finding(type, name, 1), severity });
+
+describe('Network Word report: VA and PT severity charts', () => {
+  const run = async (docx: Buffer, list: FindingData[], splitVaPt = true) =>
+    new DocxManipulatorService().generateReport(docx, [], list, [], undefined, undefined, [], [], [], undefined, { splitVaPt });
+
+  const list = [
+    sev('VA', 'v1', 'Critical'), sev('VA', 'v2', 'High'), sev('VA', 'v3', 'High'), sev('VA', 'v4', 'Info'),
+    sev('PT', 'p1', 'High'), sev('PT', 'p2', 'Medium'), sev('PT', 'p3', 'Medium'), sev('PT', 'p4', 'Low'),
+  ];
+  const VA_COUNTS = { Critical: 1, High: 2, Medium: 0, Low: 0, Info: 1 };
+  const PT_COUNTS = { Critical: 0, High: 1, Medium: 2, Low: 1, Info: 0 };
+  const ZERO = { Critical: 0, High: 0, Medium: 0, Low: 0, Info: 0 };
+
+  it('first chart in the document counts VA findings, second counts PT findings', async () => {
+    const out = await run(await docxWithCharts(), list);
+    // chart2.xml is the FIRST chart in the document -> VA; chart1.xml is the second -> PT
+    expect(await chartValues(out, 'chart2')).toEqual(VA_COUNTS);
+    expect(await chartValues(out, 'chart1')).toEqual(PT_COUNTS);
+  });
+
+  it('a chart titled VA or PT follows its title, whatever its position', async () => {
+    const out = await run(await docxWithCharts(['PT findings by severity', 'VA findings by severity']), list);
+    expect(await chartValues(out, 'chart2')).toEqual(PT_COUNTS); // first in document, titled PT
+    expect(await chartValues(out, 'chart1')).toEqual(VA_COUNTS); // second in document, titled VA
+  });
+
+  it('shows zeros for a category with no findings (PT-only, VA-only)', async () => {
+    const ptOnly = await run(await docxWithCharts(), list.filter((f) => f.findingType === 'PT'));
+    expect(await chartValues(ptOnly, 'chart2')).toEqual(ZERO);
+    expect(await chartValues(ptOnly, 'chart1')).toEqual(PT_COUNTS);
+    const vaOnly = await run(await docxWithCharts(), list.filter((f) => f.findingType === 'VA'));
+    expect(await chartValues(vaOnly, 'chart2')).toEqual(VA_COUNTS);
+    expect(await chartValues(vaOnly, 'chart1')).toEqual(ZERO);
+  });
+
+  it('without the VA/PT split, every chart keeps the combined counts, exactly as before', async () => {
+    const out = await run(await docxWithCharts(), list, false);
+    const combined = { Critical: 1, High: 3, Medium: 2, Low: 1, Info: 1 };
+    expect(await chartValues(out, 'chart1')).toEqual(combined);
+    expect(await chartValues(out, 'chart2')).toEqual(combined);
+  });
+});
