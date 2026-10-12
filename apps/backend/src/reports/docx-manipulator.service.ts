@@ -81,6 +81,8 @@ export interface FindingData {
   classification?: string | null;
   /** Scan plugin output; printed in the PoC snapshot cell of VA findings' steps that have no screenshot. */
   pocText?: string | null;
+  /** VA = scan import (project-scoped), PT = Vulnerability DB. Drives the VA/PT table split in Network reports. */
+  findingType?: 'VA' | 'PT';
   pocSteps: PocStepData[];
 }
 
@@ -185,7 +187,7 @@ export class DocxManipulatorService {
     for (let t = 0; t < tables.length; t++) {
       const table = tables.item(t);
       if (!table) continue;
-      const text = this.getElementText(table).toLowerCase();
+      const text = this.tableText(table);
       // Same classification the generator uses (fillFindingsTables): a CVE/CWE
       // header without description/remediation placeholders is a summary table.
       const hasTitle = text.includes('{vulnerability name}') || text.includes('{finding title}');
@@ -249,6 +251,7 @@ export class DocxManipulatorService {
     nmapPorts: NmapPortRecord[] = [],
     toolsUsed: ToolUsedRow[] = [],
     reportName?: string,
+    options?: { splitVaPt?: boolean },
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -298,8 +301,22 @@ export class DocxManipulatorService {
     // Step 3.5: serial-number columns ({S No} in e.g. the Engagement Scope asset table)
     this.numberSerialColumns(doc);
 
-    // Step 4: fill the template's own findings tables
-    if (findings.length > 0) {
+    // Step 4: fill the template's own findings tables.
+    // Network templates with separate VA / PT tables: VA tables take only VA findings, every other
+    // findings table only PT findings, each numbered from 1. Templates without VA tables use the path below unchanged.
+    const vaTables = options?.splitVaPt ? this.findVaTables(doc) : [];
+    if (vaTables.length > 0) {
+      const unresolvedFindingParams = new Set<string>();
+      const renumber = (list: FindingData[]) => list.map((f, i) => ({ ...f, no: i + 1 }));
+      const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0)!;
+      const vaSet = new Set(vaTables);
+      const otherTables = (Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[]).filter((t) => !vaSet.has(t));
+      this.fillFindingsTables(doc, renumber(findings.filter((f) => f.findingType === 'VA')), imageRegistry, severityColors, unresolvedFindingParams, vaTables);
+      this.fillFindingsTables(doc, renumber(findings.filter((f) => f.findingType !== 'VA')), imageRegistry, severityColors, unresolvedFindingParams, otherTables);
+      if (unresolvedFindingParams.size > 0) {
+        this.logger.debug(`Unresolved finding-table parameter(s) left as literal: ${[...unresolvedFindingParams].join(', ')}`);
+      }
+    } else if (findings.length > 0) {
       // Unresolved finding-table {Parameter}s are left as literal text —
       // same as any other unmapped placeholder — never a reason to block
       // generation. Logged for developer diagnostics only.
@@ -550,7 +567,7 @@ export class DocxManipulatorService {
    * placeholders are still extracted/replaced normally.
    */
   private isProtectedTable(table: Element): boolean {
-    const text = this.getElementText(table).toLowerCase();
+    const text = this.tableText(table);
     const hasTitle = text.includes('{vulnerability name}') || text.includes('{finding title}');
     const hasCveCwe = text.includes('cve/cwe') || text.includes('{cve/cwe}') || text.includes('{cvss vector}');
     const isDetailed = hasTitle && hasCveCwe;
@@ -560,6 +577,29 @@ export class DocxManipulatorService {
   }
 
   /** True if this node sits inside one of the protected tables above. */
+  private findVaTables(doc: Document): Element[] {
+    const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
+    if (!body) return [];
+    return (Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[]).filter((t) => this.isVaTable(t));
+  }
+
+  /** `{VA Vulnerability Name}` marks a table whose rows/slots belong to VA (scan-imported) findings. */
+  private static readonly VA_TITLE_RE = /\{\s*va[\s_-]+(?:vulnerability|finding)[\s_-]+(?:name|title)\s*\}/i;
+  private static readonly VA_PREFIX_RE = /\{\s*va[\s_-]+/gi;
+
+  private isVaTable(table: Element): boolean {
+    return DocxManipulatorService.VA_TITLE_RE.test(this.getElementText(table));
+  }
+
+  /**
+   * Lower-cased table text with the `VA ` prefix dropped from placeholders, so every existing table
+   * detection rule (title / score / CVE-CWE / description markers) treats `{VA X}` exactly like `{X}`.
+   * Identical to the plain lower-cased text for any template that has no VA placeholders.
+   */
+  private tableText(table: Element): string {
+    return this.getElementText(table).toLowerCase().replace(DocxManipulatorService.VA_PREFIX_RE, '{');
+  }
+
   private isInsideTable(node: Node): boolean {
     let cur: Node | null = node.parentNode;
     while (cur) {
@@ -662,12 +702,14 @@ export class DocxManipulatorService {
     imageRegistry: Map<string, RegisteredImage>,
     severityColors: Record<string, string>,
     unresolved: Set<string>,
+    scope?: Element[],
   ): void {
     const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
     if (!body) return;
 
-    // Snapshot the table list — we mutate the tree while processing
-    const tables = Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[];
+    // Snapshot the table list — we mutate the tree while processing.
+    // `scope` (VA/PT split only) restricts this pass to the given tables.
+    const tables = scope ?? (Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[]);
 
     const hasTitle = (x: string) => x.includes('{vulnerability name}') || x.includes('{finding title}');
     const hasScore = (x: string) => x.includes('{score value}') || x.includes('{cvss score}');
@@ -679,11 +721,11 @@ export class DocxManipulatorService {
     const hasDetailBody = (x: string) =>
       ['{vulnerability description}', '{description}', '{vulnerability remediation}', '{remediation}'].some((k) => x.includes(k));
     const isDetailed = (t: Element) => {
-      const x = this.getElementText(t).toLowerCase();
+      const x = this.tableText(t);
       return hasTitle(x) && hasCveCwe(x) && hasDetailBody(x);
     };
     const isSummary = (t: Element) => {
-      const x = this.getElementText(t).toLowerCase();
+      const x = this.tableText(t);
       return hasTitle(x) && !hasDetailBody(x) && (hasCveCwe(x) || hasScore(x));
     };
 
@@ -801,7 +843,7 @@ export class DocxManipulatorService {
   private fillSummaryTable(doc: Document, table: Element, findings: FindingData[], severityColors: Record<string, string>, unresolved: Set<string>): void {
     const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
     const placeholderRows = rows.filter((r) => {
-      const t = this.getElementText(r).toLowerCase();
+      const t = this.getElementText(r).toLowerCase().replace(DocxManipulatorService.VA_PREFIX_RE, '{');
       return t.includes('{vulnerability name}') || t.includes('{finding title}');
     });
     if (placeholderRows.length === 0) return;
@@ -1087,6 +1129,11 @@ export class DocxManipulatorService {
    * variants used across existing and new templates.
    */
   resolveFindingParameter(normalizedName: string, finding: FindingData): string | undefined {
+    // {VA Vulnerability Name}, {VA Severity}, ...: the same value as the unprefixed parameter, but only ever for a VA finding.
+    if (normalizedName.startsWith('va_')) {
+      if (finding.findingType !== 'VA') return undefined;
+      normalizedName = normalizedName.slice(3);
+    }
     const cvssCombined = finding.cvssScore != null
       ? `${finding.cvssScore}${finding.cvssVector ? ` | ${stripCvssPrefix(finding.cvssVector)}` : ''}`
       : 'N/A';

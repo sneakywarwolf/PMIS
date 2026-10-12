@@ -744,6 +744,7 @@ export class ReportsService {
           classification: f.classification,
           // Scan-imported (VA) findings only: PT findings never get scan output printed.
           pocText: f.classification ? (f as any).proofOfConcept : null,
+          findingType: f.findingType,
           pocSteps,
         });
       }
@@ -769,6 +770,7 @@ export class ReportsService {
         (project.nmapPorts as NmapPortRecord[] | null) || [],
         (project.toolsUsedTable as { name: string; version: string; licenseType: string }[] | null) || [],
         fileName,
+        { splitVaPt: project.subType === 'NETWORK' },
       );
 
       const docxName = `reports/${project.id}/${Date.now()}_${fileName}`;
