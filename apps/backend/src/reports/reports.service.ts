@@ -14,6 +14,7 @@ import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, Repor
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 import { findingPocReadiness } from '../common/poc-validation.util';
+import { nessusTextForReport } from '../common/nessus-text.util';
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
@@ -723,6 +724,8 @@ export class ReportsService {
           pocSteps.push({ stepNo: step.stepNo, description: step.description, imageKey });
         }
 
+        // Scan-imported (VA) findings only: tidy Nessus' wrapping/spacing in what is printed. Stored data is untouched.
+        const isVa = f.findingType === 'VA';
         findingsData.push({
           no: index + 1,
           title: f.vulnerability.name,
@@ -731,7 +734,7 @@ export class ReportsService {
             : f.vulnerability.severity,
           cvssScore: effectiveScore,
           cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
-          description: f.vulnerability.description,
+          description: isVa ? nessusTextForReport(f.vulnerability.description) : f.vulnerability.description,
           impact: f.vulnerability.impact,
           remediation: f.vulnerability.remediation,
           references: f.vulnerability.references,
@@ -743,7 +746,7 @@ export class ReportsService {
           reportStatus: f.reportStatus,
           classification: f.classification,
           // Scan-imported (VA) findings only: PT findings never get scan output printed.
-          pocText: f.classification ? (f as any).proofOfConcept : null,
+          pocText: f.classification ? nessusTextForReport((f as any).proofOfConcept) || null : null,
           findingType: f.findingType,
           pocSteps,
         });

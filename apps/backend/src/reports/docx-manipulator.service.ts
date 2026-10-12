@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { stripCvssPrefix } from '../common/cvss-vector.util';
+import { LINE_SEP } from '../common/nessus-text.util';
 import * as JSZip from 'jszip';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import { NmapPortRecord } from '../common/nmap-parser.util';
@@ -334,6 +335,8 @@ export class DocxManipulatorService {
       vaTables.length > 0 ? { va: findings.filter((f) => f.findingType === 'VA'), pt: findings.filter((f) => f.findingType !== 'VA') } : undefined,
     );
 
+    this.expandLineSeparators(doc);
+
     // Step 5: serialize back
     const serializer = new XMLSerializer();
     const updatedXml = serializer.serializeToString(doc);
@@ -514,6 +517,33 @@ export class DocxManipulatorService {
       }
       wb.file(sheetPath, sheet);
       zip.file(`word/${target}`, await wb.generateAsync({ type: 'nodebuffer' }));
+    }
+  }
+
+  /**
+   * Text that carries LINE_SEP (VA description / plugin output only) becomes real line breaks inside the
+   * same run, so the paragraph keeps the template's own spacing. All other text is left exactly as it is.
+   */
+  private expandLineSeparators(doc: Document): void {
+    for (const t of Array.from(doc.getElementsByTagNameNS(this.W_NS, 't')) as Element[]) {
+      // xmldom's textContent is stale after setRunText wrote the value; the text node's .data is current.
+      const node: any = t.firstChild;
+      const text: string = node?.data ?? node?.nodeValue ?? '';
+      if (!text.includes(LINE_SEP)) continue;
+      const parts = text.split(LINE_SEP);
+      const run = t.parentNode as Element;
+      t.textContent = parts[0];
+      t.setAttribute('xml:space', 'preserve');
+      let anchor: Node = t;
+      for (const part of parts.slice(1)) {
+        const br = doc.createElementNS(this.W_NS, 'w:br');
+        const next = doc.createElementNS(this.W_NS, 'w:t');
+        next.setAttribute('xml:space', 'preserve');
+        next.textContent = part;
+        run.insertBefore(br, anchor.nextSibling);
+        run.insertBefore(next, br.nextSibling);
+        anchor = next;
+      }
     }
   }
 
@@ -1199,6 +1229,7 @@ export class DocxManipulatorService {
     if (normalizedName.startsWith('va_')) {
       if (finding.findingType !== 'VA') return undefined;
       normalizedName = normalizedName.slice(3);
+      if (normalizedName === 'output') return finding.pocText ?? '';
     }
     const cvssCombined = finding.cvssScore != null
       ? `${finding.cvssScore}${finding.cvssVector ? ` | ${stripCvssPrefix(finding.cvssVector)}` : ''}`
@@ -1605,7 +1636,7 @@ export class DocxManipulatorService {
 
   /** Like replaceCellValue, but keeps line breaks (Word ignores \n inside a text run). */
   private setCellMultilineText(cell: Element, value: string): void {
-    const [first, ...rest] = value.split(/\r?\n/);
+    const [first, ...rest] = value.split(new RegExp(`\\r?\\n|${LINE_SEP}`));
     this.replaceCellValue(cell, first);
     const run = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'r')).find((r) => this.getRunText(r) === first);
     if (!run) return;

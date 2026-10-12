@@ -1,5 +1,6 @@
 import { DOMParser } from '@xmldom/xmldom';
 import { DocxManipulatorService, FindingData } from './docx-manipulator.service';
+import { nessusTextForReport } from '../common/nessus-text.util';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const JSZip = require('jszip');
@@ -215,5 +216,80 @@ describe('Network Word report: VA and PT severity charts', () => {
     const combined = { Critical: 1, High: 3, Medium: 2, Low: 1, Info: 1 };
     expect(await chartValues(out, 'chart1')).toEqual(combined);
     expect(await chartValues(out, 'chart2')).toEqual(combined);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// {VA Output} and Nessus text cleanup
+// ---------------------------------------------------------------------------------------------
+describe('Network Word report: {VA Output} and VA text cleanup', () => {
+  const vaDetail = tbl(
+    row('{S No}', '{VA Vulnerability Name}'),
+    row('CVSS', '{VA CVSS Vector}'),
+    row('Description', '{VA Vulnerability Description}'),
+    row('Output', '{VA Output}'),
+    row('Impact', '{VA Vulnerability Impact}'),
+  );
+  const ptDetail = tbl(row('{S No}', '{Vulnerability Name}'), row('CVSS', '{CVSS Vector}'), row('Description', '{Vulnerability Description}'), row('Impact', '{Vulnerability Impact}'));
+  const template = [summary(true), gap, summary(false), gap, vaDetail, gap, vaDetail, gap, vaDetail, gap, ptDetail].join('');
+
+  const WRAPPED = 'The remote service supports the use of weak SSL ciphers, which could allow an\nattacker to decrypt traffic.\n\nSecond   paragraph.';
+  const va = (name: string, output: string | null): FindingData => ({
+    ...finding('VA', name, 1),
+    description: nessusTextForReport(WRAPPED),
+    impact: 'Impact\n  keeps   its raw\nspacing',
+    pocText: output === null ? null : nessusTextForReport(output),
+  });
+
+  async function render(findings: FindingData[]) {
+    const out = await new DocxManipulatorService().generateReport(await docxWith(template), [], findings, [], undefined, undefined, [], [], [], undefined, { splitVaPt: true });
+    const xml: string = await (await JSZip.loadAsync(out)).file('word/document.xml').async('text');
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    const detailTables = Array.from(doc.getElementsByTagNameNS(W, 'tbl')).slice(2) as any[];
+    const text = (t: any) => Array.from(t.getElementsByTagNameNS(W, 't')).map((n: any) => n.textContent).join('|');
+    return { xml, detailTables, text };
+  }
+
+  it('each VA table gets only its own finding\'s plugin output, cleaned, with real line breaks', async () => {
+    const { detailTables, text, xml } = await render([
+      va('VA-A', 'Port 443 offers TLS 1.0\nand 3DES'),
+      va('VA-B', 'Line one\n\n\n\n   Line   two'),
+      va('VA-C', 'Only C'),
+    ]);
+    const vaTables = detailTables.filter((t) => /VA-/.test(text(t)));
+    expect(vaTables).toHaveLength(3);
+    const byName = (n: string) => vaTables.find((t) => text(t).includes(n))!;
+    expect(text(byName('VA-A'))).toContain('Port 443 offers TLS 1.0|and 3DES'); // short lines keep their break
+    expect(text(byName('VA-A'))).not.toMatch(/Line one|Only C/);
+    expect(text(byName('VA-B'))).toContain('Line one||Line two');               // blank lines collapse to one, spaces tidied
+    expect(text(byName('VA-C'))).toContain('Only C');
+    expect(text(byName('VA-C'))).not.toMatch(/TLS 1\.0|Line one/);
+    expect(xml).not.toContain(' ');                                         // marker fully converted
+    expect(xml).toContain('<w:br');
+  });
+
+  it('Description is unwrapped and tidied; Impact is left exactly as stored', async () => {
+    const { detailTables, text } = await render([va('VA-A', 'x'), va('VA-B', 'y'), va('VA-C', 'z')]);
+    const t = text(detailTables.find((d) => text(d).includes('VA-A')));
+    expect(t).toContain('weak SSL ciphers, which could allow an attacker to decrypt traffic.||Second paragraph.');
+    expect(t).toContain('Impact\n  keeps   its raw\nspacing');
+  });
+
+  it('missing or empty plugin output leaves {VA Output} empty, never invented or left as a placeholder', async () => {
+    const { detailTables, text, xml } = await render([va('VA-A', null), va('VA-B', ''), va('VA-C', '   \n ')]);
+    for (const t of detailTables.filter((d) => /VA-/.test(text(d)))) expect(text(t)).toMatch(/Output\|\|?Impact|Output\|Impact|Output\|?$/);
+    expect(xml).not.toMatch(/\{\s*VA/i);
+    expect(xml).not.toMatch(/N\/A/);
+  });
+
+  it('PT findings are untouched by the cleanup, and {VA Output} never resolves for them', async () => {
+    const pt: FindingData = { ...finding('PT', 'PT-A', 1), description: 'Raw   PT\n  description', pocText: 'pt output' };
+    const { detailTables, text } = await render([va('VA-A', 'x'), pt]);
+    const ptTable = detailTables.find((d) => text(d).includes('PT-A'))!;
+    expect(text(ptTable)).toContain('Raw   PT\n  description');
+    expect(text(ptTable)).not.toContain('pt output');
+    expect(new DocxManipulatorService().resolveFindingParameter('va_output', pt)).toBeUndefined();
+    expect(new DocxManipulatorService().resolveFindingParameter('va_output', va('V', 'q'))).toBe('q');
+    expect(new DocxManipulatorService().resolveFindingParameter('va_output', va('V', null))).toBe('');
   });
 });
