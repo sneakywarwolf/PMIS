@@ -229,6 +229,7 @@ model Project {
   mobilePlatform     String?  @map("mobile_platform")
   sha1               String?  @map("sha1")
   externalInternal   String?  @map("external_internal")
+  networkActivityType String? @map("network_activity_type")
   totalScopeCount    Int?     @map("total_scope_count")
   networkScope       Json?    @map("network_scope")
   quarter            String?  @map("quarter")

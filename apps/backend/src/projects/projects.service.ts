@@ -176,6 +176,7 @@ export class ProjectsService {
         mobilePlatform: dto.mobilePlatform,
         sha1: dto.sha1,
         externalInternal: dto.externalInternal,
+        networkActivityType: dto.networkActivityType,
         totalScopeCount: dto.totalScopeCount,
         networkScope: dto.networkScope as any,
         quarter: dto.quarter,
@@ -215,7 +216,7 @@ export class ProjectsService {
       'appVersion', 'location', 'documentVersion', 'toolsUsed', 'testingEnvironment',
       'qaReviewerName', 'applicationDetails', 'testingType', 'loginSystemTypes',
       'applicationNature', 'testingLimitation', 'complianceType',
-      'mobilePlatform', 'sha1', 'externalInternal', 'totalScopeCount', 'networkScope', 'quarter',
+      'mobilePlatform', 'sha1', 'externalInternal', 'networkActivityType', 'totalScopeCount', 'networkScope', 'quarter',
       'toolsUsedTable',
     ] as const;
 

@@ -133,6 +133,7 @@ interface Project {
   mobilePlatform?: string;
   sha1?: string;
   externalInternal?: string;
+  networkActivityType?: string;
   totalScopeCount?: number;
   networkScope?: { ip: string; domainHostname: string; purpose: string }[];
   toolsUsedTable?: { name: string; version: string; licenseType: string }[];
@@ -460,6 +461,7 @@ export default function ProjectDetailPage() {
           {project.subType === 'NETWORK' && (
             <>
               <InfoField label="Scope Exposure" value={project.externalInternal || 'N/A'} />
+              <InfoField label="Network Activity Type" value={project.networkActivityType || 'N/A'} />
               <InfoField label="Total Scope Count" value={project.totalScopeCount != null ? String(project.totalScopeCount) : 'N/A'} />
             </>
           )}
@@ -776,6 +778,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     mobilePlatform: project.mobilePlatform || '',
     sha1: project.sha1 || '',
     externalInternal: project.externalInternal || '',
+    networkActivityType: project.networkActivityType || '',
     totalScopeCount: project.totalScopeCount != null ? String(project.totalScopeCount) : '',
     quarter: project.quarter || '',
     complianceType: project.complianceType || 'VAPT',
@@ -981,6 +984,15 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
                     <option value="">Select exposure</option>
                     <option value="External">External</option>
                     <option value="Internal">Internal</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Network Activity Type</label>
+                  <select value={form.networkActivityType} onChange={(e) => set('networkActivityType', e.target.value)} className={inputCls}>
+                    <option value="">Select activity type</option>
+                    <option value="VA">VA</option>
+                    <option value="PT">PT</option>
+                    <option value="VAPT">VAPT</option>
                   </select>
                 </div>
                 <div>

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsDateString, IsObject, IsArray, IsInt, ValidateNested } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsDateString, IsObject, IsArray, IsInt, IsIn, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TemplateCategory, TemplateSubType, ComplianceType } from '@prisma/client';
 
@@ -118,6 +118,10 @@ export class CreateProjectDto {
   externalInternal?: string;
 
   @IsOptional()
+  @IsIn(['VA', 'PT', 'VAPT', ''])
+  networkActivityType?: string;
+
+  @IsOptional()
   @IsInt()
   totalScopeCount?: number;
 
@@ -226,6 +230,10 @@ export class UpdateProjectDto {
   @IsOptional()
   @IsString()
   externalInternal?: string;
+
+  @IsOptional()
+  @IsIn(['VA', 'PT', 'VAPT', ''])
+  networkActivityType?: string;
 
   @IsOptional()
   @IsInt()

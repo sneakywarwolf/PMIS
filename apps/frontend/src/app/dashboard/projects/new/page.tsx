@@ -40,6 +40,7 @@ export default function NewProjectPage() {
     mobilePlatform: '',
     sha1: '',
     externalInternal: '',
+    networkActivityType: '',
     totalScopeCount: '',
     quarter: '',
   });
@@ -103,7 +104,7 @@ export default function NewProjectPage() {
         'endDate', 'appVersion', 'location', 'documentVersion', 'toolsUsed',
         'testingEnvironment', 'qaReviewerName', 'applicationDetails', 'testingType',
         'loginSystemTypes', 'applicationNature', 'testingLimitation',
-        'mobilePlatform', 'sha1', 'externalInternal', 'quarter',
+        'mobilePlatform', 'sha1', 'externalInternal', 'networkActivityType', 'quarter',
       ];
       for (const key of optional) {
         if ((form as any)[key]) payload[key] = (form as any)[key];
@@ -282,6 +283,15 @@ export default function NewProjectPage() {
                     <option value="">Select exposure</option>
                     <option value="External">External</option>
                     <option value="Internal">Internal</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Network Activity Type</label>
+                  <select value={form.networkActivityType} onChange={(e) => set('networkActivityType', e.target.value)} className={inputCls}>
+                    <option value="">Select activity type</option>
+                    <option value="VA">VA</option>
+                    <option value="PT">PT</option>
+                    <option value="VAPT">VAPT</option>
                   </select>
                 </div>
                 <div>

@@ -1308,6 +1308,7 @@ export class ReportsService {
       { match: ['android_ios'], value: project.mobilePlatform || '' },
       { match: ['sha_1', 'sha1'], value: project.sha1 || '' },
       { match: ['external_internal'], value: project.externalInternal || '' },
+      { match: ['vapt'], value: project.networkActivityType || '' },
       { match: ['quarter'], value: project.quarter || '' },
       // {Number of Days} repeats once per audit phase (Planning, Information
       // Gathering, Scanning & Exploitation, Reporting), in that document order.
