@@ -198,6 +198,13 @@ describe('ReportsService.generateReport (fast/enqueue path)', () => {
     service = moduleRef.get(ReportsService);
   });
 
+  it('rejects a second submission while one is already in flight (no row, no job)', async () => {
+    prisma.reportGeneration.count.mockResolvedValue(1);
+    await expect(service.generateReport('p1', actor(UserRole.ADMIN, 'admin1'), '1.2.3.4', 'jest')).rejects.toThrow(/already being generated/);
+    expect(prisma.reportGeneration.create).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
   it('creates a PENDING report row and enqueues a job, without touching docx generation or storage', async () => {
     const result = await service.generateReport('p1', actor(UserRole.ADMIN, 'admin1'), '1.2.3.4', 'jest');
 

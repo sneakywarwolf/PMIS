@@ -20,9 +20,9 @@ const nextConfig = {
     const csp = [
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}`,
-      "style-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // globals.css @imports Google Fonts
       "img-src 'self' data: blob: https:",
-      "font-src 'self' data:",
+      "font-src 'self' data: https://fonts.gstatic.com",
       "connect-src 'self' ws: wss:",
       "object-src 'none'",
       "base-uri 'self'",

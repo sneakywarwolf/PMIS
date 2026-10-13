@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException, ConflictException, Inject, forwardRef } from '@nestjs/common';
 import { VULN_INCLUDE, withVulnerability } from '../common/finding-vulnerability.util';
 import { ConfigService } from '@nestjs/config';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -551,6 +551,15 @@ export class ReportsService {
     const pocGateBlocked = project.findings.some((f) => !isFindingReportReady(f.pocSteps));
     if (pocGateBlocked) {
       throw new BadRequestException('Report Generation not allowed until Steps and PoC screenshots/attachments are added.');
+    }
+
+    // Duplicate-submission / resource guard: one in-flight generation per project. The 10 min window
+    // keeps a crashed job (never flipped to FAILED) from blocking the project forever.
+    const inFlight = await this.prisma.reportGeneration.count({
+      where: { projectId, status: ReportGenerationStatus.PENDING, createdAt: { gt: new Date(Date.now() - 10 * 60_000) } },
+    });
+    if (inFlight > 0) {
+      throw new ConflictException('A report is already being generated for this project. Please wait for it to finish.');
     }
 
     let template = project.template;

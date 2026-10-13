@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { isCrossSiteWrite } from './common/csrf.util';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -67,6 +68,16 @@ async function bootstrap() {
 
   // Cookie parser
   app.use(cookieParser());
+
+  // CSRF defence in depth (cookies are already SameSite=strict): refuse browser-flagged cross-site writes.
+  const appOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
+  app.use((req: any, res: any, next: () => void) => {
+    if (isCrossSiteWrite(req.method, req.headers, appOrigin)) {
+      res.status(403).json({ statusCode: 403, message: 'Cross-site request blocked' });
+      return;
+    }
+    next();
+  });
 
   // CORS
   app.enableCors({

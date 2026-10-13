@@ -1,6 +1,6 @@
 # PMIS Security Audit and Hardening Report
 
-Branch `worktree-security-hardening`. Method: manual code review of the backend, plus targeted frontend, Docker and CI review. Automated evidence: backend Jest (44 suites, 269 tests) and `tsc --noEmit` pass; `npm audit --omit=dev` run on both apps. **Not run:** SAST, secret scan, container scan, SBOM generation, DAST, frontend build/tests, the new CI workflow. A passing test run is not proof of absence of vulnerabilities.
+Branch `worktree-security-hardening`. Method: manual code review of the backend, plus targeted frontend, Docker and CI review. Automated evidence: backend Jest (45 suites, 274 tests) and `tsc --noEmit` pass; `npm audit --omit=dev` run on both apps. **Not run:** SAST, secret scan, container scan, SBOM generation, DAST, frontend build/tests, the new CI workflow. A passing test run is not proof of absence of vulnerabilities.
 
 ## 1. Findings fixed (each has regression tests)
 
@@ -19,6 +19,8 @@ Branch `worktree-security-hardening`. Method: manual code review of the backend,
 | F11 | Med | Frontend (only published service) sent no security headers | CSP, nosniff, X-Frame-Options, Referrer-Policy, Permissions-Policy |
 | F12 | Med | No tight limits on expensive endpoints | Extra per-user budget (default 20/min, `HEAVY_RATE_LIMIT_PER_MIN`) on imports, uploads, report/issue-log generation, exports |
 | F13 | Med | CSV/XLSX parsers had no row/column/decompression limits | 200k rows, 200 columns, XLSX 100 MB declared / 500 entries / 50k rows |
+| F16 | Med | No duplicate-submission guard on report generation (races could produce duplicate versions and unbounded queued work) | One in-flight generation per project (10 min window), 409 otherwise |
+| F17 | Med | CSRF relied on SameSite=strict alone | Origin / Sec-Fetch-Site check on state-changing requests (`common/csrf.util.ts`); same-origin access via the Next proxy from any hostname still allowed |
 | F14 | Low | Download filename header could carry quotes/newlines | Sanitised |
 | F15 | Low | JWT secret strength/reuse not checked | Startup warnings in production |
 
@@ -34,7 +36,7 @@ No known unresolved Critical finding. Blocked because: (a) one High dependency f
 | R1 | High | Frontend: PostCSS bundled in Next.js (GHSA-qx2v-qp2m-jg93 and related); fix needs a Next major upgrade. Build-time CSS processing, not request-reachable, but unresolved | Maintainer, upgrade Next, TBD |
 | R2 | Med | No MFA for Admin accounts; no self-service reset flow (admin-issued temp passwords only) | Maintainer, TBD |
 | R3 | Med | App connects to Postgres as the `pmis` superuser and runs `migrate deploy` at start. Splitting migrate and runtime roles changes deployment; not done to avoid breaking existing volumes | Maintainer, TBD |
-| R4 | Med | CSRF relies on SameSite=strict only (no token); acceptable only while frontend and API share one site | Maintainer, TBD |
+| R4 | Low | Mitigated by F17 (Origin check + SameSite=strict); no synchroniser token. Browsers that omit both Origin and Sec-Fetch-Site on writes are not covered | Maintainer, TBD |
 | R5 | Med | `minio/minio:latest` and base images not pinned by digest; no TLS/auth beyond the internal Docker network for Redis/Postgres/MinIO; no encryption at rest configured | Operator, TBD |
 | R6 | Low | Backend moderate/low npm advisories (qs, uuid, etc.); fix may be breaking | Maintainer, TBD |
 | R7 | Low | Rate limiter fails open if Redis is down (deliberate availability trade-off) | Accepted |
@@ -42,6 +44,7 @@ No known unresolved Critical finding. Blocked because: (a) one High dependency f
 | R9 | Low | Any Team Lead/AVP/Admin can approve global-library vulnerability requests (existing business rule) | Accepted pending product confirmation |
 | R10 | Low | Malware scanning/quarantine of uploads not implemented; no DAST; audit log retention/immutability not reviewed | Operator, TBD |
 | R11 | Low | Report-generation concurrency (duplicate submissions) and multi-step transaction boundaries only partly reviewed | Maintainer, TBD |
+| R13 | Info | CSP allows Google Fonts hosts (`globals.css` imports them); self-hosting the fonts would remove the third-party dependency. Frontend CSP not yet verified in a browser | Maintainer, TBD |
 | R12 | Info | CSP allows `'unsafe-inline'` scripts/styles (Next bootstrap and static theme script); nonce-based CSP is a later improvement | Maintainer, TBD |
 
 ## 5. Production configuration checklist
