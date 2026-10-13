@@ -1,0 +1,72 @@
+name: security
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    - cron: '0 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - working-directory: apps/backend
+        run: |
+          npm ci
+          npx prisma generate
+          npx jest
+
+  sca:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: npm audit backend (fails on high/critical)
+        run: cd apps/backend && npm ci --ignore-scripts && npm audit --omit=dev --audit-level=high
+      # Known open High: PostCSS bundled in Next (GHSA-qx2v-qp2m-jg93 etc.), fix needs a Next major upgrade.
+      # Tracked in the residual risk register; remove continue-on-error once Next is upgraded.
+      - name: npm audit frontend (reported, non-blocking until Next upgrade)
+        continue-on-error: true
+        run: cd apps/frontend && npm ci --ignore-scripts && npm audit --omit=dev --audit-level=high
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks detect --redact --no-banner
+
+  sast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: semgrep
+        run: |
+          pip install semgrep
+          semgrep scan --config p/typescript --config p/nodejs --config p/secrets --error apps/backend/src apps/frontend/src
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: build and scan images (trivy, fails on high/critical)
+        run: |
+          docker build -t pmis-backend:ci apps/backend
+          docker build -t pmis-frontend:ci apps/frontend
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.52.2
+          for i in backend frontend; do
+            trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed pmis-$i:ci
+            trivy image --format cyclonedx --output sbom-$i.json pmis-$i:ci
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom-*.json
