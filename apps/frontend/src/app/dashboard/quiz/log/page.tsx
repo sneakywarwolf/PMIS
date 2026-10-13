@@ -119,10 +119,10 @@ export default function QuizLogPage() {
                 </div>
 
                 {!detail.myAttempt && (
-                  <p className="text-xs text-amber-400">You missed this one. Pick an answer to record it as a late answer — it earns no points and doesn't affect the leaderboard.</p>
+                  <p className="text-xs text-amber-400">You missed this one. Pick an answer to record it as a late answer â€” it earns no points and doesn't affect the leaderboard.</p>
                 )}
                 {detail.myAttempt?.isLate && (
-                  <p className="text-xs text-amber-400">Answered late — no points awarded.</p>
+                  <p className="text-xs text-amber-400">Answered late â€” no points awarded.</p>
                 )}
 
                 <div className="space-y-2">
