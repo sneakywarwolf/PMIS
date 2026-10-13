@@ -15,6 +15,7 @@ import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-gener
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { canAccessProject } from '../common/project-access.util';
+import { assertSafeDocx, safeFileName } from '../common/docx-package.util';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
 
@@ -62,9 +63,11 @@ export class ReportsService {
     ipAddress: string,
     userAgent: string,
   ) {
-    if (!file.originalname.endsWith('.docx')) {
+    if (!file?.buffer || !file.originalname.toLowerCase().endsWith('.docx')) {
       throw new BadRequestException('Only .docx templates are allowed');
     }
+    // Reject malformed/dangerous packages before anything is parsed, stored or written to the DB.
+    await assertSafeDocx(file.buffer);
 
     const fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
 
@@ -101,8 +104,8 @@ export class ReportsService {
       comparedTo: previousActive ? previousActive.name : null,
     };
 
-    const objectName = `templates/${category}/${subType}/${Date.now()}_${file.originalname}`;
-    await this.storage.uploadFile(objectName, file.buffer, file.mimetype);
+    const objectName = `templates/${category}/${subType}/${Date.now()}_${safeFileName(file.originalname)}`;
+    await this.storage.uploadFile(objectName, file.buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 
     // Uploads are created as INACTIVE drafts — activation is a separate,
     // explicit step after the admin reviews the validation report.

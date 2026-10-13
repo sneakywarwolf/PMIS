@@ -6,6 +6,17 @@ export type RateLimitResult = { allowed: boolean; retryAfterSec: number; firstRe
 
 const WINDOW_MS = 60_000;
 
+// Expensive endpoints (file imports, template/report generation) get an extra, much smaller per-user budget.
+const HEAVY = [
+  /^POST \/findings\/(nessus\/(preview|import)|upload-poc-image)$/,
+  /^POST \/projects\/[^/]+\/nmap-import$/,
+  /^POST \/reports\/(generate|templates)$/,
+  /^GET \/reports\/issue-log\/[^/]+$/,
+  /^GET \/vulnerabilities\/export$/,
+  /^POST \/(users|vulnerabilities)\/bulk-upload$/,
+];
+export const isHeavyRoute = (method: string, path: string) => HEAVY.some((re) => re.test(`${method} ${path}`));
+
 // ponytail: fixed window allows up to 2x burst across a window edge; switch to sliding window if that matters.
 export async function rateLimit(
   incr: (key: string, windowMs: number) => Promise<number>,
