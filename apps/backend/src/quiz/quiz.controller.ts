@@ -22,13 +22,18 @@ export class QuizController {
   }
 
   @Get('log')
-  getLog(@Query('page', new ParseIntPipe({ optional: true })) page = 1, @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize = 20) {
-    return this.quiz.getLog(page, pageSize);
+  getLog(@CurrentUser('id') userId: string, @Query('page', new ParseIntPipe({ optional: true })) page = 1, @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize = 20) {
+    return this.quiz.getLog(page, pageSize, userId);
   }
 
   @Get('log/:id')
-  getLogEntry(@Param('id') id: string) {
-    return this.quiz.getLogEntry(id);
+  getLogEntry(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.quiz.getLogEntry(id, userId);
+  }
+
+  @Post('log/:id/answer')
+  answerLate(@Param('id') id: string, @CurrentUser('id') userId: string, @Body() dto: AnswerQuizQuestionDto) {
+    return this.quiz.submitLateAnswer(userId, id, dto.selectedOption);
   }
 
   @Get('scorecard')

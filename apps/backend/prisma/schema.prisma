@@ -626,6 +626,8 @@ model QuizAttempt {
   isCorrect      Boolean
   pointsAwarded  Int          @default(0)
   answeredAt     DateTime     @default(now())
+  // Answered after the question's reveal: shown to the user, never scored or counted.
+  isLate         Boolean      @default(false) @map("is_late")
 
   @@unique([questionId, userId])
   @@map("quiz_attempts")

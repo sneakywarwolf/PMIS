@@ -15,8 +15,8 @@ export class EngagementService {
     const [activeUsers, revealedQuestions, attempts, quizParticipants] = await Promise.all([
       this.prisma.user.count({ where: { isActive: true } }),
       this.prisma.quizQuestion.count({ where: { status: 'REVEALED', scheduledFor: { gte: since } } }),
-      this.prisma.quizAttempt.count({ where: { question: { status: 'REVEALED', scheduledFor: { gte: since } } } }),
-      this.prisma.quizAttempt.groupBy({ by: ['userId'], where: { answeredAt: { gte: since } } }),
+      this.prisma.quizAttempt.count({ where: { isLate: false, question: { status: 'REVEALED', scheduledFor: { gte: since } } } }),
+      this.prisma.quizAttempt.groupBy({ by: ['userId'], where: { isLate: false, answeredAt: { gte: since } } }),
     ]);
 
     // Last 4 ISO-style weeks (oldest first) of arcade activity.

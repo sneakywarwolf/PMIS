@@ -67,7 +67,7 @@ export class QuizService {
     await this.prisma.$transaction(async (tx) => {
       await tx.quizQuestion.update({ where: { id: question.id }, data: { status: 'REVEALED', revealedAt } });
 
-      const attempts = await tx.quizAttempt.findMany({ where: { questionId: question.id } });
+      const attempts = await tx.quizAttempt.findMany({ where: { questionId: question.id, isLate: false } });
       for (const attempt of attempts) {
         const stats = (await tx.quizUserStats.findUnique({ where: { userId: attempt.userId } })) ?? {
           userId: attempt.userId,
@@ -88,7 +88,7 @@ export class QuizService {
         await tx.quizAttempt.update({ where: { id: attempt.id }, data: { pointsAwarded } });
 
         const totalAnswered = await tx.quizAttempt.count({
-          where: { userId: attempt.userId, question: { status: 'REVEALED' } },
+          where: { userId: attempt.userId, isLate: false, question: { status: 'REVEALED' } },
         });
         const badges = new Set(stats.badges);
         if (attempt.isCorrect && totalAnswered === 1) badges.add('FIRST_CORRECT');
@@ -99,7 +99,7 @@ export class QuizService {
         if (totalAnswered === 100) badges.add('ANSWERED_100');
 
         const recentAttempts = await tx.quizAttempt.findMany({
-          where: { userId: attempt.userId, question: { status: 'REVEALED' } },
+          where: { userId: attempt.userId, isLate: false, question: { status: 'REVEALED' } },
           orderBy: { answeredAt: 'desc' },
           take: 7,
         });
@@ -186,7 +186,7 @@ export class QuizService {
     question: { id: string; question: string; options: string[]; correctIndex: number; explanation: string; revealedAt: Date | null },
     userId?: string,
   ) {
-    const attempts = await this.prisma.quizAttempt.findMany({ where: { questionId: question.id } });
+    const attempts = await this.prisma.quizAttempt.findMany({ where: { questionId: question.id, isLate: false } });
     const correctCount = attempts.filter((a) => a.isCorrect).length;
     const userIsCorrect = userId ? attempts.find((a) => a.userId === userId)?.isCorrect ?? null : null;
     return {
@@ -203,25 +203,61 @@ export class QuizService {
     };
   }
 
-  async getLog(page: number, pageSize: number) {
+  /** The caller's own attempt on a question, for the log: what they picked and whether it was late. */
+  private myAttempt(a?: { selectedOption: number; isCorrect: boolean; isLate: boolean } | null) {
+    return a ? { selectedOption: a.selectedOption, isCorrect: a.isCorrect, isLate: a.isLate } : null;
+  }
+
+  async getLog(page: number, pageSize: number, userId?: string) {
     const [items, total] = await Promise.all([
       this.prisma.quizQuestion.findMany({
         where: { status: 'REVEALED' },
         orderBy: { revealedAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
+        ...(userId ? { include: { attempts: { where: { userId } } } } : {}),
       }),
       this.prisma.quizQuestion.count({ where: { status: 'REVEALED' } }),
     ]);
-    return { items, total };
+    if (!userId) return { items, total };
+    return { items: items.map(({ attempts, ...q }: any) => ({ ...q, myAttempt: this.myAttempt(attempts[0]) })), total };
   }
 
-  async getLogEntry(id: string) {
+  async getLogEntry(id: string, userId?: string) {
     const question = await this.prisma.quizQuestion.findUnique({ where: { id } });
     if (!question || question.status !== 'REVEALED') {
       throw new BadRequestException('This question is not in the log.');
     }
-    return this.buildRevealedSummary(question);
+    const summary = await this.buildRevealedSummary(question);
+    if (!userId) return summary;
+    const mine = await this.prisma.quizAttempt.findUnique({ where: { questionId_userId: { questionId: id, userId } } });
+    return { ...summary, myAttempt: this.myAttempt(mine) };
+  }
+
+  /**
+   * Answer a question after its reveal. Stored as a late attempt: it is shown to
+   * the user but never scored (pointsAwarded 0, isLate excluded from every stat),
+   * and the question's status/schedule are untouched. One attempt per user.
+   */
+  async submitLateAnswer(userId: string, questionId: string, selectedOption: number) {
+    const question = await this.prisma.quizQuestion.findUnique({ where: { id: questionId } });
+    if (!question || question.status !== 'REVEALED') {
+      throw new BadRequestException('This question is not available for late answers.');
+    }
+    if (selectedOption >= question.options.length) {
+      throw new BadRequestException('Invalid option.');
+    }
+    try {
+      const a = await this.prisma.quizAttempt.create({
+        data: { questionId, userId, selectedOption, isCorrect: selectedOption === question.correctIndex, pointsAwarded: 0, isLate: true },
+      });
+      return this.myAttempt(a);
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('You have already answered this question.');
+      }
+      throw error;
+    }
   }
 
   /**
@@ -232,7 +268,7 @@ export class QuizService {
    * the answer early.
    */
   private revealedAttemptsWhere(userId?: string): Prisma.QuizAttemptWhereInput {
-    return { ...(userId ? { userId } : {}), question: { status: 'REVEALED' } };
+    return { ...(userId ? { userId } : {}), isLate: false, question: { status: 'REVEALED' } };
   }
 
   async getScorecard(userId: string) {
