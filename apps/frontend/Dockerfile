@@ -55,7 +55,8 @@ USER nextjs
 # Expose port
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \n    CMD wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1
 
 # Start application
 CMD ["npm", "start"]
