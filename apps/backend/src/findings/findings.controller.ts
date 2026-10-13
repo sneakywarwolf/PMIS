@@ -7,6 +7,7 @@ import { StorageService } from '../reports/storage.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { sniffImageType } from '../common/upload-security.util';
 
 @ApiTags('Findings')
 @Controller('findings')
@@ -24,13 +25,14 @@ export class FindingsController {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
-    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
-    if (!allowed.includes(file.mimetype)) {
+    // Real type comes from the file's magic bytes, not the client-supplied MIME type.
+    const type = sniffImageType(file.buffer);
+    if (!type) {
       throw new BadRequestException('Only image files (png, jpg, gif, webp) are allowed');
     }
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-100);
     const objectName = `poc/${randomUUID()}_${safeName}`;
-    await this.storageService.uploadFile(objectName, file.buffer, file.mimetype);
+    await this.storageService.uploadFile(objectName, file.buffer, type);
     return { path: objectName };
   }
 

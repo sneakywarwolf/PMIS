@@ -73,7 +73,7 @@ export class StorageService {
    */
   getPresignedUrl(objectName: string, expirySeconds: number = 3600, downloadFileName?: string): Promise<string> {
     const reqParams = downloadFileName
-      ? { 'response-content-disposition': `attachment; filename="${downloadFileName}"` }
+      ? { 'response-content-disposition': `attachment; filename="${downloadFileName.replace(/["\\\r\n]/g, '_')}"` }
       : undefined;
     return this.minioClient.presignedGetObject(this.bucket, objectName, expirySeconds, reqParams);
   }

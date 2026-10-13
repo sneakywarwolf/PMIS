@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { DOMParser } from '@xmldom/xmldom';
 
 export interface NmapPortRecord {
@@ -13,6 +14,8 @@ export interface NmapPortRecord {
  * the <address> of its enclosing <host> so multiple hosts/ports never mix.
  */
 export function parseNmapXml(xml: string): NmapPortRecord[] {
+  // Scan files are data only: no DTD/entity declarations (XXE, entity expansion).
+  if (/<!DOCTYPE|<!ENTITY/i.test(xml)) throw new BadRequestException('Malformed Nmap file: DTD/entity declarations are not allowed.');
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   const hosts = Array.from(doc.getElementsByTagName('host'));
   const records: NmapPortRecord[] = [];

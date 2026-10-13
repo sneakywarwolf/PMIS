@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { User, UserRole, FindingStatus, ProjectStatus } from '@prisma/client';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
 import { parseNessusFile } from '../common/nessus-parser.util';
+import { assertPocKey, assertPocKeys } from '../common/upload-security.util';
 
 /** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) */
 export type NessusImportStatus = 'new' | 'duplicate';
@@ -226,7 +227,7 @@ export class FindingsService {
         vulnId: data.vulnId,
         projectVulnId: data.projectVulnId,
         testerNotes: data.testerNotes,
-        evidencePaths: data.evidencePaths || [],
+        evidencePaths: data.evidencePaths ? assertPocKeys(data.evidencePaths) : [],
         affectedInstances: data.affectedInstances || [],
         authenticationType: data.authenticationType,
         proofOfConcept: data.proofOfConcept,
@@ -279,11 +280,16 @@ export class FindingsService {
       }
     }
 
+    if (data.status !== undefined) {
+      if (!Object.values(FindingStatus).includes(data.status)) throw new BadRequestException('Invalid status');
+      if (user.role === UserRole.TESTER) throw new ForbiddenException('Testers cannot change finding status');
+    }
+
     const updated = await this.prisma.finding.update({
       where: { id },
       data: {
         ...(data.testerNotes !== undefined && { testerNotes: data.testerNotes }),
-        ...(data.evidencePaths !== undefined && { evidencePaths: data.evidencePaths }),
+        ...(data.evidencePaths !== undefined && { evidencePaths: assertPocKeys(data.evidencePaths) }),
         ...(data.affectedInstances !== undefined && { affectedInstances: data.affectedInstances }),
         ...(data.authenticationType !== undefined && { authenticationType: data.authenticationType }),
         ...(data.proofOfConcept !== undefined && { proofOfConcept: data.proofOfConcept }),
@@ -363,7 +369,7 @@ export class FindingsService {
         findingId,
         stepNo: data.stepNo,
         description: data.description,
-        imagePath: data.imagePath,
+        imagePath: data.imagePath ? assertPocKey(data.imagePath) : undefined,
       },
     });
   }
@@ -390,7 +396,7 @@ export class FindingsService {
       data: {
         ...(data.stepNo !== undefined && { stepNo: data.stepNo }),
         ...(data.description !== undefined && { description: data.description }),
-        ...(data.imagePath !== undefined && { imagePath: data.imagePath }),
+        ...(data.imagePath != null && { imagePath: assertPocKey(data.imagePath) }),
       },
     });
   }
