@@ -6,13 +6,15 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
 import { DocxManipulatorService, FieldRule, FindingData, PocImage } from './docx-manipulator.service';
+import { XlsxTemplateService } from './xlsx-template.service';
 import { NmapPortRecord } from '../common/nmap-parser.util';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
-import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, ReportGenerationStatus } from '@prisma/client';
+import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, ReportGenerationStatus, ReportFormat } from '@prisma/client';
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
-import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
+import { findingPocReadiness } from '../common/poc-validation.util';
+import { nessusTextForReport, stripNessusBoilerplate } from '../common/nessus-text.util';
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
@@ -40,6 +42,7 @@ export class ReportsService {
     private prisma: PrismaService,
     private storage: StorageService,
     private docxManipulator: DocxManipulatorService,
+    private xlsxTemplate: XlsxTemplateService,
     private configService: ConfigService,
     private auditService: AuditService,
     @Inject(forwardRef(() => SettingsService)) private settingsService: SettingsService,
@@ -60,9 +63,17 @@ export class ReportsService {
     adminId: string,
     ipAddress: string,
     userAgent: string,
+    reportFormat: ReportFormat = ReportFormat.WORD,
   ) {
+    if (reportFormat === ReportFormat.EXCEL) {
+      return this.uploadExcelTemplate(file, name, category, subType, effectiveFrom, effectiveTo, adminId, ipAddress, userAgent);
+    }
     if (!file.originalname.endsWith('.docx')) {
-      throw new BadRequestException('Only .docx templates are allowed');
+      throw new BadRequestException(
+        file.originalname.toLowerCase().endsWith('.xlsx')
+          ? 'This is an .xlsx file: choose Report Type "Excel Report", or upload a .docx for a Word Report'
+          : 'Only .docx templates are allowed for a Word Report',
+      );
     }
 
     const fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
@@ -88,7 +99,7 @@ export class ReportsService {
 
     // Diff against the currently active version of the same category + subType
     const previousActive = await this.prisma.reportTemplate.findFirst({
-      where: { category, subType, isActive: true },
+      where: { category, subType, isActive: true, reportFormat: ReportFormat.WORD },
       include: { fields: true },
       orderBy: { effectiveFrom: 'desc' },
     });
@@ -163,9 +174,10 @@ export class ReportsService {
     };
   }
 
-  async getTemplates(category?: TemplateCategory, subType?: TemplateSubType, includeInactive = false) {
+  async getTemplates(category?: TemplateCategory, subType?: TemplateSubType, includeInactive = false, reportFormat?: ReportFormat) {
     const where: any = {};
     if (!includeInactive) where.isActive = true;
+    if (reportFormat) where.reportFormat = reportFormat;
     if (category) where.category = category;
     if (subType) where.subType = subType;
 
@@ -354,6 +366,7 @@ export class ReportsService {
       where: {
         category: template.category,
         subType: template.subType,
+        reportFormat: template.reportFormat,
         isActive: true,
         id: { not: id },
       },
@@ -500,7 +513,7 @@ export class ReportsService {
 
     for (const finding of project.findings) {
       const vulnName = finding.vulnerability?.name || finding.id;
-      const readiness = getPocReadiness(finding.pocSteps);
+      const readiness = findingPocReadiness(finding, project.subType);
       if (readiness === 'both_missing') {
         missing.push({ field: 'pocStepsAndScreenshot', label: 'Steps & PoC Missing', source: `Finding: ${vulnName}` });
       } else if (readiness === 'steps_missing') {
@@ -509,7 +522,7 @@ export class ReportsService {
         missing.push({ field: 'pocScreenshot', label: 'PoC Missing', source: `Finding: ${vulnName}` });
       }
     }
-    const pocGateBlocked = project.findings.some((f) => getPocReadiness(f.pocSteps) !== 'ready');
+    const pocGateBlocked = project.findings.some((f) => findingPocReadiness(f, project.subType) !== 'ready');
 
     const nextVersion = await this.getNextReportVersion(projectId);
     const reportDate = await this.getFormattedReportDateParam();
@@ -541,25 +554,33 @@ export class ReportsService {
     user: User,
     ipAddress: string,
     userAgent: string,
+    reportFormat: ReportFormat = ReportFormat.WORD,
   ) {
     const project = await this.loadProjectForReport(projectId, user);
 
-    const pocGateBlocked = project.findings.some((f) => !isFindingReportReady(f.pocSteps));
+    if (reportFormat === ReportFormat.EXCEL && project.subType !== TemplateSubType.NETWORK) {
+      throw new BadRequestException('Excel reports are only available for Network projects');
+    }
+
+    const pocGateBlocked = project.findings.some((f) => findingPocReadiness(f, project.subType) !== 'ready');
     if (pocGateBlocked) {
       throw new BadRequestException('Report Generation not allowed until Steps and PoC screenshots/attachments are added.');
     }
 
-    let template = project.template;
+    // A project's pinned template is always a Word one; the Excel template is looked up by category + sub type.
+    let template = reportFormat === ReportFormat.WORD && project.template?.reportFormat !== ReportFormat.EXCEL ? project.template : null;
     if (!template) {
       template = await this.prisma.reportTemplate.findFirst({
-        where: { isActive: true, category: project.category, subType: project.subType },
+        where: { isActive: true, category: project.category, subType: project.subType, reportFormat },
         orderBy: { effectiveFrom: 'desc' },
         include: { fields: true },
       });
     }
     if (!template) {
       throw new BadRequestException(
-        `No active template found for ${project.category} / ${project.subType}`,
+        reportFormat === ReportFormat.EXCEL
+          ? `No active Excel template is available for ${project.category} / ${project.subType}. Ask an Admin to upload and activate one, or generate the Word report instead.`
+          : `No active template found for ${project.category} / ${project.subType}`,
       );
     }
 
@@ -666,6 +687,11 @@ export class ReportsService {
         );
       }
 
+      if (template.reportFormat === ReportFormat.EXCEL) {
+        await this.processExcelGeneration(reportGenerationId, project, template, templateBuffer, actorId, ipAddress, userAgent, reportGeneration.version);
+        return;
+      }
+
       const certIn = template.category === TemplateCategory.CERT_IN;
       const sortedFindings = project.findings
         .map((f) => ({
@@ -698,6 +724,8 @@ export class ReportsService {
           pocSteps.push({ stepNo: step.stepNo, description: step.description, imageKey });
         }
 
+        // Scan-imported (VA) findings only: tidy Nessus' wrapping/spacing in what is printed. Stored data is untouched.
+        const isVa = f.findingType === 'VA';
         findingsData.push({
           no: index + 1,
           title: f.vulnerability.name,
@@ -706,7 +734,7 @@ export class ReportsService {
             : f.vulnerability.severity,
           cvssScore: effectiveScore,
           cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
-          description: f.vulnerability.description,
+          description: isVa ? nessusTextForReport(stripNessusBoilerplate(f.vulnerability.description)) : f.vulnerability.description,
           impact: f.vulnerability.impact,
           remediation: f.vulnerability.remediation,
           references: f.vulnerability.references,
@@ -717,6 +745,9 @@ export class ReportsService {
           vulnerabilityDependency: f.vulnerabilityDependency,
           reportStatus: f.reportStatus,
           classification: f.classification,
+          // Scan-imported (VA) findings only: PT findings never get scan output printed.
+          pocText: f.classification ? nessusTextForReport((f as any).proofOfConcept) || null : null,
+          findingType: f.findingType,
           pocSteps,
         });
       }
@@ -742,6 +773,7 @@ export class ReportsService {
         (project.nmapPorts as NmapPortRecord[] | null) || [],
         (project.toolsUsedTable as { name: string; version: string; licenseType: string }[] | null) || [],
         fileName,
+        { splitVaPt: project.subType === 'NETWORK' },
       );
 
       const docxName = `reports/${project.id}/${Date.now()}_${fileName}`;
@@ -783,6 +815,197 @@ export class ReportsService {
         data: { status: ReportGenerationStatus.FAILED, error: error?.message || 'Unknown error' },
       });
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Excel (.xlsx) templates
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Same rule order the Word report uses (admin-mapped, then built-in, then custom) and the very same
+   * lookup (DocxManipulatorService.buildResolver), exposed to the workbook by raw placeholder text.
+   */
+  private excelResolver(template: any, project: any, version: string, reportDate: string, reportName?: string) {
+    const rules = this.buildMappedFieldRules(template, project, version, reportDate, reportName)
+      .concat(this.buildFieldRules(project, version, reportDate))
+      .concat(this.buildCustomFieldRules(project));
+    const lookup = this.docxManipulator.buildResolver(rules);
+    return (raw: string) => {
+      const name = this.slugifyFieldName(raw).substring(0, 100);
+      if (!name) return undefined;
+      if (name === 'report_name' && reportName) return reportName;
+      return lookup(name);
+    };
+  }
+
+  private async uploadExcelTemplate(
+    file: Express.Multer.File,
+    name: string,
+    category: TemplateCategory,
+    subType: TemplateSubType,
+    effectiveFrom: Date,
+    effectiveTo: Date | null,
+    adminId: string,
+    ipAddress: string,
+    userAgent: string,
+  ) {
+    if (!file.originalname.toLowerCase().endsWith('.xlsx')) {
+      throw new BadRequestException(
+        file.originalname.toLowerCase().endsWith('.docx')
+          ? 'This is a .docx file: choose Report Type "Word Report", or upload an .xlsx for an Excel Report'
+          : 'Only .xlsx templates are allowed for an Excel Report',
+      );
+    }
+
+    const fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
+
+    let rawNames: string[];
+    try {
+      rawNames = await this.xlsxTemplate.extractPlaceholders(file.buffer);
+    } catch (error: any) {
+      throw new BadRequestException(`Could not read the Excel template: ${error?.message || 'invalid workbook'}`);
+    }
+
+    // Same normalisation and categorisation as Word placeholders, so the same names land in the same groups.
+    const seen = new Set<string>();
+    const analysed = rawNames
+      .map((raw) => ({ raw, normalizedName: this.slugifyFieldName(raw).substring(0, 100) }))
+      .filter((f) => f.normalizedName && !seen.has(f.normalizedName) && !!seen.add(f.normalizedName))
+      .map((f) => ({
+        name: f.raw,
+        normalizedName: f.normalizedName,
+        category: this.docxManipulator.categorizeFieldName(f.raw),
+        description: f.raw,
+        isRepeatable: false,
+      }));
+
+    // Admin should not have to map again: start from the mappings already saved on the active Word template
+    // of the same category + sub type (copied by name; that template is not modified).
+    const wordTemplate = await this.prisma.reportTemplate.findFirst({
+      where: { category, subType, isActive: true, reportFormat: ReportFormat.WORD },
+      include: { fields: true },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+    const savedMapping = new Map((wordTemplate?.fields || []).filter((f) => f.mappedParameter).map((f) => [f.normalizedName, f.mappedParameter!]));
+
+    const previousActive = await this.prisma.reportTemplate.findFirst({
+      where: { category, subType, isActive: true, reportFormat: ReportFormat.EXCEL },
+      include: { fields: true },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+    const newNames = new Set(analysed.map((f) => f.normalizedName));
+    const oldNames = new Set((previousActive?.fields || []).map((f) => f.normalizedName));
+    const fieldDiff = {
+      added: [...newNames].filter((n) => !oldNames.has(n)),
+      removed: [...oldNames].filter((n) => !newNames.has(n)),
+      comparedTo: previousActive ? previousActive.name : null,
+    };
+
+    // Dry run against sample data: proves the workbook can be rewritten before it can be activated.
+    let dryRunOk = false;
+    let dryRunError: string | null = null;
+    try {
+      await this.xlsxTemplate.fill(file.buffer, () => 'Dry Run');
+      dryRunOk = true;
+    } catch (error: any) {
+      dryRunError = error?.message || 'Dry-run generation failed';
+    }
+
+    const objectName = `templates/${category}/${subType}/${Date.now()}_${file.originalname}`;
+    await this.storage.uploadFile(objectName, file.buffer, file.mimetype);
+
+    const template = await this.prisma.reportTemplate.create({
+      data: {
+        name,
+        filePath: objectName,
+        originalFileName: file.originalname,
+        fileHash,
+        category,
+        subType,
+        projectType: `${category}_${subType}`,
+        reportFormat: ReportFormat.EXCEL,
+        effectiveFrom,
+        effectiveTo,
+        isActive: false,
+        uploadedById: adminId,
+        fields: {
+          create: analysed.map((field, index) => ({
+            name: field.name,
+            normalizedName: field.normalizedName,
+            category: field.category.toUpperCase() as any,
+            description: field.description,
+            isRepeatable: field.isRepeatable,
+            sortOrder: index,
+            mappedParameter: savedMapping.get(field.normalizedName) ?? null,
+          })),
+        },
+      },
+      include: { fields: true },
+    });
+
+    await this.auditService.log({
+      actorId: adminId,
+      action: 'TEMPLATE_UPLOADED',
+      targetType: 'TEMPLATE',
+      targetId: template.id,
+      ipAddress,
+      userAgent,
+      details: { name, category, subType, reportFormat: 'EXCEL', fieldCount: analysed.length, dryRunOk },
+    });
+
+    return {
+      ...template,
+      validation: {
+        fieldCount: analysed.length,
+        hasSummaryTable: null,
+        hasDetailedTable: null,
+        missingMandatory: [] as string[],
+        warnings: analysed.length === 0 ? ['No {Parameter} placeholders were found on any worksheet.'] : [],
+        dryRunOk,
+        dryRunError,
+        fieldDiff,
+        canActivate: dryRunOk,
+      },
+    };
+  }
+
+  private async processExcelGeneration(
+    reportGenerationId: string,
+    project: any,
+    template: any,
+    templateBuffer: Buffer,
+    actorId: string,
+    ipAddress: string,
+    userAgent: string,
+    version: string,
+  ): Promise<void> {
+    const { settings } = await this.settingsService.get();
+    const reportDate = formatReportDateByPattern(new Date(), settings.formatting?.reportDateFormat || DEFAULT_REPORT_DATE_FORMAT);
+    const fileName = this.buildReportFileName(project, version, template, reportDate);
+
+    this.logger.log(`Generating Excel report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
+    const buffer = await this.xlsxTemplate.fill(templateBuffer, this.excelResolver(template, project, version, reportDate, fileName));
+
+    const objectName = `reports/${project.id}/${Date.now()}_${fileName}`;
+    await this.storage.uploadFile(objectName, buffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+    await this.prisma.reportGeneration.update({
+      where: { id: reportGenerationId },
+      data: { status: ReportGenerationStatus.COMPLETED, docxPath: objectName },
+    });
+    await this.prisma.project.update({
+      where: { id: project.id },
+      data: { generatedAt: new Date(), status: ProjectStatus.COMPLETED, reportVersionCounter: { increment: 1 } },
+    });
+    await this.auditService.log({
+      actorId,
+      action: 'REPORT_GENERATED',
+      targetType: 'PROJECT',
+      targetId: project.id,
+      ipAddress,
+      userAgent,
+      details: { templateId: template.id, format: 'xlsx', fileName, version },
+    });
   }
 
   /**
@@ -1085,6 +1308,7 @@ export class ReportsService {
       { match: ['android_ios'], value: project.mobilePlatform || '' },
       { match: ['sha_1', 'sha1'], value: project.sha1 || '' },
       { match: ['external_internal'], value: project.externalInternal || '' },
+      { match: ['vapt'], value: project.networkActivityType || '' },
       { match: ['quarter'], value: project.quarter || '' },
       // {Number of Days} repeats once per audit phase (Planning, Information
       // Gathering, Scanning & Exploitation, Reporting), in that document order.
@@ -1129,7 +1353,8 @@ export class ReportsService {
       .replace(/\s+/g, '-') // no spaces, ever — applies to both static text and resolved values
       .replace(/[<>:"/\\|?*]+/g, '-') // strip filesystem-invalid characters
       .replace(/-{2,}/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replace(/_{2,}/g, '_') // an empty value (e.g. no {Quarter}) must not leave "__" between its neighbours
+      .replace(/^[-_]+|[-_]+$/g, '');
 
     return `${sanitizedBase || 'Report'}${ext}`;
   }

@@ -31,6 +31,7 @@ import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
 import { PasswordGeneratorButton } from '@/components/password-generator-button';
 import { NessusImportDialog } from '@/components/nessus-import-dialog';
+import { stripCvssPrefix } from '@/lib/cvss';
 import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
 import { formatReportDate } from '@/lib/report-date';
 import { TRANSITION_VARIANTS, TRANSITION_TIMING } from '@/lib/page-transitions';
@@ -63,6 +64,8 @@ interface Vulnerability {
   severity: string;
   cvssScore: number | null;
   cvssVector: string | null;
+  // Only set on project-scoped (Nessus) records: nessus | calculated | unresolved.
+  cvssVectorSource?: 'nessus' | 'calculated' | 'unresolved' | null;
   description: string;
   impact: string;
   remediation: string;
@@ -86,6 +89,8 @@ interface Finding {
   vulnerability: Vulnerability;
   // 'VA Finding' for scan imports (Nessus); null for findings from the Vulnerability DB.
   classification?: string | null;
+  // 'VA' = Nessus import (project-scoped), 'PT' = added from the Vulnerability DB.
+  findingType?: 'VA' | 'PT';
   testerNotes: string;
   evidencePaths: string[];
   status: string;
@@ -128,6 +133,7 @@ interface Project {
   mobilePlatform?: string;
   sha1?: string;
   externalInternal?: string;
+  networkActivityType?: string;
   totalScopeCount?: number;
   networkScope?: { ip: string; domainHostname: string; purpose: string }[];
   toolsUsedTable?: { name: string; version: string; licenseType: string }[];
@@ -155,6 +161,8 @@ export default function ProjectDetailPage() {
   const [generatingReport, setGeneratingReport] = useState(false);
   const [reportResult, setReportResult] = useState<any>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showFormatMenu, setShowFormatMenu] = useState(false);
+  const [findingFilter, setFindingFilter] = useState<'ALL' | 'VA' | 'PT'>('ALL');
 
   const fetchProject = useCallback(async () => {
     try {
@@ -254,13 +262,14 @@ export default function ProjectDetailPage() {
     setNessusFile(file);
   };
 
-  const handleGenerateReport = async () => {
+  const handleGenerateReport = async (reportFormat: 'WORD' | 'EXCEL' = 'WORD') => {
     if (!project) return;
+    setShowFormatMenu(false);
     setGeneratingReport(true);
     try {
       // Generation runs in a background queue so it doesn't block other
       // users generating reports at the same time — poll until it's done.
-      const queued = await api.post('/reports/generate', { projectId: project.id });
+      const queued = await api.post('/reports/generate', reportFormat === 'EXCEL' ? { projectId: project.id, reportFormat } : { projectId: project.id });
       const reportId = queued.data.reportId;
 
       let status = queued.data.status;
@@ -452,6 +461,7 @@ export default function ProjectDetailPage() {
           {project.subType === 'NETWORK' && (
             <>
               <InfoField label="Scope Exposure" value={project.externalInternal || 'N/A'} />
+              <InfoField label="Network Activity Type" value={project.networkActivityType || 'N/A'} />
               <InfoField label="Total Scope Count" value={project.totalScopeCount != null ? String(project.totalScopeCount) : 'N/A'} />
             </>
           )}
@@ -631,17 +641,56 @@ export default function ProjectDetailPage() {
               <AlertTriangle className="w-4 h-4" />
               Issue Log
             </button>
-            <button
-              onClick={handleGenerateReport}
-              disabled={generatingReport}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
-            >
-              {generatingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-              {generatingReport ? 'Generating...' : 'Report'}
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => (project.subType === 'NETWORK' ? setShowFormatMenu((v) => !v) : handleGenerateReport())}
+                disabled={generatingReport}
+                aria-haspopup={project.subType === 'NETWORK' ? 'menu' : undefined}
+                aria-expanded={project.subType === 'NETWORK' ? showFormatMenu : undefined}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+              >
+                {generatingReport ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                {generatingReport ? 'Generating...' : 'Report'}
+                {project.subType === 'NETWORK' && !generatingReport && <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+              {project.subType === 'NETWORK' && showFormatMenu && (
+                <div role="menu" className="absolute right-0 mt-1 z-20 w-56 rounded-lg border border-gray-700 bg-gray-900 shadow-xl overflow-hidden">
+                  <button role="menuitem" onClick={() => handleGenerateReport('WORD')} className="w-full text-left px-4 py-2.5 text-sm text-gray-200 hover:bg-white/5">
+                    Word Report (.docx)
+                  </button>
+                  <button role="menuitem" onClick={() => handleGenerateReport('EXCEL')} className="w-full text-left px-4 py-2.5 text-sm text-gray-200 hover:bg-white/5 border-t border-gray-800">
+                    Excel Report (.xlsx)
+                  </button>
+                </div>
+              )}
+            </div>
             <PasswordGeneratorButton />
           </div>
         </div>
+
+        {project.subType === 'NETWORK' && (
+          <div className="flex items-center gap-2" role="tablist" aria-label="Filter findings">
+            {(['ALL', 'VA', 'PT'] as const).map((key) => {
+              const count = key === 'ALL' ? project.findings.length : project.findings.filter((f) => f.findingType === key).length;
+              const label = key === 'ALL' ? 'All' : key === 'VA' ? 'VA Findings' : 'PT Findings';
+              return (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={findingFilter === key}
+                  onClick={() => setFindingFilter(key)}
+                  className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
+                    findingFilter === key
+                      ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30'
+                      : 'bg-gray-800/50 text-gray-400 border-gray-700 hover:text-white'
+                  }`}
+                >
+                  {label} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {project.findings.length === 0 ? (
           <div className="text-center py-12 glass-card rounded-xl">
@@ -658,12 +707,17 @@ export default function ProjectDetailPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {project.findings.map((finding, index) => (
+            {(project.subType === 'NETWORK' && findingFilter !== 'ALL'
+              ? project.findings.filter((f) => f.findingType === findingFilter)
+              : project.findings
+            ).map((finding, index) => (
               <FindingCard
                 key={finding.id}
                 finding={finding}
                 index={index}
                 canEdit={canEditFindings}
+                network={project.subType === 'NETWORK'}
+                typeIndicator={project.subType === 'NETWORK' && findingFilter === 'ALL' ? finding.findingType ?? null : null}
                 onEdit={() => { setEditingFinding(finding); setShowAddModal(true); }}
                 onDelete={() => handleDeleteFinding(finding.id)}
               />
@@ -724,6 +778,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     mobilePlatform: project.mobilePlatform || '',
     sha1: project.sha1 || '',
     externalInternal: project.externalInternal || '',
+    networkActivityType: project.networkActivityType || '',
     totalScopeCount: project.totalScopeCount != null ? String(project.totalScopeCount) : '',
     quarter: project.quarter || '',
     complianceType: project.complianceType || 'VAPT',
@@ -770,7 +825,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
   useEffect(() => {
     const fetchTemplates = async () => {
       try {
-        const res = await api.get(`/reports/templates?category=${form.complianceType}`);
+        const res = await api.get(`/reports/templates?category=${form.complianceType}&reportFormat=WORD`);
         setTemplates(res.data);
       } catch (error) {
         console.error('Failed to fetch templates:', error);
@@ -929,6 +984,15 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
                     <option value="">Select exposure</option>
                     <option value="External">External</option>
                     <option value="Internal">Internal</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Network Activity Type</label>
+                  <select value={form.networkActivityType} onChange={(e) => set('networkActivityType', e.target.value)} className={inputCls}>
+                    <option value="">Select activity type</option>
+                    <option value="VA">VA</option>
+                    <option value="PT">PT</option>
+                    <option value="VAPT">VAPT</option>
                   </select>
                 </div>
                 <div>
@@ -1126,10 +1190,14 @@ function InfoField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
+function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, onDelete }: {
   finding: Finding;
   index: number;
   canEdit: boolean;
+  // Network projects: show CVSS vector and CVE IDs, and the VA/PT indicator instead of the classification badge.
+  network: boolean;
+  // 'VA' | 'PT' only while the All tab is selected; null under a VA/PT tab (the tab already says which).
+  typeIndicator: 'VA' | 'PT' | null;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -1165,15 +1233,49 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[finding.vulnerability.severity] || severityColors.Info}`}>
               {finding.vulnerability.severity}
             </span>
-            {finding.classification && (
+            {!network && finding.classification && (
               <span className="px-2 py-0.5 rounded-full text-xs font-medium border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
                 {finding.classification}
+              </span>
+            )}
+            {typeIndicator && (
+              <span
+                title={typeIndicator === 'VA' ? 'VA finding (imported from a Nessus scan)' : 'PT finding (added from the Vulnerability DB)'}
+                className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                  typeIndicator === 'VA'
+                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+                    : 'bg-violet-500/10 text-violet-400 border-violet-500/20'
+                }`}
+              >
+                {typeIndicator}
+              </span>
+            )}
+            {finding.vulnerability.cvssVectorSource === 'calculated' && (
+              <span
+                title={`Calculated from the imported score and the project's exposure; several vectors can give this score. Review before relying on it.\n${stripCvssPrefix(finding.vulnerability.cvssVector)}`}
+                className="px-2 py-0.5 rounded-full text-xs font-medium border bg-amber-500/10 text-amber-400 border-amber-500/20"
+              >
+                CVSS vector: calculated, review
+              </span>
+            )}
+            {finding.vulnerability.cvssVectorSource === 'unresolved' && (
+              <span
+                title="No vector in the scan, and none could be determined from the score and the project's exposure."
+                className="px-2 py-0.5 rounded-full text-xs font-medium border bg-gray-500/10 text-gray-400 border-gray-500/20"
+              >
+                CVSS vector: unresolved
               </span>
             )}
           </div>
           <p className="text-xs text-gray-500 mt-0.5 truncate">
             CVSS: {cvss} {finding.cvssScoreOverride !== null && finding.cvssScoreOverride !== undefined && (
               <span className="text-amber-400">(overridden)</span>
+            )}
+            {network && (
+              <>
+                {' | '}
+                <span className="font-mono" title="CVSS vector">{stripCvssPrefix(finding.cvssVectorOverride ?? finding.vulnerability.cvssVector) || '-'}</span>
+              </>
             )}
             {finding.vulnerability.cveId && <span className="text-cyan-400 ml-2">{finding.vulnerability.cveId}</span>}
           </p>
@@ -1230,6 +1332,12 @@ function FindingCard({ finding, index, canEdit, onEdit, onDelete }: {
                   <p className="text-white">{finding.reportStatus}</p>
                 </div>
               </div>
+              {network && finding.vulnerability.cveId && (
+                <div>
+                  <p className="text-gray-500 text-xs">CVE ID(s)</p>
+                  <p className="text-cyan-400 text-sm mt-1 break-words">{finding.vulnerability.cveId}</p>
+                </div>
+              )}
               {finding.affectedInstances.length > 0 && (
                 <div>
                   <p className="text-gray-500 text-xs">Affected Instances</p>
@@ -1744,9 +1852,9 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                 <label className="block text-xs text-gray-400 mb-1">CVSS Vector Override</label>
                 <input
                   type="text"
-                  value={form.cvssVectorOverride}
+                  value={stripCvssPrefix(form.cvssVectorOverride)}
                   onChange={(e) => setForm({ ...form, cvssVectorOverride: e.target.value })}
-                  placeholder={selectedVuln?.cvssVector || 'Default from DB'}
+                  placeholder={stripCvssPrefix(selectedVuln?.cvssVector) || 'Default from DB'}
                   className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 text-sm text-white font-mono text-xs"
                 />
               </div>
@@ -2012,7 +2120,7 @@ function CvssCalculator({ initialVector, onApply }: {
           Apply to Finding
         </button>
       </div>
-      <p className="text-xs text-gray-500 font-mono break-all">{vector}</p>
+      <p className="text-xs text-gray-500 font-mono break-all">{stripCvssPrefix(vector)}</p>
     </div>
   );
 }

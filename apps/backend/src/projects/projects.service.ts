@@ -3,10 +3,10 @@ import { VULN_INCLUDE, withVulnerability, bySeverityScore } from '../common/find
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ProjectPurgeService } from '../common/project-purge.service';
-import { User, UserRole, ProjectStatus, NotificationType } from '@prisma/client';
+import { User, UserRole, ProjectStatus, NotificationType, ReportFormat } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
-import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
+import { findingPocReadiness } from '../common/poc-validation.util';
 import { parseNmapScan, NmapPortRecord } from '../common/nmap-parser.util';
 
 /**
@@ -126,7 +126,7 @@ export class ProjectsService {
       findings: result.findings
         .map(withVulnerability)
         .sort(bySeverityScore)
-        .map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps), pocReadiness: getPocReadiness(f.pocSteps) })),
+        .map((f) => { const pocReadiness = findingPocReadiness(f, result.subType); return { ...f, pocComplete: pocReadiness === 'ready', pocReadiness }; }),
     };
   }
 
@@ -138,6 +138,7 @@ export class ProjectsService {
           isActive: true,
           category: dto.category,
           subType: dto.subType,
+          reportFormat: ReportFormat.WORD,
         },
         orderBy: { effectiveFrom: 'desc' },
       });
@@ -175,6 +176,7 @@ export class ProjectsService {
         mobilePlatform: dto.mobilePlatform,
         sha1: dto.sha1,
         externalInternal: dto.externalInternal,
+        networkActivityType: dto.networkActivityType,
         totalScopeCount: dto.totalScopeCount,
         networkScope: dto.networkScope as any,
         quarter: dto.quarter,
@@ -214,7 +216,7 @@ export class ProjectsService {
       'appVersion', 'location', 'documentVersion', 'toolsUsed', 'testingEnvironment',
       'qaReviewerName', 'applicationDetails', 'testingType', 'loginSystemTypes',
       'applicationNature', 'testingLimitation', 'complianceType',
-      'mobilePlatform', 'sha1', 'externalInternal', 'totalScopeCount', 'networkScope', 'quarter',
+      'mobilePlatform', 'sha1', 'externalInternal', 'networkActivityType', 'totalScopeCount', 'networkScope', 'quarter',
       'toolsUsedTable',
     ] as const;
 

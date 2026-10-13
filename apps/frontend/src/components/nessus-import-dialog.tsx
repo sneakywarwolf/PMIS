@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Loader2, Search } from 'lucide-react';
 import { api } from '@/contexts/auth-context';
+import { stripCvssPrefix } from '@/lib/cvss';
 
-type Status = 'new' | 'duplicate';
+type Status = 'new' | 'duplicate' | 'refresh';
 
 interface Item {
   key: string;
@@ -20,6 +21,7 @@ interface Item {
 interface ImportResult {
   created: { key: string; name: string }[];
   skipped: { key: string; name: string; reason: string }[];
+  refreshed?: { key: string; name: string }[];
   failed: { key: string; name: string; error: string }[];
 }
 
@@ -34,6 +36,7 @@ const severityColors: Record<string, string> = {
 const STATUS: Record<Status, { label: string; cls: string; hint: string; selectable: boolean }> = {
   new: { label: 'New', cls: 'text-emerald-400', hint: 'Will be added to this project as a VA Finding. It is not added to the global Vulnerability DB.', selectable: true },
   duplicate: { label: 'Already in project', cls: 'text-gray-500', hint: 'This project already has this finding.', selectable: false },
+  refresh: { label: 'Already in project: add output', cls: 'text-cyan-400', hint: 'Already imported earlier without its plugin output. Importing adds the output and an "Observe the output." step to the existing finding; nothing else changes.', selectable: true },
 };
 
 const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Info'];
@@ -154,7 +157,7 @@ export function NessusImportDialog({
         <td className="p-3">
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[i.severity] || severityColors.Info}`}>{i.severity}</span>
         </td>
-        <td className="p-3 font-mono tabular-nums text-gray-300" title={i.cvssVector ?? undefined}>{i.cvssScore ?? '—'}</td>
+        <td className="p-3 font-mono tabular-nums text-gray-300" title={stripCvssPrefix(i.cvssVector) || undefined}>{i.cvssScore ?? '—'}</td>
         <td className="p-3 text-gray-300" title={i.affected.join('\n')}>{i.affected.length} host{i.affected.length === 1 ? '' : 's'}</td>
         <td className={`p-3 ${st.cls}`} title={st.hint}>{st.label}</td>
       </tr>
@@ -197,6 +200,7 @@ export function NessusImportDialog({
           <div className="p-6 space-y-4 overflow-y-auto text-sm">
             <p className="text-white">
               {result.created.length} finding{result.created.length === 1 ? '' : 's'} added
+              {(result.refreshed?.length ?? 0) > 0 && `, plugin output added to ${result.refreshed!.length} existing`}
               {result.skipped.length > 0 && `, ${result.skipped.length} skipped`}
               {result.failed.length > 0 && `, ${result.failed.length} failed`}.
             </p>

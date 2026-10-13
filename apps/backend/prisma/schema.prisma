@@ -98,6 +98,11 @@ enum TemplateCategory {
   ASV
 }
 
+enum ReportFormat {
+  WORD
+  EXCEL
+}
+
 enum TemplateSubType {
   WEB
   API
@@ -224,6 +229,7 @@ model Project {
   mobilePlatform     String?  @map("mobile_platform")
   sha1               String?  @map("sha1")
   externalInternal   String?  @map("external_internal")
+  networkActivityType String? @map("network_activity_type")
   totalScopeCount    Int?     @map("total_scope_count")
   networkScope       Json?    @map("network_scope")
   quarter            String?  @map("quarter")
@@ -272,6 +278,8 @@ model ReportTemplate {
   category      TemplateCategory @default(VAPT) @map("category")
   subType       TemplateSubType  @default(WEB) @map("sub_type")
   projectType   String    @map("project_type")
+  /// Word (.docx) or Excel (.xlsx) template; activation only replaces a template of the same format.
+  reportFormat  ReportFormat @default(WORD) @map("report_format")
 
   effectiveFrom DateTime  @map("effective_from")
   effectiveTo   DateTime? @map("effective_to")
@@ -290,6 +298,7 @@ model ReportTemplate {
   @@index([category])
   @@index([subType])
   @@index([projectType])
+  @@index([reportFormat])
   @@index([isActive])
   @@index([effectiveFrom])
   @@map("report_templates")
@@ -483,6 +492,8 @@ model ProjectVulnerability {
   severity    String
   cvssScore   Float?   @map("cvss_score")
   cvssVector  String?  @map("cvss_vector")
+  // nessus | calculated | unresolved (see common/cvss-vector.util.ts); null on records imported before this existed.
+  cvssVectorSource String? @map("cvss_vector_source")
   description String
   impact      String
   remediation String
@@ -615,6 +626,8 @@ model QuizAttempt {
   isCorrect      Boolean
   pointsAwarded  Int          @default(0)
   answeredAt     DateTime     @default(now())
+  // Answered after the question's reveal: shown to the user, never scored or counted.
+  isLate         Boolean      @default(false) @map("is_late")
 
   @@unique([questionId, userId])
   @@map("quiz_attempts")
