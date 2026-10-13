@@ -1,6 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { ProjectStatus } from '@prisma/client';
+import { ProjectStatus, User } from '@prisma/client';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { projectScopeWhere } from '../common/project-access.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -16,12 +18,12 @@ export class RetentionController {
 
   @Get('tracker')
   @ApiOperation({ summary: 'Completed projects with their retention countdown (visible to all roles)' })
-  async getTracker() {
+  async getTracker(@CurrentUser() user: User) {
     const { settings } = await this.settingsService.get();
     const retentionDays = settings.system.projectRetentionDays;
 
     const projects = await this.prisma.project.findMany({
-      where: { status: ProjectStatus.COMPLETED, generatedAt: { not: null } },
+      where: { status: ProjectStatus.COMPLETED, generatedAt: { not: null }, ...projectScopeWhere(user) },
       select: { id: true, name: true, generatedAt: true },
       orderBy: { generatedAt: 'asc' },
     });

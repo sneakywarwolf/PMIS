@@ -10,7 +10,7 @@ describe('UsersService.getMyTeam', () => {
 
   const svc = (leadRow: any = lead, memberRows: any[] = members) => {
     const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue(leadRow), findMany: jest.fn().mockResolvedValue(memberRows) } };
-    return { service: new UsersService(prisma, {} as any, {} as any, {} as any), prisma };
+    return { service: new UsersService(prisma, {} as any, {} as any, {} as any, {} as any), prisma };
   };
 
   it('shows a tester their own lead, manager and teammates (names/designations only), marking themselves', async () => {

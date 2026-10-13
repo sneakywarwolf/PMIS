@@ -376,8 +376,15 @@ export class DashboardService {
     };
   }
 
-  async getRecentActivity(limit: number = 10) {
+  async getRecentActivity(limit: number = 10, user?: Pick<User, 'id' | 'role'>) {
+    // Team Leads see their own team's activity only; Admin/AVP see everything.
+    let where: any = {};
+    if (user && user.role !== UserRole.ADMIN && user.role !== UserRole.AVP) {
+      const team = await this.prisma.user.findMany({ where: { assignedTlId: user.id }, select: { id: true } });
+      where = { actorId: { in: [user.id, ...team.map((t) => t.id)] } };
+    }
     return this.prisma.auditLog.findMany({
+      where,
       take: limit,
       orderBy: { timestamp: 'desc' },
       include: {

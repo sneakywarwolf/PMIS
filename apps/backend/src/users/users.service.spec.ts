@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SettingsService } from '../settings/settings.service';
+import { RedisService } from '../redis/redis.service';
 
 describe('UsersService.softDelete', () => {
   let service: UsersService;
@@ -26,6 +27,7 @@ describe('UsersService.softDelete', () => {
         { provide: AuditService, useValue: audit },
         { provide: NotificationsService, useValue: {} },
         { provide: SettingsService, useValue: {} },
+        { provide: RedisService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(UsersService);
@@ -73,6 +75,7 @@ describe('UsersService.bulkUpload', () => {
         { provide: AuditService, useValue: audit },
         { provide: NotificationsService, useValue: {} },
         { provide: SettingsService, useValue: { get: jest.fn().mockResolvedValue({ settings: { security: { passwordMinLength: 12, passwordRequireComplexity: true } } }) } },
+        { provide: RedisService, useValue: {} },
       ],
     }).compile();
     service = moduleRef.get(UsersService);

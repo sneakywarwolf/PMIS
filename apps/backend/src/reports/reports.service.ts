@@ -14,6 +14,7 @@ import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
+import { canAccessProject } from '../common/project-access.util';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
 
@@ -604,12 +605,12 @@ export class ReportsService {
   async getReportGenerationStatus(reportGenerationId: string, user: User) {
     const report = await this.prisma.reportGeneration.findUnique({
       where: { id: reportGenerationId },
-      include: { project: { select: { testerId: true } } },
+      include: { project: { select: { testerId: true, tlId: true, tester: { select: { assignedTlId: true } } } } },
     });
     if (!report) {
       throw new NotFoundException('Report not found');
     }
-    if (user.role === UserRole.TESTER && report.project.testerId !== user.id) {
+    if (!canAccessProject(user, report.project)) {
       throw new NotFoundException('Report not found');
     }
     const fileName = report.docxPath ? report.docxPath.split('/').pop()?.replace(/^\d+_/, '') : null;
@@ -845,13 +846,14 @@ export class ReportsService {
   async getReportHistory(projectId: string, user: User) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
+      include: { tester: { select: { assignedTlId: true } } },
     });
 
     if (!project) {
       throw new NotFoundException('Project not found');
     }
 
-    if (user.role === UserRole.TESTER && project.testerId !== user.id) {
+    if (!canAccessProject(user, project)) {
       throw new NotFoundException('Project not found');
     }
 
@@ -936,7 +938,7 @@ export class ReportsService {
       throw new NotFoundException('Project not found');
     }
 
-    if (user.role === UserRole.TESTER && project.testerId !== user.id) {
+    if (!canAccessProject(user, project)) {
       throw new NotFoundException('Project not found');
     }
 

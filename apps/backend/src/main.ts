@@ -14,8 +14,15 @@ async function bootstrap() {
       if (!process.env[k] || process.env[k]!.startsWith('CHANGE_ME')) {
         throw new Error(`${k} must be set to a strong random value (see .env.example)`);
       }
+      if (process.env[k]!.length < 32) logger.warn(`${k} is shorter than 32 characters; use "openssl rand -hex 32"`);
+    }
+    if (process.env.JWT_ACCESS_SECRET === process.env.JWT_REFRESH_SECRET) {
+      logger.warn('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET are identical; use two different secrets');
     }
   }
+  const isProd = process.env.NODE_ENV === 'production';
+  // HSTS only once HTTPS is confirmed (same switch that makes cookies Secure).
+  const httpsConfirmed = process.env.COOKIE_SECURE === 'true';
   // ponytail: 'debug'/'verbose' log every request lifecycle event to stdout,
   // which adds noticeable latency in dev. Opt in with NEST_DEBUG_LOGS=1.
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -45,7 +52,15 @@ async function bootstrap() {
       },
     },
     crossOriginEmbedderPolicy: false,
+    hsts: httpsConfirmed ? { maxAge: 15552000, includeSubDomains: true } : false,
+    referrerPolicy: { policy: 'no-referrer' },
   }));
+
+  // API responses carry private data: keep them out of shared caches and the browser's disk cache.
+  app.use((_req: any, res: any, next: () => void) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
 
   // Compression
   app.use(compression());
@@ -69,21 +84,27 @@ async function bootstrap() {
     transformOptions: { enableImplicitConversion: true },
   }));
 
-  // Swagger
-  const config = new DocumentBuilder()
-    .setTitle('VAPT Command Center API')
-    .setDescription('Vulnerability Assessment & Penetration Testing Platform')
-    .setVersion('1.0.0')
-    .addBearerAuth()
-    .addCookieAuth('access_token')
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  // Swagger: development only; set ENABLE_SWAGGER=1 to expose it in production on purpose.
+  const swaggerOn = !isProd || process.env.ENABLE_SWAGGER === '1';
+  if (swaggerOn) {
+    const config = new DocumentBuilder()
+      .setTitle('VAPT Command Center API')
+      .setDescription('Vulnerability Assessment & Penetration Testing Platform')
+      .setVersion('1.0.0')
+      .addBearerAuth()
+      .addCookieAuth('access_token')
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   const port = process.env.PORT || 4000;
-  await app.listen(port);
+  const server = await app.listen(port);
+  // Bound slow-request exposure (uploads are capped at 25 MB; report generation runs in a queue).
+  server.requestTimeout = 120_000;
+  server.headersTimeout = 30_000;
   logger.log(`VAPT Command Center API running on port ${port}`);
-  logger.log(`Swagger docs available at http://localhost:${port}/api/docs`);
+  if (swaggerOn) logger.log(`Swagger docs available at http://localhost:${port}/api/docs`);
 }
 
 bootstrap();

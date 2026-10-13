@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SettingsService } from '../settings/settings.service';
+import { RedisService } from '../redis/redis.service';
 import { validateCsvHeaders, parseCsv } from '../common/csv-validation.util';
 import { User, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
@@ -19,6 +20,7 @@ export class UsersService {
     private auditService: AuditService,
     private notificationsService: NotificationsService,
     private settingsService: SettingsService,
+    private redisService: RedisService,
   ) {}
 
   async findAll(requestingUser: User) {
@@ -273,6 +275,11 @@ export class UsersService {
         isForcePasswordChange: true,
       },
     });
+
+    // Kill every existing session: a forced change needs no current password, so a session
+    // that predates the reset (e.g. stolen) must not be able to pick the new password.
+    await this.redisService.revokeAllUserTokens(userId);
+    await this.redisService.clearActiveSession(userId);
 
     await this.auditService.log({
       actorId: adminId,

@@ -54,7 +54,7 @@ EXPOSE 4000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:4000/api/docs', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
+    CMD node -e "require('http').get('http://localhost:4000/settings/public-theme', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
 
 # Apply migrations, seed (idempotent; creates the admin user on first run), then start
 CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/src/main"]

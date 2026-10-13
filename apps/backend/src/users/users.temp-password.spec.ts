@@ -12,8 +12,9 @@ function makeService(security: { passwordMinLength: number; passwordRequireCompl
   };
   const settings = { get: jest.fn().mockResolvedValue({ settings: { security } }) };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
-  const service = new UsersService(prisma as any, audit as any, {} as any, settings as any);
-  return { service, prisma };
+  const redis = { revokeAllUserTokens: jest.fn().mockResolvedValue(undefined), clearActiveSession: jest.fn().mockResolvedValue(undefined) };
+  const service = new UsersService(prisma as any, audit as any, {} as any, settings as any, redis as any);
+  return { service, prisma, redis };
 }
 
 describe('UsersService.forcePasswordReset temp password', () => {
@@ -33,6 +34,13 @@ describe('UsersService.forcePasswordReset temp password', () => {
       expect(p).toMatch(/[0-9]/);
       expect(p).toMatch(/[^a-zA-Z0-9]/);
     }
+  });
+
+  it('revokes every existing session of the user on admin reset', async () => {
+    const { service, redis } = makeService({ passwordMinLength: 10, passwordRequireComplexity: false });
+    await service.forcePasswordReset('u1', 'admin', 'ip', 'ua');
+    expect(redis.revokeAllUserTokens).toHaveBeenCalledWith('u1');
+    expect(redis.clearActiveSession).toHaveBeenCalledWith('u1');
   });
 
   it('still hashes and stores the generated password with the force-change flag', async () => {
