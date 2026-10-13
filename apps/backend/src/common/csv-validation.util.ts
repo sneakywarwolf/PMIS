@@ -57,7 +57,18 @@ export function parseCsv(content: string): string[][] {
     rows.push(row);
   }
 
+  assertCsvLimits(rows);
   return rows;
+}
+
+export const MAX_CSV_ROWS = 200_000;
+export const MAX_CSV_COLUMNS = 200;
+
+/** Parser limits: a hostile file must not be able to turn a 10-25 MB upload into millions of rows/columns. */
+export function assertCsvLimits(rows: string[][]): void {
+  if (rows.length > MAX_CSV_ROWS || rows.some((r) => r.length > MAX_CSV_COLUMNS)) {
+    throw new BadRequestException(`File exceeds the allowed size (max ${MAX_CSV_ROWS} rows and ${MAX_CSV_COLUMNS} columns).`);
+  }
 }
 
 /** Case/spacing/punctuation-insensitive so "CVSS-VEC", "cvss vec", "CvssVec" all match. */

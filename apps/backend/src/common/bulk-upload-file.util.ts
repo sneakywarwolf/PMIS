@@ -68,6 +68,11 @@ async function parseXlsxToCsv(buffer: Buffer): Promise<string> {
   }
 
   const entryNames = Object.keys(zip.files);
+  // Zip-bomb guard: declared uncompressed size is checked before the workbook parser expands anything.
+  const declared = entryNames.reduce((n, e) => n + ((zip.files[e] as any)._data?.uncompressedSize ?? 0), 0);
+  if (entryNames.length > 500 || declared > 100 * 1024 * 1024) {
+    throw new BadRequestException('File rejected: workbook is too large when decompressed.');
+  }
   if (entryNames.some((entry) => DANGEROUS_ENTRY_PATTERNS.some((p) => p.test(entry)))) {
     throw new BadRequestException(
       'File rejected: macros, embedded objects, or external links are not allowed in bulk upload files.',
@@ -76,7 +81,7 @@ async function parseXlsxToCsv(buffer: Buffer): Promise<string> {
 
   let workbook: XLSX.WorkBook;
   try {
-    workbook = XLSX.read(buffer, { type: 'buffer', cellFormula: true, bookVBA: true });
+    workbook = XLSX.read(buffer, { type: 'buffer', cellFormula: true, bookVBA: true, sheetRows: 50_001 });
   } catch {
     throw new BadRequestException('File is not a valid .xlsx file.');
   }
