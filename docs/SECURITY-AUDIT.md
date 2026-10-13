@@ -28,12 +28,12 @@ Branch `worktree-security-hardening`. Method: manual code review of the backend,
 Argon2id hashing; login lockout and per-user/IP rate limits; single active session with idle expiry and revocation on password change; HttpOnly + SameSite=strict cookies (Secure via `COOKIE_SECURE`); deny-by-default global `JwtAuthGuard` (`@Public` only on login, refresh, public theme); forced-password-change gating; project/finding access checks and reassignment limits; change-request review limited to target TL or Admin; admin-only settings, update, reset, template, quiz-admin routes; quiz one-attempt-per-user, active-window enforcement, scoring at reveal; CSV export formula neutralisation; Nessus DTD rejection; bulk-upload macro/formula rejection; reset script production guard and typed confirmation; update service refuses destructive commands; non-root backend container; only the frontend port is published; secrets are required env vars.
 
 ## 3. Release decision: **BLOCK**
-No known unresolved Critical finding. Blocked because: (a) one High dependency finding is open (R1); (b) required gates have not been executed (container scan, SAST, secret scan, SBOM, DAST); (c) items R2-R4 below are unresolved Medium risks relative to the brief (admin MFA, DB privileges). Re-evaluate after the CI workflow runs green and R1-R4 are closed or formally accepted.
+No known unresolved Critical finding. Blocked because: (a) required gates have not been executed (container scan, SAST, secret scan, SBOM, DAST); (b) items R2-R4 below are unresolved Medium risks relative to the brief (admin MFA, DB privileges). Re-evaluate after the CI workflow runs green and R2-R4 are closed or formally accepted.
 
 ## 4. Residual risk register
 | ID | Sev | Risk | Proposed owner / date |
 |---|---|---|---|
-| R1 | High | Frontend: PostCSS bundled in Next.js (GHSA-qx2v-qp2m-jg93 and related); fix needs a Next major upgrade. Build-time CSS processing, not request-reachable, but unresolved | Maintainer, upgrade Next, TBD |
+| R1 | Closed | Frontend PostCSS inside Next.js (GHSA-qx2v-qp2m-jg93 and related). Fixed by an `overrides` entry forcing postcss ^8.5.30 under next (lockfile: 8.5.30); `npm audit --omit=dev` = 0 vulnerabilities; `next build` passes. Revisit when upgrading Next | - |
 | R2 | Med | No MFA for Admin accounts; no self-service reset flow (admin-issued temp passwords only) | Maintainer, TBD |
 | R3 | Med | App connects to Postgres as the `pmis` superuser and runs `migrate deploy` at start. Splitting migrate and runtime roles changes deployment; not done to avoid breaking existing volumes | Maintainer, TBD |
 | R4 | Low | Mitigated by F17 (Origin check + SameSite=strict); no synchroniser token. Browsers that omit both Origin and Sec-Fetch-Site on writes are not covered | Maintainer, TBD |

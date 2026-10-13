@@ -27,10 +27,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: npm audit backend (fails on high/critical)
         run: cd apps/backend && npm ci --ignore-scripts && npm audit --omit=dev --audit-level=high
-      # Known open High: PostCSS bundled in Next (GHSA-qx2v-qp2m-jg93 etc.), fix needs a Next major upgrade.
-      # Tracked in the residual risk register; remove continue-on-error once Next is upgraded.
-      - name: npm audit frontend (reported, non-blocking until Next upgrade)
-        continue-on-error: true
+      # package.json "overrides" pins the PostCSS bundled in Next to a patched release; drop it once Next ships one.
+      - name: npm audit frontend (fails on high/critical)
         run: cd apps/frontend && npm ci --ignore-scripts && npm audit --omit=dev --audit-level=high
 
   secrets:
