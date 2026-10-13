@@ -66,3 +66,11 @@ export function cleanNessusText(input: string | null | undefined): string {
 export function nessusTextForReport(input: string | null | undefined): string {
   return cleanNessusText(input).replace(/\n/g, LINE_SEP);
 }
+
+const BOILERPLATE =
+  /Tenable\s+has\s+extracted\s+the\s+preceding\s+description\s+block\s+directly\s+from\s+the\s+Ubuntu\s+security\s+advisory\.?|Note\s+that\s+Nessus\s+has\s+not\s+tested\s+for\s+these\s+issues\s+but\s+has\s+instead\s+relied\s+only\s+on\s+the\s+application['’]?s\s+self-reported\s+version\s+number\.?/gi;
+
+/** Drops Nessus's two stock disclaimer sentences from a Description (any case/whitespace); everything else is kept. */
+export function stripNessusBoilerplate(input: string | null | undefined): string {
+  return (input ?? '').replace(BOILERPLATE, '');
+}

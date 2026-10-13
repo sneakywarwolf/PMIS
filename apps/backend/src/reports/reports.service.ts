@@ -14,7 +14,7 @@ import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, Repor
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 import { findingPocReadiness } from '../common/poc-validation.util';
-import { nessusTextForReport } from '../common/nessus-text.util';
+import { nessusTextForReport, stripNessusBoilerplate } from '../common/nessus-text.util';
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
@@ -734,7 +734,7 @@ export class ReportsService {
             : f.vulnerability.severity,
           cvssScore: effectiveScore,
           cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
-          description: isVa ? nessusTextForReport(f.vulnerability.description) : f.vulnerability.description,
+          description: isVa ? nessusTextForReport(stripNessusBoilerplate(f.vulnerability.description)) : f.vulnerability.description,
           impact: f.vulnerability.impact,
           remediation: f.vulnerability.remediation,
           references: f.vulnerability.references,

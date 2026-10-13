@@ -1,4 +1,4 @@
-import { cleanNessusText, nessusTextForReport, LINE_SEP } from './nessus-text.util';
+import { stripNessusBoilerplate, cleanNessusText, nessusTextForReport, LINE_SEP } from './nessus-text.util';
 
 describe('cleanNessusText', () => {
   it('joins Nessus hard-wrapped prose into one paragraph and keeps paragraph breaks', () => {
@@ -45,5 +45,13 @@ describe('cleanNessusText', () => {
     expect(cleanNessusText('  \n \t ')).toBe('');
     expect(nessusTextForReport(undefined)).toBe('');
     expect(nessusTextForReport('one\n\ntwo')).toBe(`one${LINE_SEP}${LINE_SEP}two`);
+  });
+});
+
+describe('stripNessusBoilerplate', () => {
+  it('removes both disclaimers across spaces/line breaks/case, keeps the rest', () => {
+    const t = 'Fix CVE-2024-1.\n\ntenable HAS extracted the preceding   description block\ndirectly from the Ubuntu security advisory.\n\nNote that Nessus has not tested for these issues but has instead relied only on the application\'s self-reported version number.\n\nUpgrade now.';
+    const out = cleanNessusText(stripNessusBoilerplate(t));
+    expect(out).toBe('Fix CVE-2024-1.\n\nUpgrade now.');
   });
 });
