@@ -144,7 +144,35 @@ interface Project {
   tl: { id: string; username: string; email: string; fullName?: string | null };
   template?: { id: string; name: string; projectType: string } | null;
   findings: Finding[];
+  // Post-completion edits, oldest first. Only sent to Team Leads / Admins.
+  changes?: ProjectChange[];
 }
+
+interface ProjectChange {
+  id: string;
+  field: string;
+  oldValue: unknown;
+  newValue: unknown;
+  changedByName: string;
+  changedAt: string;
+}
+
+const CHANGE_LABELS: Record<string, string> = {
+  name: 'Project Name', clientName: 'Client', scope: 'Scope', startDate: 'Start Date', endDate: 'End Date',
+  templateId: 'Template', complianceStatus: 'Compliance Status', complianceType: 'Compliance Type',
+  appVersion: 'App Version', location: 'Location', documentVersion: 'Document Version',
+  toolsUsedTable: 'Tools Used', testingEnvironment: 'Testing Environment', qaReviewerName: 'QA Reviewer',
+  applicationDetails: 'Application Details', testingType: 'Testing Type', loginSystemTypes: 'Login Systems',
+  applicationNature: 'Application Nature', testingLimitation: 'Testing Limitation', mobilePlatform: 'Android/iOS',
+  sha1: 'SHA-1', externalInternal: 'Scope Exposure', networkActivityType: 'Network Activity Type',
+  totalScopeCount: 'Total Scope Count', networkScope: 'Network Scope', quarter: 'Quarter/Frequency',
+};
+
+const changeLabel = (field: string) =>
+  field.startsWith('customFieldValues.') ? field.slice('customFieldValues.'.length) : CHANGE_LABELS[field] || field;
+
+const changeValue = (v: unknown) =>
+  v === null || v === undefined ? 'empty' : typeof v === 'string' ? v : JSON.stringify(v);
 
 export default function ProjectDetailPage() {
   const { id } = useParams();
@@ -313,6 +341,8 @@ export default function ProjectDetailPage() {
     );
   }
 
+  const changes = project.changes ?? [];
+  const changesFor = (field: string) => changes.filter((c) => c.field === field);
   const canEditFindings = user?.role === 'ADMIN' || user?.role === 'AVP' || user?.role === 'TEAM_LEAD' || project.tester.id === user?.id;
 
   const handleDeleteProject = async () => {
@@ -395,7 +425,7 @@ export default function ProjectDetailPage() {
       {/* Project Info Card */}
       <div className="glass-card rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white">Project Details</h2>
+          <h2 className="text-lg font-semibold text-white">Project Details<ChangedMark changes={[...changesFor('name'), ...changesFor('clientName')]} /></h2>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowEditModal(true)}
@@ -432,7 +462,7 @@ export default function ProjectDetailPage() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
           <div>
-            <p className="text-gray-500 text-xs">Start Date</p>
+            <p className="text-gray-500 text-xs">Start Date<ChangedMark changes={changesFor('startDate')} /></p>
             <p className="text-white font-medium flex items-center gap-1.5">
               {formatDate(project.startDate)}
               {user?.role !== 'TESTER' && project.startDateChangedAt && (
@@ -440,57 +470,75 @@ export default function ProjectDetailPage() {
               )}
             </p>
           </div>
-          <InfoField label="End Date" value={project.endDate ? formatDate(project.endDate) : 'Not set'} />
+          <InfoField label="End Date" value={project.endDate ? formatDate(project.endDate) : 'Not set'} changes={changesFor('endDate')} />
           <InfoField label="Sub Type" value={project.subType} />
-          <InfoField label="App Version" value={project.appVersion || 'N/A'} />
-          <InfoField label="Location" value={project.location || 'N/A'} />
-          <InfoField label="Document Version" value={project.documentVersion || 'N/A'} />
+          <InfoField label="App Version" value={project.appVersion || 'N/A'} changes={changesFor('appVersion')} />
+          <InfoField label="Location" value={project.location || 'N/A'} changes={changesFor('location')} />
+          <InfoField label="Document Version" value={project.documentVersion || 'N/A'} changes={changesFor('documentVersion')} />
           {(!project.toolsUsedTable || project.toolsUsedTable.length === 0) && (
             <InfoField label="Tools Used" value={project.toolsUsed || 'N/A'} />
           )}
-          <InfoField label="Testing Environment" value={project.testingEnvironment || 'N/A'} />
-          <InfoField label="QA Reviewer" value={project.qaReviewerName || 'N/A'} />
-          <InfoField label="Testing Type" value={project.testingType || 'N/A'} />
-          <InfoField label="Login Systems" value={project.loginSystemTypes || 'N/A'} />
+          <InfoField label="Testing Environment" value={project.testingEnvironment || 'N/A'} changes={changesFor('testingEnvironment')} />
+          <InfoField label="QA Reviewer" value={project.qaReviewerName || 'N/A'} changes={changesFor('qaReviewerName')} />
+          <InfoField label="Testing Type" value={project.testingType || 'N/A'} changes={changesFor('testingType')} />
+          <InfoField label="Login Systems" value={project.loginSystemTypes || 'N/A'} changes={changesFor('loginSystemTypes')} />
           {project.subType === 'MOBILE' && (
-            <InfoField label="Android/iOS" value={project.mobilePlatform || 'N/A'} />
+            <InfoField label="Android/iOS" value={project.mobilePlatform || 'N/A'} changes={changesFor('mobilePlatform')} />
           )}
           {(project.subType === 'MOBILE' || project.subType === 'THICK_CLIENT') && (
-            <InfoField label="SHA-1" value={project.sha1 || 'N/A'} />
+            <InfoField label="SHA-1" value={project.sha1 || 'N/A'} changes={changesFor('sha1')} />
           )}
           {project.subType === 'NETWORK' && (
             <>
-              <InfoField label="Scope Exposure" value={project.externalInternal || 'N/A'} />
-              <InfoField label="Network Activity Type" value={project.networkActivityType || 'N/A'} />
-              <InfoField label="Total Scope Count" value={project.totalScopeCount != null ? String(project.totalScopeCount) : 'N/A'} />
+              <InfoField label="Scope Exposure" value={project.externalInternal || 'N/A'} changes={changesFor('externalInternal')} />
+              <InfoField label="Network Activity Type" value={project.networkActivityType || 'N/A'} changes={changesFor('networkActivityType')} />
+              <InfoField label="Total Scope Count" value={project.totalScopeCount != null ? String(project.totalScopeCount) : 'N/A'} changes={changesFor('totalScopeCount')} />
             </>
           )}
-          <InfoField label="Quarter/Frequency" value={project.quarter || 'N/A'} />
-          <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} />
+          <InfoField label="Quarter/Frequency" value={project.quarter || 'N/A'} changes={changesFor('quarter')} />
+          <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} changes={changesFor('complianceType')} />
           {user?.role !== 'TESTER' ? (
             <AssignedTesterField project={project} onChanged={fetchProject} />
           ) : (
             <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
           )}
           <InfoField label="Team Lead" value={project.tl.fullName || project.tl.username} />
-          <InfoField label="Template" value={project.template?.name || 'Default'} />
+          <InfoField label="Template" value={project.template?.name || 'Default'} changes={changesFor('templateId')} />
         </div>
+
+        {changes.length > 0 && (
+          <details className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+            <summary className="cursor-pointer text-amber-400 text-xs font-medium">
+              Changed after completion — {new Set(changes.map((c) => c.field)).size} field(s), {changes.length} edit(s)
+            </summary>
+            <ul className="mt-2 space-y-1.5">
+              {[...changes].reverse().map((c) => (
+                <li key={c.id} className="text-xs text-gray-300">
+                  <span className="font-medium text-white">{changeLabel(c.field)}</span>:{' '}
+                  <span className="text-gray-400 break-all">{changeValue(c.oldValue)}</span> →{' '}
+                  <span className="text-white break-all">{changeValue(c.newValue)}</span>
+                  <span className="text-gray-500"> · {c.changedByName} · {formatDateTime(c.changedAt)}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
 
         {project.scope && (
           <div className="pt-3 border-t border-gray-700/50">
-            <p className="text-gray-500 text-xs mb-1">Scope</p>
+            <p className="text-gray-500 text-xs mb-1">Scope<ChangedMark changes={changesFor('scope')} /></p>
             <p className="text-white text-sm whitespace-pre-wrap">{project.scope}</p>
           </div>
         )}
         {project.applicationDetails && (
           <div>
-            <p className="text-gray-500 text-xs mb-1">Application Details</p>
+            <p className="text-gray-500 text-xs mb-1">Application Details<ChangedMark changes={changesFor('applicationDetails')} /></p>
             <p className="text-white text-sm whitespace-pre-wrap">{project.applicationDetails}</p>
           </div>
         )}
         {project.subType === 'NETWORK' && project.networkScope && project.networkScope.length > 0 && (
           <div className="pt-3 border-t border-gray-700/50">
-            <p className="text-gray-500 text-xs mb-2">Network Scope</p>
+            <p className="text-gray-500 text-xs mb-2">Network Scope<ChangedMark changes={changesFor('networkScope')} /></p>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-gray-500 text-xs">
@@ -513,7 +561,7 @@ export default function ProjectDetailPage() {
         )}
         {project.toolsUsedTable && project.toolsUsedTable.length > 0 && (
           <div className="pt-3 border-t border-gray-700/50">
-            <p className="text-gray-500 text-xs mb-2">Tools Used</p>
+            <p className="text-gray-500 text-xs mb-2">Tools Used<ChangedMark changes={changesFor('toolsUsedTable')} /></p>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-gray-500 text-xs">
@@ -1181,10 +1229,20 @@ function AssignedTesterField({ project, onChanged }: {
   );
 }
 
-function InfoField({ label, value }: { label: string; value: string }) {
+function ChangedMark({ changes }: { changes: ProjectChange[] }) {
+  if (!changes.length) return null;
+  const last = changes[changes.length - 1];
+  return (
+    <span title={`Changed after completion (${changes.length}×). Latest: ${changeValue(last.oldValue)} → ${changeValue(last.newValue)}`}>
+      <Pencil className="inline w-3 h-3 ml-1 text-amber-400" aria-label="Changed after completion" />
+    </span>
+  );
+}
+
+function InfoField({ label, value, changes = [] }: { label: string; value: string; changes?: ProjectChange[] }) {
   return (
     <div>
-      <p className="text-gray-500 text-xs">{label}</p>
+      <p className="text-gray-500 text-xs">{label}<ChangedMark changes={changes} /></p>
       <p className="text-white font-medium">{value}</p>
     </div>
   );

@@ -3,7 +3,7 @@ import { VULN_INCLUDE, withVulnerability, bySeverityScore } from '../common/find
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ProjectPurgeService } from '../common/project-purge.service';
-import { User, UserRole, ProjectStatus, NotificationType, ReportFormat } from '@prisma/client';
+import { Prisma, User, UserRole, ProjectStatus, NotificationType, ReportFormat } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
 import { findingPocReadiness } from '../common/poc-validation.util';
@@ -21,6 +21,30 @@ function deriveToolsUsedSummary(rows?: { name: string; version: string; licenseT
     .filter(Boolean)
     .join(', ');
 }
+
+/** Null-ish ('' / undefined) and Date-vs-ISO differences are not real changes; compare JSON with sorted keys. */
+function normalizeForCompare(v: unknown): unknown {
+  if (v === undefined || v === null || v === '') return null;
+  if (v instanceof Date) return v.toISOString();
+  if (Array.isArray(v)) return v.map(normalizeForCompare);
+  if (typeof v === 'object') {
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, x]) => [k, normalizeForCompare(x)]),
+    );
+  }
+  return v;
+}
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(normalizeForCompare(a)) === JSON.stringify(normalizeForCompare(b));
+
+type FieldChange = { field: string; oldValue: unknown; newValue: unknown };
+
+const DETAIL_FIELDS = [
+  'appVersion', 'location', 'documentVersion', 'toolsUsed', 'testingEnvironment',
+  'qaReviewerName', 'applicationDetails', 'testingType', 'loginSystemTypes',
+  'applicationNature', 'testingLimitation', 'complianceType',
+  'mobilePlatform', 'sha1', 'externalInternal', 'networkActivityType', 'totalScopeCount', 'networkScope', 'quarter',
+  'toolsUsedTable',
+] as const;
 
 @Injectable()
 export class ProjectsService {
@@ -121,8 +145,15 @@ export class ProjectsService {
       },
     });
     if (!result) return result;
+    // Post-completion change history is for Team Leads / Admins only (access to the project is already checked).
+    const changes = user.role === UserRole.TESTER ? [] : await this.prisma.projectChange.findMany({
+      where: { projectId: id },
+      orderBy: { changedAt: 'asc' },
+      select: { id: true, field: true, oldValue: true, newValue: true, changedByName: true, changedAt: true },
+    });
     return {
       ...result,
+      ...(user.role !== UserRole.TESTER && { changes }),
       findings: result.findings
         .map(withVulnerability)
         .sort(bySeverityScore)
@@ -204,22 +235,28 @@ export class ProjectsService {
   async update(id: string, dto: UpdateProjectDto, user: User, ipAddress: string, userAgent: string) {
     const existingProject = await this.checkProjectAccess(id, user);
 
-    if (user.role === UserRole.TESTER && existingProject.status === ProjectStatus.COMPLETED) {
-      throw new ForbiddenException('Cannot edit completed projects');
-    }
-
     if (dto.startDate !== undefined && user.id !== existingProject.testerId) {
       throw new ForbiddenException('Only the assigned tester can edit the start date');
     }
 
-    const detailFields = [
-      'appVersion', 'location', 'documentVersion', 'toolsUsed', 'testingEnvironment',
-      'qaReviewerName', 'applicationDetails', 'testingType', 'loginSystemTypes',
-      'applicationNature', 'testingLimitation', 'complianceType',
-      'mobilePlatform', 'sha1', 'externalInternal', 'networkActivityType', 'totalScopeCount', 'networkScope', 'quarter',
-      'toolsUsedTable',
-    ] as const;
+    const project = existingProject.status === ProjectStatus.COMPLETED
+      ? await this.updateCompleted(id, dto, user)
+      : await this.prisma.project.update({ where: { id }, data: this.buildUpdateData(dto, existingProject) });
 
+    await this.auditService.log({
+      actorId: user.id,
+      action: 'PROJECT_UPDATED',
+      targetType: 'PROJECT',
+      targetId: id,
+      ipAddress,
+      userAgent,
+      details: dto,
+    });
+
+    return project;
+  }
+
+  private buildUpdateData(dto: UpdateProjectDto, existingProject: { startDate: Date }) {
     const updateData: any = {
       ...(dto.name && { name: dto.name }),
       ...(dto.clientName && { clientName: dto.clientName }),
@@ -233,7 +270,7 @@ export class ProjectsService {
       ...(dto.complianceStatus !== undefined && { complianceStatus: dto.complianceStatus }),
       ...(dto.customFieldValues !== undefined && { customFieldValues: dto.customFieldValues }),
     };
-    for (const field of detailFields) {
+    for (const field of DETAIL_FIELDS) {
       if (dto[field] !== undefined) {
         updateData[field] = dto[field];
       }
@@ -241,23 +278,57 @@ export class ProjectsService {
     if (dto.toolsUsedTable !== undefined) {
       updateData.toolsUsed = deriveToolsUsedSummary(dto.toolsUsedTable);
     }
+    return updateData;
+  }
 
-    const project = await this.prisma.project.update({
-      where: { id },
-      data: updateData,
+  /**
+   * Edit of a COMPLETED project. Status, completion date (generatedAt), reports and files are
+   * never in the update data. Inside one transaction (row locked, so concurrent edits serialize
+   * and each diff is against the truly stored values) only genuinely changed fields are written,
+   * and one append-only ProjectChange row per changed field records old/new and who made it.
+   */
+  private async updateCompleted(id: string, dto: UpdateProjectDto, user: User) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM projects WHERE id = ${id} FOR UPDATE`;
+      const current = await tx.project.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('Project not found');
+
+      const data = this.buildUpdateData(dto, current);
+      const changes: FieldChange[] = [];
+      for (const field of Object.keys(data)) {
+        if (field === 'startDateChangedAt') continue;
+        const oldValue = (current as any)[field];
+        if (field === 'customFieldValues') {
+          const before = (oldValue ?? {}) as Record<string, unknown>;
+          const after = (data[field] ?? {}) as Record<string, unknown>;
+          const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+          const diffs = [...keys].filter((k) => !sameValue(before[k], after[k]));
+          for (const k of diffs) changes.push({ field: `customFieldValues.${k}`, oldValue: before[k], newValue: after[k] });
+          if (!diffs.length) delete data[field];
+        } else if (sameValue(oldValue, data[field])) {
+          delete data[field];
+        } else if (field !== 'toolsUsed') {
+          // toolsUsed is derived from toolsUsedTable; the table is the recorded change.
+          changes.push({ field, oldValue, newValue: data[field] });
+        }
+      }
+      if (!('startDate' in data)) delete data.startDateChangedAt;
+      if (!Object.keys(data).length) return current;
+
+      const project = await tx.project.update({ where: { id }, data });
+      await tx.projectChange.createMany({
+        data: changes.map((c) => ({
+          projectId: id,
+          projectName: project.name,
+          field: c.field,
+          oldValue: (normalizeForCompare(c.oldValue) ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+          newValue: (normalizeForCompare(c.newValue) ?? Prisma.JsonNull) as Prisma.InputJsonValue,
+          changedById: user.id,
+          changedByName: user.fullName || user.username,
+        })),
+      });
+      return project;
     });
-
-    await this.auditService.log({
-      actorId: user.id,
-      action: 'PROJECT_UPDATED',
-      targetType: 'PROJECT',
-      targetId: id,
-      ipAddress,
-      userAgent,
-      details: dto,
-    });
-
-    return project;
   }
 
   /**

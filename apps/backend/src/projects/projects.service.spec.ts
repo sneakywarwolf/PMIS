@@ -118,3 +118,92 @@ describe('ProjectsService.remove', () => {
     expect(projectPurge.purgeProject).not.toHaveBeenCalled();
   });
 });
+
+describe('ProjectsService.update — completed projects', () => {
+  let service: ProjectsService;
+  let prisma: any;
+  let audit: { log: jest.Mock };
+  const done = (o: any = {}) => project({ status: ProjectStatus.COMPLETED, name: 'Old', clientName: 'Acme', scope: 'S', location: null, customFieldValues: { a: '1' }, endDate: new Date('2026-03-01T00:00:00.000Z'), generatedAt: new Date('2026-02-01'), ...o });
+  const tester = { id: 'tester-1', role: UserRole.TESTER, username: 'tess', fullName: null } as any;
+
+  beforeEach(async () => {
+    prisma = {
+      project: { findUnique: jest.fn(), update: jest.fn(async ({ data }) => ({ id: 'p1', name: data.name ?? 'Old', ...data })), },
+      projectChange: { createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+      $queryRaw: jest.fn(),
+    };
+    prisma.$transaction = jest.fn((fn: any) => fn(prisma));
+    audit = { log: jest.fn() };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ProjectsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AuditService, useValue: audit },
+        { provide: NotificationsService, useValue: {} },
+        { provide: ProjectPurgeService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ProjectsService);
+  });
+
+  const edit = (dto: any, who = tester) => {
+    prisma.project.findUnique.mockResolvedValue(done());
+    return service.update('p1', dto, who, '1.2.3.4', 'jest');
+  };
+
+  it('lets the owning tester edit, records only real changes with old/new values and the actor', async () => {
+    await edit({ name: 'New', clientName: 'Acme', scope: 'S', location: '', endDate: '2026-03-01', customFieldValues: { a: '2' } });
+
+    const data = prisma.project.update.mock.calls[0][0].data;
+    expect(data).toEqual({ name: 'New', customFieldValues: { a: '2' } });
+    const rows = prisma.projectChange.createMany.mock.calls[0][0].data;
+    expect(rows.map((r: any) => [r.field, r.oldValue, r.newValue])).toEqual([
+      ['name', 'Old', 'New'],
+      ['customFieldValues.a', '1', '2'],
+    ]);
+    expect(rows[0]).toMatchObject({ projectId: 'p1', projectName: 'New', changedById: 'tester-1', changedByName: 'tess' });
+  });
+
+  it('never touches status, completion date or reports, and a no-op save writes nothing', async () => {
+    await edit({ name: 'New' });
+    const data = prisma.project.update.mock.calls[0][0].data;
+    for (const k of ['status', 'generatedAt', 'reportDocxPath', 'reportPdfPath']) expect(data).not.toHaveProperty(k);
+
+    prisma.project.update.mockClear();
+    prisma.projectChange.createMany.mockClear();
+    await edit({ name: 'Old', clientName: 'Acme', scope: 'S', location: '', endDate: '2026-03-01', customFieldValues: { a: '1' } });
+    expect(prisma.project.update).not.toHaveBeenCalled();
+    expect(prisma.projectChange.createMany).not.toHaveBeenCalled();
+  });
+
+  it('keeps a chronological row per edit instead of overwriting earlier history', async () => {
+    await edit({ name: 'B' });
+    await edit({ name: 'C' });
+    expect(prisma.projectChange.createMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('still denies users without access, including direct API calls', async () => {
+    await expect(edit({ name: 'X' }, { id: 'other', role: UserRole.TESTER } as any)).rejects.toThrow(ForbiddenException);
+    await expect(edit({ name: 'X' }, { id: 'tl-9', role: UserRole.TEAM_LEAD } as any)).rejects.toThrow(ForbiddenException);
+    expect(prisma.project.update).not.toHaveBeenCalled();
+  });
+
+  it('records nothing and uses no transaction for a project that is not completed', async () => {
+    prisma.project.findUnique.mockResolvedValue(project());
+    prisma.project.update.mockResolvedValue({ id: 'p1' });
+    await service.update('p1', { name: 'New' } as any, tester, '1.2.3.4', 'jest');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.projectChange.createMany).not.toHaveBeenCalled();
+    expect(prisma.project.update.mock.calls[0][0].data).toEqual({ name: 'New' });
+  });
+
+  it('shows change history to leads/admins only', async () => {
+    prisma.project.findUnique.mockResolvedValue({ ...done(), tester: { assignedTlId: 'tl-1' }, tl: {}, findings: [] });
+    const asLead: any = await service.findOne('p1', { id: 'tl-1', role: UserRole.TEAM_LEAD } as any);
+    expect(asLead.changes).toEqual([]);
+    expect(prisma.projectChange.findMany).toHaveBeenCalledTimes(1);
+    const asTester: any = await service.findOne('p1', tester);
+    expect(asTester).not.toHaveProperty('changes');
+    expect(prisma.projectChange.findMany).toHaveBeenCalledTimes(1);
+  });
+});

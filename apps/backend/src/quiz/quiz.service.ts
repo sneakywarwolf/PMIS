@@ -220,7 +220,10 @@ export class QuizService {
       this.prisma.quizQuestion.count({ where: { status: 'REVEALED' } }),
     ]);
     if (!userId) return { items, total };
-    return { items: items.map(({ attempts, ...q }: any) => ({ ...q, myAttempt: this.myAttempt(attempts[0]) })), total };
+    return {
+      items: items.map(({ attempts, ...q }: any) => this.hideAnswerUnlessAttempted({ ...q, myAttempt: this.myAttempt(attempts[0]) })),
+      total,
+    };
   }
 
   async getLogEntry(id: string, userId?: string) {
@@ -231,7 +234,14 @@ export class QuizService {
     const summary = await this.buildRevealedSummary(question);
     if (!userId) return summary;
     const mine = await this.prisma.quizAttempt.findUnique({ where: { questionId_userId: { questionId: id, userId } } });
-    return { ...summary, myAttempt: this.myAttempt(mine) };
+    return this.hideAnswerUnlessAttempted({ ...summary, myAttempt: this.myAttempt(mine) });
+  }
+
+  /** A missed question must not leak its answer: strip it until the caller has attempted it. */
+  private hideAnswerUnlessAttempted<T extends { myAttempt: unknown }>(entry: T) {
+    if (entry.myAttempt) return entry;
+    const { correctIndex, explanation, ...rest } = entry as T & { correctIndex?: number; explanation?: string };
+    return rest;
   }
 
   /**

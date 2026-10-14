@@ -490,4 +490,44 @@ describe('QuizService late answers', () => {
     prisma.quizAttempt.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }));
     await expect(service.submitLateAnswer('u1', 'q1', 0)).rejects.toThrow(ConflictException);
   });
+
+  const revealed = { id: 'q1', question: 'Q?', options: ['a', 'b'], correctIndex: 1, explanation: 'because', status: 'REVEALED', revealedAt: new Date() };
+
+  it('withholds the answer and explanation from a missed question (log list and entry)', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValue([{ ...revealed, attempts: [] }]);
+    prisma.quizQuestion.count.mockResolvedValue(1);
+    const list = await service.getLog(1, 20, 'u1');
+    expect(list.items[0]).not.toHaveProperty('correctIndex');
+    expect(list.items[0]).not.toHaveProperty('explanation');
+
+    prisma.quizQuestion.findUnique.mockResolvedValue(revealed);
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+    prisma.quizAttempt.findUnique.mockResolvedValue(null);
+    const entry: any = await service.getLogEntry('q1', 'u1');
+    expect(entry).not.toHaveProperty('correctIndex');
+    expect(entry).not.toHaveProperty('explanation');
+    expect(entry.options).toEqual(['a', 'b']);
+  });
+
+  it.each([[1, true], [0, false]])('late answer %i shows the answer afterwards, isCorrect=%s, and never scores', async (pick, isCorrect) => {
+    prisma.quizQuestion.findUnique.mockResolvedValue(revealed);
+    prisma.quizAttempt.create.mockResolvedValue({ selectedOption: pick, isCorrect, isLate: true });
+    await service.submitLateAnswer('u1', 'q1', pick);
+    expect(prisma.quizAttempt.create.mock.calls[0][0].data).toMatchObject({ isCorrect, pointsAwarded: 0, isLate: true });
+    expect(prisma.quizUserStats.upsert).not.toHaveBeenCalled();
+
+    // Reopening an answered question: status preserved, answer shown, nothing written.
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+    prisma.quizAttempt.findUnique.mockResolvedValue({ selectedOption: pick, isCorrect, isLate: true });
+    const entry: any = await service.getLogEntry('q1', 'u1');
+    expect(entry.myAttempt).toEqual({ selectedOption: pick, isCorrect, isLate: true });
+    expect(entry.correctIndex).toBe(1);
+    expect(prisma.quizAttempt.create).toHaveBeenCalledTimes(1);
+    expect(prisma.quizUserStats.upsert).not.toHaveBeenCalled();
+  });
+
+  it('keeps unrevealed questions out of the log', async () => {
+    prisma.quizQuestion.findUnique.mockResolvedValue({ ...revealed, status: 'ACTIVE' });
+    await expect(service.getLogEntry('q1', 'u1')).rejects.toThrow(BadRequestException);
+  });
 });

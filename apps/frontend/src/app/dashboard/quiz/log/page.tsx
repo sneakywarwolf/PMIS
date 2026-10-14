@@ -14,8 +14,9 @@ type LogDetail = {
   id: string;
   question: string;
   options: string[];
-  correctIndex: number;
-  explanation: string;
+  // Absent until the caller has answered: the backend withholds them for missed questions.
+  correctIndex?: number;
+  explanation?: string;
   revealedAt: string;
   participants: number;
   correctCount: number;
@@ -45,7 +46,9 @@ export default function QuizLogPage() {
     setAnswering(true);
     try {
       const res = await api.post(`/quiz/log/${detail.id}/answer`, { questionId: detail.id, selectedOption });
-      setDetail({ ...detail, myAttempt: res.data });
+      // Refetch: the correct answer and explanation are only sent once an attempt exists.
+      const full = await api.get(`/quiz/log/${detail.id}`);
+      setDetail(full.data);
       setItems((prev) => prev.map((it) => (it.id === detail.id ? { ...it, myAttempt: res.data } : it)));
     } finally {
       setAnswering(false);
@@ -124,6 +127,11 @@ export default function QuizLogPage() {
                 {detail.myAttempt?.isLate && (
                   <p className="text-xs text-amber-400">Answered late — no points awarded.</p>
                 )}
+                {detail.myAttempt && (
+                  <p className={`text-sm font-semibold ${detail.myAttempt.isCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {detail.myAttempt.isCorrect ? 'Correct' : 'Incorrect'}
+                  </p>
+                )}
 
                 <div className="space-y-2">
                   {detail.options.map((opt, i) => {
@@ -149,6 +157,7 @@ export default function QuizLogPage() {
                   })}
                 </div>
 
+                {detail.myAttempt && (<>
                 <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3">
                   <p className="mb-1 text-xs uppercase tracking-wide text-gray-500">Explanation</p>
                   <p className="text-sm leading-relaxed text-gray-200">{detail.explanation}</p>
@@ -164,6 +173,7 @@ export default function QuizLogPage() {
                     <div><p className="font-semibold text-red-400 tabular-nums">{detail.incorrectCount}</p><p className="text-xs text-gray-500">Incorrect</p></div>
                   </div>
                 </div>
+                </>)}
               </>
             )}
           </Dialog.Content>
