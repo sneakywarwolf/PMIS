@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Res, Req, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, Res, Req, UseGuards, HttpCode, HttpStatus, UnauthorizedException } from '@nestjs/common';
 import { Response, Request } from 'express';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -68,7 +68,7 @@ export class AuthController {
   ) {
     const refreshToken = request.cookies?.refresh_token;
     if (!refreshToken) {
-      return { error: 'No refresh token' };
+      throw new UnauthorizedException('No refresh token');
     }
 
     const ipAddress = request.ip || 'unknown';
