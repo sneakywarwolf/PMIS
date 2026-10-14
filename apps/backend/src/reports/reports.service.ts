@@ -653,7 +653,7 @@ export class ReportsService {
       error: report.error,
       fileName,
       docxUrl: report.status === 'COMPLETED' && report.docxPath
-        ? await this.storage.getPresignedUrl(report.docxPath, 3600, fileName || undefined)
+        ? this.signedDownloadUrl(report.docxPath, fileName || 'report.docx')
         : null,
     };
   }
@@ -1112,10 +1112,36 @@ export class ReportsService {
         return {
           ...h,
           fileName,
-          docxUrl: h.docxPath ? await this.storage.getPresignedUrl(h.docxPath, 3600, fileName || undefined) : null,
+          docxUrl: h.docxPath ? this.signedDownloadUrl(h.docxPath, fileName || 'report.docx') : null,
         };
       }),
     );
+  }
+
+  /**
+   * Download links go through this API (not straight to MinIO), so they work
+   * for anyone who can reach the app, e.g. over a tunnel. Like the MinIO links
+   * they replace, they carry no login: an HMAC over path + name + expiry makes
+   * them unforgeable, and they expire after an hour.
+   */
+  private downloadSig(path: string, fileName: string, exp: number): string {
+    const key = `report-download:${this.configService.get('JWT_ACCESS_SECRET')}`;
+    return crypto.createHmac('sha256', key).update(`${path}\n${fileName}\n${exp}`).digest('base64url');
+  }
+
+  private signedDownloadUrl(path: string, fileName: string): string {
+    const exp = Date.now() + 3600_000;
+    const qs = new URLSearchParams({ path, fn: fileName, exp: String(exp), sig: this.downloadSig(path, fileName, exp) });
+    return `/api/reports/download?${qs}`;
+  }
+
+  async readSignedDownload(path: string, fileName: string, exp: string, sig: string) {
+    const expected = Buffer.from(this.downloadSig(path ?? '', fileName ?? '', Number(exp)));
+    const given = Buffer.from(sig ?? '');
+    if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected) || !(Number(exp) > Date.now())) {
+      throw new ForbiddenException('This download link is invalid or has expired.');
+    }
+    return { buffer: await this.storage.getFile(path), fileName };
   }
 
   async removeReport(id: string, user: User, ipAddress: string, userAgent: string) {

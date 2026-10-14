@@ -1,10 +1,10 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseInterceptors, UploadedFile, Query, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Req, Res, UseInterceptors, UploadedFile, Query, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+import { Roles, Public } from '../auth/decorators/roles.decorator';
 import { User, UserRole, TemplateCategory, TemplateSubType, ReportFormat } from '@prisma/client';
 
 @ApiTags('Reports & Templates')
@@ -161,6 +161,24 @@ export class ReportsController {
       userAgent,
       body.reportFormat ?? ReportFormat.WORD,
     );
+  }
+
+  @Public()
+  @Get('download')
+  @ApiOperation({ summary: 'Download a generated report via a signed, expiring link' })
+  async download(
+    @Query('path') path: string,
+    @Query('fn') fn: string,
+    @Query('exp') exp: string,
+    @Query('sig') sig: string,
+    @Res() res: any,
+  ) {
+    const { buffer, fileName } = await this.reportsService.readSignedDownload(path, fn, exp, sig);
+    res.set({
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${fileName.replace(/["\\\r\n]/g, '_')}"`,
+    });
+    res.send(buffer);
   }
 
   @Get('generate/:id/status')
