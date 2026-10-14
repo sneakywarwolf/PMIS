@@ -6,6 +6,7 @@ import { UserRole } from '@prisma/client';
 import { ReportsService } from '../reports/reports.service';
 import { StorageService } from '../reports/storage.service';
 import { DocxManipulatorService } from '../reports/docx-manipulator.service';
+import { XlsxTemplateService } from '../reports/xlsx-template.service';
 import { REPORT_GENERATION_QUEUE } from '../reports/report-generation.types';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -34,6 +35,7 @@ describe('report endpoints enforce team scope', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: StorageService, useValue: { getPresignedUrl: jest.fn() } },
         { provide: DocxManipulatorService, useValue: {} },
+        { provide: XlsxTemplateService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: { log: jest.fn() } },
         { provide: SettingsService, useValue: {} },

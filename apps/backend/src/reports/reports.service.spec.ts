@@ -6,6 +6,7 @@ import { ReportsService } from './reports.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
 import { DocxManipulatorService } from './docx-manipulator.service';
+import { XlsxTemplateService } from './xlsx-template.service';
 import { ConfigService } from '@nestjs/config';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
@@ -37,6 +38,7 @@ describe('ReportsService.removeReport', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: StorageService, useValue: storage },
         { provide: DocxManipulatorService, useValue: {} },
+        { provide: XlsxTemplateService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: audit },
         { provide: SettingsService, useValue: {} },
@@ -113,6 +115,7 @@ describe('ReportsService.getNextReportVersion', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: StorageService, useValue: {} },
         { provide: DocxManipulatorService, useValue: {} },
+        { provide: XlsxTemplateService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: {} },
         { provide: SettingsService, useValue: {} },
@@ -188,6 +191,7 @@ describe('ReportsService.generateReport (fast/enqueue path)', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: StorageService, useValue: storage },
         { provide: DocxManipulatorService, useValue: docxManipulator },
+        { provide: XlsxTemplateService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: { log: jest.fn() } },
         // generateReport reads the configured report-date format (formatting.reportDateFormat); empty settings use the default.
@@ -250,6 +254,7 @@ describe('ReportsService.getReportGenerationStatus', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: StorageService, useValue: storage },
         { provide: DocxManipulatorService, useValue: {} },
+        { provide: XlsxTemplateService, useValue: {} },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: {} },
         { provide: SettingsService, useValue: {} },

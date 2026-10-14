@@ -393,7 +393,7 @@ describe('QuizService admin/read methods', () => {
     await service.getScorecard('u1');
 
     expect(prisma.quizAttempt.findMany).toHaveBeenCalledWith({
-      where: { userId: 'u1', question: { status: 'REVEALED' } },
+      where: { userId: 'u1', isLate: false, question: { status: 'REVEALED' } },
     });
   });
 
@@ -440,7 +440,7 @@ describe('QuizService admin/read methods', () => {
 
     expect(result.map((r) => r.userId)).toEqual(['u2', 'u1']);
     expect(prisma.quizAttempt.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { question: { status: 'REVEALED' } } }),
+      expect.objectContaining({ where: { isLate: false, question: { status: 'REVEALED' } } }),
     );
   });
 
@@ -452,5 +452,42 @@ describe('QuizService admin/read methods', () => {
     const result = await service.getLeaderboard();
 
     expect(result).toEqual([]);
+  });
+});
+
+describe('QuizService late answers', () => {
+  let service: QuizService;
+  beforeEach(async () => {
+    prisma = makePrismaMock();
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        QuizService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AuditService, useValue: { log: jest.fn() } },
+        { provide: NotificationsService, useValue: { notifyAllActiveUsers: jest.fn() } },
+      ],
+    }).compile();
+    service = moduleRef.get(QuizService);
+  });
+
+  it('stores a late, unscored attempt on a revealed question and touches no stats', async () => {
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'REVEALED', correctIndex: 1, options: ['a', 'b', 'c', 'd'] });
+    prisma.quizAttempt.create.mockResolvedValue({ selectedOption: 1, isCorrect: true, isLate: true });
+
+    await expect(service.submitLateAnswer('u1', 'q1', 1)).resolves.toEqual({ selectedOption: 1, isCorrect: true, isLate: true });
+    expect(prisma.quizAttempt.create).toHaveBeenCalledWith({
+      data: { questionId: 'q1', userId: 'u1', selectedOption: 1, isCorrect: true, pointsAwarded: 0, isLate: true },
+    });
+    expect(prisma.quizUserStats.upsert).not.toHaveBeenCalled();
+    expect(prisma.quizQuestion.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses unrevealed questions and repeat answers', async () => {
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'ACTIVE', correctIndex: 0, options: ['a', 'b'] });
+    await expect(service.submitLateAnswer('u1', 'q1', 0)).rejects.toThrow(BadRequestException);
+
+    prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'REVEALED', correctIndex: 0, options: ['a', 'b'] });
+    prisma.quizAttempt.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }));
+    await expect(service.submitLateAnswer('u1', 'q1', 0)).rejects.toThrow(ConflictException);
   });
 });

@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { stripCvssPrefix } from '../common/cvss-vector.util';
+import { LINE_SEP } from '../common/nessus-text.util';
 import * as JSZip from 'jszip';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
 import { NmapPortRecord } from '../common/nmap-parser.util';
@@ -78,6 +80,10 @@ export interface FindingData {
   reportStatus: string;
   /** e.g. 'VA Finding' for scan imports; null for library findings. */
   classification?: string | null;
+  /** Scan plugin output; printed in the PoC snapshot cell of VA findings' steps that have no screenshot. */
+  pocText?: string | null;
+  /** VA = scan import (project-scoped), PT = Vulnerability DB. Drives the VA/PT table split in Network reports. */
+  findingType?: 'VA' | 'PT';
   pocSteps: PocStepData[];
 }
 
@@ -182,7 +188,7 @@ export class DocxManipulatorService {
     for (let t = 0; t < tables.length; t++) {
       const table = tables.item(t);
       if (!table) continue;
-      const text = this.getElementText(table).toLowerCase();
+      const text = this.tableText(table);
       // Same classification the generator uses (fillFindingsTables): a CVE/CWE
       // header without description/remediation placeholders is a summary table.
       const hasTitle = text.includes('{vulnerability name}') || text.includes('{finding title}');
@@ -246,6 +252,7 @@ export class DocxManipulatorService {
     nmapPorts: NmapPortRecord[] = [],
     toolsUsed: ToolUsedRow[] = [],
     reportName?: string,
+    options?: { splitVaPt?: boolean },
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -295,8 +302,22 @@ export class DocxManipulatorService {
     // Step 3.5: serial-number columns ({S No} in e.g. the Engagement Scope asset table)
     this.numberSerialColumns(doc);
 
-    // Step 4: fill the template's own findings tables
-    if (findings.length > 0) {
+    // Step 4: fill the template's own findings tables.
+    // Network templates with separate VA / PT tables: VA tables take only VA findings, every other
+    // findings table only PT findings, each numbered from 1. Templates without VA tables use the path below unchanged.
+    const vaTables = options?.splitVaPt ? this.findVaTables(doc) : [];
+    if (vaTables.length > 0) {
+      const unresolvedFindingParams = new Set<string>();
+      const renumber = (list: FindingData[]) => list.map((f, i) => ({ ...f, no: i + 1 }));
+      const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0)!;
+      const vaSet = new Set(vaTables);
+      const otherTables = (Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[]).filter((t) => !vaSet.has(t));
+      this.fillFindingsTables(doc, renumber(findings.filter((f) => f.findingType === 'VA')), imageRegistry, severityColors, unresolvedFindingParams, vaTables);
+      this.fillFindingsTables(doc, renumber(findings.filter((f) => f.findingType !== 'VA')), imageRegistry, severityColors, unresolvedFindingParams, otherTables);
+      if (unresolvedFindingParams.size > 0) {
+        this.logger.debug(`Unresolved finding-table parameter(s) left as literal: ${[...unresolvedFindingParams].join(', ')}`);
+      }
+    } else if (findings.length > 0) {
       // Unresolved finding-table {Parameter}s are left as literal text —
       // same as any other unmapped placeholder — never a reason to block
       // generation. Logged for developer diagnostics only.
@@ -308,7 +329,13 @@ export class DocxManipulatorService {
     }
 
     // Step 4.5: severity charts (e.g. Cert-In "Risk Matrix") — counts from the findings
-    await this.updateSeverityCharts(zip, findings);
+    await this.updateSeverityCharts(
+      zip,
+      findings,
+      vaTables.length > 0 ? { va: findings.filter((f) => f.findingType === 'VA'), pt: findings.filter((f) => f.findingType !== 'VA') } : undefined,
+    );
+
+    this.expandLineSeparators(doc);
 
     // Step 5: serialize back
     const serializer = new XMLSerializer();
@@ -402,17 +429,26 @@ export class DocxManipulatorService {
    * (what Word renders) and in the embedded workbook (so "Edit Data" in Word
    * shows the same numbers). Charts without severity series are untouched.
    */
-  private async updateSeverityCharts(zip: any, findings: FindingData[]): Promise<void> {
-    const counts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-    for (const f of findings) {
-      const k = (f.severity || '').toLowerCase().startsWith('info') ? 'info' : (f.severity || '').toLowerCase();
-      if (k in counts) counts[k]++;
-    }
+  private async updateSeverityCharts(
+    zip: any,
+    findings: FindingData[],
+    split?: { va: FindingData[]; pt: FindingData[] },
+  ): Promise<void> {
+    const countsOf = (list: FindingData[]) => {
+      const counts: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+      for (const f of list) {
+        const k = (f.severity || '').toLowerCase().startsWith('info') ? 'info' : (f.severity || '').toLowerCase();
+        if (k in counts) counts[k]++;
+      }
+      return counts;
+    };
+    const allCounts = countsOf(findings);
     const sevKey = (name: string) => (name.toLowerCase().startsWith('info') ? 'info' : name.toLowerCase());
 
-    for (const chartPath of Object.keys(zip.files).filter((n) => /^word\/charts\/chart[^/]*\.xml$/.test(n))) {
-      let xml: string = await zip.file(chartPath).async('text');
+    /** Fills one chart's XML from `counts`; null when the chart has no severity series/categories. */
+    const fillChart = (xml: string, counts: Record<string, number>) => {
       const cellUpdates: Record<string, number> = {};
+      let matched = false;
 
       const updated = xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (ser) => {
         const name = ser.match(/<c:tx>[\s\S]*?<c:v>([^<]*)<\/c:v>/)?.[1]?.trim() ?? '';
@@ -421,23 +457,49 @@ export class DocxManipulatorService {
         const cats = [...(ser.match(/<c:cat>[\s\S]*?<\/c:cat>/)?.[0] ?? '').matchAll(/<c:pt idx="(\d+)"><c:v>([^<]*)<\/c:v>/g)];
         const catIdx = cats.find((m) => sevKey(m[2].trim()) === key)?.[1];
         if (catIdx === undefined) return ser;
+        matched = true;
         const ref = ser.match(/<c:val>[\s\S]*?<c:f>([^<]*)<\/c:f>/)?.[1] ?? '';
         const col = ref.match(/\$([A-Z]+)\$(\d+)/);
         if (col) cellUpdates[`${col[1]}${parseInt(col[2], 10) + parseInt(catIdx, 10)}`] = counts[key];
         return ser.replace(/(<c:val>[\s\S]*?<c:ptCount val="\d+"\/>)[\s\S]*?(<\/c:numCache>)/, `$1<c:pt idx="${catIdx}"><c:v>${counts[key]}</c:v></c:pt>$2`);
       });
       let result = updated;
-      if (result === xml) {
+      if (!matched) {
         // Alternate layout: one series whose categories are the severities
         // (value i = count of category i), e.g. a simple "Risk Matrix" bar/pie.
         result = xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (ser) => {
           const cats = [...(ser.match(/<c:cat>[\s\S]*?<\/c:cat>/)?.[0] ?? '').matchAll(/<c:pt idx="(\d+)"><c:v>([^<]*)<\/c:v>/g)];
           if (cats.length === 0 || !cats.every((m) => sevKey(m[2].trim()) in counts)) return ser;
+          matched = true;
           const pts = cats.map((m) => `<c:pt idx="${m[1]}"><c:v>${counts[sevKey(m[2].trim())]}</c:v></c:pt>`).join('');
           return ser.replace(/(<c:val>[\s\S]*?<c:ptCount val="\d+"\/>)[\s\S]*?(<\/c:numCache>)/, `$1${pts}$2`);
         });
-        if (result === xml) continue;
       }
+      return matched ? { result, cellUpdates } : null;
+    };
+
+    let chartPaths = Object.keys(zip.files).filter((n) => /^word\/charts\/chart[^/]*\.xml$/.test(n));
+    if (split) {
+      // Charts in the order they appear in the document (not file-name order).
+      const order = await this.chartPartsInDocumentOrder(zip);
+      const rank = (c: string) => (order.indexOf(c) === -1 ? order.length : order.indexOf(c));
+      chartPaths = chartPaths.sort((a, b) => rank(a) - rank(b));
+    }
+
+    let severityChartIndex = 0;
+    for (const chartPath of chartPaths) {
+      const xml: string = await zip.file(chartPath).async('text');
+      let filled = fillChart(xml, allCounts);
+      if (!filled) continue;
+
+      if (split) {
+        // A chart titled "VA…"/"PT…" belongs to that group; otherwise the first severity chart in the
+        // document is the VA chart and the second the PT chart. Any further chart keeps the combined counts.
+        const kind = this.chartTitleKind(xml) ?? (severityChartIndex === 0 ? 'VA' : severityChartIndex === 1 ? 'PT' : null);
+        severityChartIndex++;
+        if (kind) filled = fillChart(xml, countsOf(kind === 'VA' ? split.va : split.pt))!;
+      }
+      const { result, cellUpdates } = filled;
       zip.file(chartPath, result);
 
       // Embedded workbook (best-effort: only cells the template already has)
@@ -456,6 +518,60 @@ export class DocxManipulatorService {
       wb.file(sheetPath, sheet);
       zip.file(`word/${target}`, await wb.generateAsync({ type: 'nodebuffer' }));
     }
+  }
+
+  /**
+   * Text that carries LINE_SEP (VA description / plugin output only) becomes real line breaks inside the
+   * same run, so the paragraph keeps the template's own spacing. All other text is left exactly as it is.
+   */
+  private expandLineSeparators(doc: Document): void {
+    for (const t of Array.from(doc.getElementsByTagNameNS(this.W_NS, 't')) as Element[]) {
+      // xmldom's textContent is stale after setRunText wrote the value; the text node's .data is current.
+      const node: any = t.firstChild;
+      const text: string = node?.data ?? node?.nodeValue ?? '';
+      if (!text.includes(LINE_SEP)) continue;
+      const parts = text.split(LINE_SEP);
+      const run = t.parentNode as Element;
+      t.textContent = parts[0];
+      t.setAttribute('xml:space', 'preserve');
+      let anchor: Node = t;
+      for (const part of parts.slice(1)) {
+        const br = doc.createElementNS(this.W_NS, 'w:br');
+        const next = doc.createElementNS(this.W_NS, 'w:t');
+        next.setAttribute('xml:space', 'preserve');
+        next.textContent = part;
+        run.insertBefore(br, anchor.nextSibling);
+        run.insertBefore(next, br.nextSibling);
+        anchor = next;
+      }
+    }
+  }
+
+  /** 'VA' / 'PT' when the chart's own title says so (axis titles ignored); null when absent or ambiguous. */
+  private chartTitleKind(chartXml: string): 'VA' | 'PT' | null {
+    const title = chartXml.split('<c:plotArea>')[0].match(/<c:title>[\s\S]*?<\/c:title>/)?.[0] ?? '';
+    const text = [...title.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map((m) => m[1]).join(' ');
+    const va = /\bVA\b|vulnerability assessment/i.test(text);
+    const pt = /\bPT\b|penetration test/i.test(text);
+    return va && !pt ? 'VA' : pt && !va ? 'PT' : null;
+  }
+
+  /** word/charts/*.xml parts in the order the document references them. */
+  private async chartPartsInDocumentOrder(zip: any): Promise<string[]> {
+    const docXml: string = (await zip.file('word/document.xml')?.async('text')) ?? '';
+    const rels: string = (await zip.file('word/_rels/document.xml.rels')?.async('text')) ?? '';
+    const targets = new Map<string, string>();
+    for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = m[0].match(/\bId="([^"]+)"/)?.[1];
+      const target = m[0].match(/\bTarget="([^"]+)"/)?.[1];
+      if (id && target) targets.set(id, target);
+    }
+    const out: string[] = [];
+    for (const m of docXml.matchAll(/<c:chart\b[^>]*\br:id="([^"]+)"/g)) {
+      const target = targets.get(m[1]);
+      if (target && /charts\/chart[^/]*\.xml$/.test(target)) out.push(target.startsWith('/') ? target.slice(1) : `word/${target}`);
+    }
+    return out;
   }
 
   /**
@@ -526,7 +642,7 @@ export class DocxManipulatorService {
    * verbatim from the old highlight-based replacer so resolution behavior
    * is unchanged; only the placeholder syntax it's applied to is new.
    */
-  private buildResolver(rules: FieldRule[]): (normalizedName: string) => string | undefined {
+  buildResolver(rules: FieldRule[]): (normalizedName: string) => string | undefined {
     return (normalizedName: string) => {
       const rule = rules.find((r) =>
         r.requireAll
@@ -547,7 +663,7 @@ export class DocxManipulatorService {
    * placeholders are still extracted/replaced normally.
    */
   private isProtectedTable(table: Element): boolean {
-    const text = this.getElementText(table).toLowerCase();
+    const text = this.tableText(table);
     const hasTitle = text.includes('{vulnerability name}') || text.includes('{finding title}');
     const hasCveCwe = text.includes('cve/cwe') || text.includes('{cve/cwe}') || text.includes('{cvss vector}');
     const isDetailed = hasTitle && hasCveCwe;
@@ -557,6 +673,29 @@ export class DocxManipulatorService {
   }
 
   /** True if this node sits inside one of the protected tables above. */
+  private findVaTables(doc: Document): Element[] {
+    const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
+    if (!body) return [];
+    return (Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[]).filter((t) => this.isVaTable(t));
+  }
+
+  /** `{VA Vulnerability Name}` marks a table whose rows/slots belong to VA (scan-imported) findings. */
+  private static readonly VA_TITLE_RE = /\{\s*va[\s_-]+(?:vulnerability|finding)[\s_-]+(?:name|title)\s*\}/i;
+  private static readonly VA_PREFIX_RE = /\{\s*va[\s_-]+/gi;
+
+  private isVaTable(table: Element): boolean {
+    return DocxManipulatorService.VA_TITLE_RE.test(this.getElementText(table));
+  }
+
+  /**
+   * Lower-cased table text with the `VA ` prefix dropped from placeholders, so every existing table
+   * detection rule (title / score / CVE-CWE / description markers) treats `{VA X}` exactly like `{X}`.
+   * Identical to the plain lower-cased text for any template that has no VA placeholders.
+   */
+  private tableText(table: Element): string {
+    return this.getElementText(table).toLowerCase().replace(DocxManipulatorService.VA_PREFIX_RE, '{');
+  }
+
   private isInsideTable(node: Node): boolean {
     let cur: Node | null = node.parentNode;
     while (cur) {
@@ -659,12 +798,14 @@ export class DocxManipulatorService {
     imageRegistry: Map<string, RegisteredImage>,
     severityColors: Record<string, string>,
     unresolved: Set<string>,
+    scope?: Element[],
   ): void {
     const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
     if (!body) return;
 
-    // Snapshot the table list — we mutate the tree while processing
-    const tables = Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[];
+    // Snapshot the table list — we mutate the tree while processing.
+    // `scope` (VA/PT split only) restricts this pass to the given tables.
+    const tables = scope ?? (Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[]);
 
     const hasTitle = (x: string) => x.includes('{vulnerability name}') || x.includes('{finding title}');
     const hasScore = (x: string) => x.includes('{score value}') || x.includes('{cvss score}');
@@ -676,11 +817,11 @@ export class DocxManipulatorService {
     const hasDetailBody = (x: string) =>
       ['{vulnerability description}', '{description}', '{vulnerability remediation}', '{remediation}'].some((k) => x.includes(k));
     const isDetailed = (t: Element) => {
-      const x = this.getElementText(t).toLowerCase();
+      const x = this.tableText(t);
       return hasTitle(x) && hasCveCwe(x) && hasDetailBody(x);
     };
     const isSummary = (t: Element) => {
-      const x = this.getElementText(t).toLowerCase();
+      const x = this.tableText(t);
       return hasTitle(x) && !hasDetailBody(x) && (hasCveCwe(x) || hasScore(x));
     };
 
@@ -798,7 +939,7 @@ export class DocxManipulatorService {
   private fillSummaryTable(doc: Document, table: Element, findings: FindingData[], severityColors: Record<string, string>, unresolved: Set<string>): void {
     const rows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr'));
     const placeholderRows = rows.filter((r) => {
-      const t = this.getElementText(r).toLowerCase();
+      const t = this.getElementText(r).toLowerCase().replace(DocxManipulatorService.VA_PREFIX_RE, '{');
       return t.includes('{vulnerability name}') || t.includes('{finding title}');
     });
     if (placeholderRows.length === 0) return;
@@ -1033,6 +1174,8 @@ export class DocxManipulatorService {
           const img = step.imageKey ? imageRegistry.get(step.imageKey) : undefined;
           if (img) {
             this.setCellImage(doc, cells[1], img);
+          } else if (finding.pocText) {
+            this.setCellMultilineText(cells[1], finding.pocText);
           } else {
             this.replaceCellValue(cells[1], 'N/A');
           }
@@ -1082,8 +1225,14 @@ export class DocxManipulatorService {
    * variants used across existing and new templates.
    */
   resolveFindingParameter(normalizedName: string, finding: FindingData): string | undefined {
+    // {VA Vulnerability Name}, {VA Severity}, ...: the same value as the unprefixed parameter, but only ever for a VA finding.
+    if (normalizedName.startsWith('va_')) {
+      if (finding.findingType !== 'VA') return undefined;
+      normalizedName = normalizedName.slice(3);
+      if (normalizedName === 'output') return finding.pocText ?? '';
+    }
     const cvssCombined = finding.cvssScore != null
-      ? `${finding.cvssScore}${finding.cvssVector ? ` | ${finding.cvssVector}` : ''}`
+      ? `${finding.cvssScore}${finding.cvssVector ? ` | ${stripCvssPrefix(finding.cvssVector)}` : ''}`
       : 'N/A';
     const cveCwe = [finding.cveId, finding.cweId].filter(Boolean).join(' / ') || 'N/A';
 
@@ -1096,7 +1245,7 @@ export class DocxManipulatorService {
       severity: finding.severity,
       cvss_score: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
       score_value: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
-      cvss_vector: finding.cvssVector || 'N/A',
+      cvss_vector: stripCvssPrefix(finding.cvssVector) || 'N/A',
       cvss: cvssCombined,
       cve_cwe: cveCwe,
       cve_id: finding.cveId || 'N/A',
@@ -1485,6 +1634,22 @@ export class DocxManipulatorService {
     }
   }
 
+  /** Like replaceCellValue, but keeps line breaks (Word ignores \n inside a text run). */
+  private setCellMultilineText(cell: Element, value: string): void {
+    const [first, ...rest] = value.split(new RegExp(`\\r?\\n|${LINE_SEP}`));
+    this.replaceCellValue(cell, first);
+    const run = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'r')).find((r) => this.getRunText(r) === first);
+    if (!run) return;
+    const doc = run.ownerDocument;
+    for (const line of rest) {
+      run.appendChild(doc.createElementNS(this.W_NS, 'w:br'));
+      const t = doc.createElementNS(this.W_NS, 'w:t');
+      t.setAttribute('xml:space', 'preserve');
+      t.textContent = line;
+      run.appendChild(t);
+    }
+  }
+
   /** Sets a table cell's background fill to the given hex color (e.g. "#ef4444"). */
   private setCellShading(cell: Element, hexColor: string): void {
     const doc = cell.ownerDocument;
@@ -1543,6 +1708,11 @@ export class DocxManipulatorService {
       .replace(/[^a-z0-9]+/g, '_')
       .replace(/^_+|_+$/g, '')
       .substring(0, 100);
+  }
+
+  /** Same grouping used for Word placeholders; lets other template formats categorise names identically. */
+  categorizeFieldName(text: string): TemplateField['category'] {
+    return this.categorizeField(text);
   }
 
   private categorizeField(text: string): TemplateField['category'] {

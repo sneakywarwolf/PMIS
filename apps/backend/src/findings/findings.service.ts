@@ -3,12 +3,14 @@ import { VULN_INCLUDE, withVulnerability, bySeverityScore } from '../common/find
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { User, UserRole, FindingStatus, ProjectStatus } from '@prisma/client';
-import { getPocReadiness, isFindingReportReady } from '../common/poc-validation.util';
+import { resolveCvssVector } from '../common/cvss-vector.util';
+import { findingPocReadiness } from '../common/poc-validation.util';
 import { parseNessusFile } from '../common/nessus-parser.util';
 import { assertPocKey, assertPocKeys } from '../common/upload-security.util';
 
 /** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) */
-export type NessusImportStatus = 'new' | 'duplicate';
+// 'refresh' = already imported, but its plugin output was not captured then (older import): the same file can add it.
+export type NessusImportStatus = 'new' | 'duplicate' | 'refresh';
 
 @Injectable()
 export class FindingsService {
@@ -66,24 +68,71 @@ export class FindingsService {
 
     // Duplicate = same Nessus plugin already imported here, or a finding with the same name already in this project.
     const [scoped, existing] = await Promise.all([
-      this.prisma.projectVulnerability.findMany({ where: { projectId, source: 'nessus' }, select: { sourceKey: true } }),
+      this.prisma.projectVulnerability.findMany({
+        where: { projectId, source: 'nessus' },
+        select: { sourceKey: true, findings: { select: { proofOfConcept: true } } },
+      }),
       this.prisma.finding.findMany({
         where: { projectId },
         select: { vulnerability: { select: { name: true } }, projectVulnerability: { select: { name: true } } },
       }),
     ]);
     const imported = new Set(scoped.map((v) => v.sourceKey));
+    const lacksOutput = new Set(scoped.filter((v) => (v.findings ?? []).some((f) => !f.proofOfConcept)).map((v) => v.sourceKey));
     const names = new Set(existing.map((f) => (f.vulnerability ?? f.projectVulnerability)!.name.trim().toLowerCase()));
 
     const items = parsed.map((item) => ({
       ...item,
-      status: (imported.has(item.key) || names.has(item.name.trim().toLowerCase()) ? 'duplicate' : 'new') as NessusImportStatus,
+      status: (imported.has(item.key)
+        ? (item.pluginOutputs.length > 0 && lacksOutput.has(item.key) ? 'refresh' : 'duplicate')
+        : names.has(item.name.trim().toLowerCase()) ? 'duplicate' : 'new') as NessusImportStatus,
     }));
-    return { items };
+    return { items, exposure: project.externalInternal };
   }
 
   async previewNessus(projectId: string, file: Express.Multer.File | undefined, user: User) {
-    return this.nessusPlan(projectId, file, user);
+    const { items, exposure } = await this.nessusPlan(projectId, file, user);
+    // Plugin outputs can be large and are not shown in the preview.
+    return { items: items.map(({ pluginOutputs, ...rest }) => rest), exposure };
+  }
+
+  static readonly NESSUS_POC_STEP = 'Observe the output.';
+  private static readonly NESSUS_POC_MAX = 32000;
+
+  /** Plugin output as captured; with several hosts each block is headed by its host:port. Null when the scan has none. */
+  static nessusPocText(outputs: { at: string; text: string }[]): string | null {
+    if (!outputs.length) return null;
+    const text = outputs.length === 1 ? outputs[0].text : outputs.map((o) => `[${o.at}]\n${o.text}`).join('\n\n');
+    // ponytail: hard cap keeps one chatty plugin from bloating the DB and the report; marked, never silent.
+    return text.length > FindingsService.NESSUS_POC_MAX ? text.slice(0, FindingsService.NESSUS_POC_MAX) + '\n[output truncated]' : text;
+  }
+
+  /**
+   * Older imports kept no plugin output. For a finding already imported from the same plugin, add the
+   * output as its PoC and the single 'Observe the output.' step. Only findings with no PoC yet are touched,
+   * only those two things are written, and an existing step is never duplicated or changed.
+   */
+  private async addNessusOutput(projectId: string, sourceKey: string, poc: string, user: User, ipAddress: string, userAgent: string) {
+    const records = await this.prisma.projectVulnerability.findMany({
+      where: { projectId, source: 'nessus', sourceKey },
+      select: { findings: { where: { projectId }, select: { id: true, proofOfConcept: true, pocSteps: { select: { id: true } } } } },
+    });
+    for (const finding of records.flatMap((r) => r.findings)) {
+      if (finding.proofOfConcept) continue;
+      await this.prisma.finding.update({ where: { id: finding.id }, data: { proofOfConcept: poc } });
+      if (finding.pocSteps.length === 0) {
+        await this.prisma.pocStep.create({ data: { findingId: finding.id, stepNo: 1, description: FindingsService.NESSUS_POC_STEP } });
+      }
+      await this.auditService.log({
+        actorId: user.id,
+        action: 'PROJECT_UPDATED',
+        targetType: 'FINDING',
+        targetId: finding.id,
+        ipAddress,
+        userAgent,
+        details: { nessusOutputAdded: true },
+      });
+    }
   }
 
   async importNessus(
@@ -95,12 +144,13 @@ export class FindingsService {
     userAgent: string,
   ) {
     if (selected.length === 0) throw new BadRequestException('Select at least one finding to import');
-    const { items } = await this.nessusPlan(projectId, file, user);
+    const { items, exposure } = await this.nessusPlan(projectId, file, user);
     const byKey = new Map(items.map((i) => [i.key, i]));
     const result = {
       created: [] as { key: string; name: string; findingId: string }[],
       skipped: [] as { key: string; name: string; reason: string }[],
       failed: [] as { key: string; name: string; error: string }[],
+      refreshed: [] as { key: string; name: string }[],
     };
 
     for (const key of new Set(selected)) {
@@ -113,9 +163,20 @@ export class FindingsService {
         result.skipped.push({ key, name: item.name, reason: 'Already in this project' });
         continue;
       }
+      if (item.status === 'refresh') {
+        try {
+          await this.addNessusOutput(projectId, item.key, FindingsService.nessusPocText(item.pluginOutputs)!, user, ipAddress, userAgent);
+          result.refreshed.push({ key, name: item.name });
+        } catch (e: any) {
+          result.failed.push({ key, name: item.name, error: e.message || 'Update failed' });
+        }
+        continue;
+      }
       let projectVulnId: string | undefined;
       try {
         const fill = FindingsService.NESSUS_FILL;
+        // The score is kept as imported; only a missing vector is derived (see cvss-vector.util).
+        const resolved = resolveCvssVector({ score: item.cvssScore, version: item.cvssVersion, existingVector: item.cvssVector, exposure });
         const record = await this.prisma.projectVulnerability.create({
           data: {
             projectId,
@@ -125,7 +186,8 @@ export class FindingsService {
             name: item.name,
             severity: item.severity,
             cvssScore: item.cvssScore,
-            cvssVector: item.cvssVector,
+            cvssVector: resolved.vector,
+            cvssVectorSource: resolved.source,
             description: item.description || fill,
             impact: item.impact || fill,
             remediation: item.remediation || fill,
@@ -135,12 +197,15 @@ export class FindingsService {
           },
         });
         projectVulnId = record.id;
+        const poc = FindingsService.nessusPocText(item.pluginOutputs);
         const finding = await this.create(
-          { projectId, projectVulnId, testerNotes: 'Imported from Nessus.', affectedInstances: item.affected },
+          { projectId, projectVulnId, testerNotes: 'Imported from Nessus.', affectedInstances: item.affected, proofOfConcept: poc ?? undefined },
           user,
           ipAddress,
           userAgent,
         );
+        // Only when the scan has plugin output: one testing step pointing at it. No output, no step, nothing invented.
+        if (poc) await this.prisma.pocStep.create({ data: { findingId: finding.id, stepNo: 1, description: FindingsService.NESSUS_POC_STEP } });
         result.created.push({ key, name: item.name, findingId: finding.id });
       } catch (e: any) {
         // Don't leave an orphaned project record behind if the finding could not be created.
@@ -152,7 +217,7 @@ export class FindingsService {
   }
 
   async findByProject(projectId: string, user: User) {
-    await this.checkProjectAccess(projectId, user);
+    const project = await this.checkProjectAccess(projectId, user);
 
     const findings = await this.prisma.finding.findMany({
       where: { projectId },
@@ -164,7 +229,7 @@ export class FindingsService {
       },
     });
 
-    return findings.map(withVulnerability).sort(bySeverityScore).map((f) => ({ ...f, pocComplete: isFindingReportReady(f.pocSteps), pocReadiness: getPocReadiness(f.pocSteps) }));
+    return findings.map(withVulnerability).sort(bySeverityScore).map((f) => { const pocReadiness = findingPocReadiness(f, project.subType); return { ...f, pocComplete: pocReadiness === 'ready', pocReadiness }; });
   }
 
   async findOne(id: string, user: User) {
@@ -184,7 +249,9 @@ export class FindingsService {
     }
 
     await this.checkProjectAccess(finding.projectId, user);
-    return { ...withVulnerability(finding), pocComplete: isFindingReportReady(finding.pocSteps), pocReadiness: getPocReadiness(finding.pocSteps) };
+    const shaped = withVulnerability(finding);
+    const pocReadiness = findingPocReadiness(shaped, finding.project.subType);
+    return { ...shaped, pocComplete: pocReadiness === 'ready', pocReadiness };
   }
 
   async create(data: {

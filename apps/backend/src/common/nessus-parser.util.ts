@@ -12,6 +12,8 @@ export interface NessusFinding {
   severity: NessusSeverity;
   cvssScore: number | null;
   cvssVector: string | null;
+  /** Which CVSS version cvssScore (and cvssVector, if any) belongs to. */
+  cvssVersion: '3' | '2' | null;
   description: string;
   /** Nessus has no "impact" field; its plugin synopsis is the closest equivalent. */
   impact: string;
@@ -20,6 +22,8 @@ export interface NessusFinding {
   cveId: string | null;
   cweId: string | null;
   affected: string[];
+  /** <plugin_output> per host:port the plugin fired on (empty/missing outputs are not recorded). .nessus only. */
+  pluginOutputs: { at: string; text: string }[];
 }
 
 const SEVERITY_BY_LEVEL: NessusSeverity[] = ['Info', 'Low', 'Medium', 'High', 'Critical'];
@@ -69,7 +73,10 @@ function toScore(raw: string | null | undefined): number | null {
 function merge(map: Map<string, NessusFinding>, f: NessusFinding) {
   const existing = map.get(f.key);
   if (!existing) map.set(f.key, f);
-  else existing.affected = dedupe([...existing.affected, ...f.affected]);
+  else {
+    existing.affected = dedupe([...existing.affected, ...f.affected]);
+    existing.pluginOutputs.push(...f.pluginOutputs);
+  }
 }
 
 export function parseNessusXml(xml: string): NessusFinding[] {
@@ -100,6 +107,10 @@ export function parseNessusXml(xml: string): NessusFinding[] {
       const severity = SEVERITY_BY_LEVEL[level] ?? SEVERITY_BY_RISK[text(item, 'risk_factor').toLowerCase()] ?? 'Info';
       const v3 = toScore(text(item, 'cvss3_base_score'));
       const v2 = toScore(text(item, 'cvss_base_score'));
+      const vector3 = text(item, 'cvss3_vector');
+      const at = endpoint(hostName, item.getAttribute('port') || '', item.getAttribute('protocol') || '');
+      // Raw text as exported; only surrounding blank space is trimmed. Missing/empty stays empty, nothing is invented.
+      const output = text(item, 'plugin_output');
       const xrefs = all(item, 'xref');
       const cwe = dedupe([...all(item, 'cwe'), ...xrefs.filter((x) => /^CWE:/i.test(x)).map((x) => 'CWE-' + x.split(':')[1])]);
 
@@ -108,14 +119,17 @@ export function parseNessusXml(xml: string): NessusFinding[] {
         name,
         severity,
         cvssScore: v3 ?? v2,
-        cvssVector: (v3 !== null ? text(item, 'cvss3_vector') : text(item, 'cvss_vector')) || null,
+        cvssVersion: v3 !== null || vector3 ? '3' : v2 !== null ? '2' : null,
+        // The scan's own <cvss3_vector> is used as-is whenever present; the v2 vector only when the item has no v3 data at all.
+        cvssVector: vector3 || (v3 === null ? text(item, 'cvss_vector') : '') || null,
         description: text(item, 'description'),
         impact: text(item, 'synopsis'),
         remediation: text(item, 'solution'),
         references: dedupe([...text(item, 'see_also').split(/\s+/), ...xrefs.filter((x) => !/^CWE:/i.test(x))]).join('\n'),
         cveId: dedupe(all(item, 'cve')).join(', ') || null,
         cweId: cwe.join(', ') || null,
-        affected: [endpoint(hostName, item.getAttribute('port') || '', item.getAttribute('protocol') || '')],
+        affected: [at],
+        pluginOutputs: output ? [{ at, text: output }] : [],
       });
     }
   }
@@ -153,6 +167,7 @@ export function parseNessusCsv(content: string): NessusFinding[] {
       name,
       severity: SEVERITY_BY_RISK[get(idx.risk).toLowerCase()] ?? 'Info',
       cvssScore: v3 ?? toScore(get(idx.v2)),
+      cvssVersion: v3 !== null ? '3' : toScore(get(idx.v2)) !== null ? '2' : null,
       cvssVector: null, // Nessus CSV exports carry scores only, not vector strings
       description: get(idx.description),
       impact: get(idx.synopsis),
@@ -161,6 +176,7 @@ export function parseNessusCsv(content: string): NessusFinding[] {
       cveId: dedupe(get(idx.cve).split(/[,\s]+/)).join(', ') || null,
       cweId: get(idx.cwe) || null,
       affected: [endpoint(get(idx.host), get(idx.port), get(idx.protocol))],
+      pluginOutputs: [],
     });
   }
   return [...out.values()];

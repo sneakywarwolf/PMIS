@@ -543,6 +543,7 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <span className="px-2 py-0.5 rounded-full text-xs bg-blue-500/10 text-blue-400">{template.category}</span>
                   <span className="px-2 py-0.5 rounded-full text-xs bg-violet-500/10 text-violet-400">{subTypeLabels[template.subType] || template.subType}</span>
+                  <span className="px-2 py-0.5 rounded-full text-xs bg-amber-500/10 text-amber-400">{template.reportFormat === 'EXCEL' ? 'Excel Report' : 'Word Report'}</span>
                   <span className={`px-2 py-0.5 rounded-full text-xs ${
                     template.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-600/30 text-gray-400'
                   }`}>
@@ -724,6 +725,7 @@ function TemplateUploader() {
     name: '',
     category: 'VAPT',
     subType: 'WEB',
+    reportFormat: 'WORD',
     effectiveFrom: toDateInputValue(new Date()),
   });
 
@@ -731,11 +733,18 @@ function TemplateUploader() {
     e.preventDefault();
     if (!file) return;
 
+    const wantedExt = formData.reportFormat === 'EXCEL' ? '.xlsx' : '.docx';
+    if (!file.name.toLowerCase().endsWith(wantedExt)) {
+      toast(`A ${formData.reportFormat === 'EXCEL' ? 'Excel' : 'Word'} Report needs a ${wantedExt} file. Change the Report Type or choose a ${wantedExt} file.`, 'error');
+      return;
+    }
+
     const data = new FormData();
     data.append('file', file);
     data.append('name', formData.name);
     data.append('category', formData.category);
     data.append('subType', formData.subType);
+    data.append('reportFormat', formData.reportFormat);
     data.append('effectiveFrom', formData.effectiveFrom);
 
     try {
@@ -801,7 +810,7 @@ function TemplateUploader() {
               </select>
             </div>
             <div>
-              <label className="block text-sm text-gray-300 mb-1">Type</label>
+              <label className="block text-sm text-gray-300 mb-1">Activity Type</label>
               <select
                 value={formData.subType}
                 onChange={(e) => setFormData({ ...formData, subType: e.target.value })}
@@ -826,6 +835,17 @@ function TemplateUploader() {
             </div>
           </div>
           <div>
+            <label className="block text-sm text-gray-300 mb-1">Report Type</label>
+            <select
+              value={formData.reportFormat}
+              onChange={(e) => { setFormData({ ...formData, reportFormat: e.target.value }); setFile(null); }}
+              className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700"
+            >
+              <option value="WORD">Word Report</option>
+              <option value="EXCEL">Excel Report</option>
+            </select>
+          </div>
+          <div>
             <label className="block text-sm text-gray-300 mb-1">Effective From</label>
             <input
               type="date"
@@ -835,10 +855,11 @@ function TemplateUploader() {
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-300 mb-1">DOCX File</label>
+            <label className="block text-sm text-gray-300 mb-1">{formData.reportFormat === 'EXCEL' ? 'XLSX File' : 'DOCX File'}</label>
             <input
               type="file"
-              accept=".docx"
+              key={formData.reportFormat}
+              accept={formData.reportFormat === 'EXCEL' ? '.xlsx' : '.docx'}
               required
               onChange={(e) => setFile(e.target.files?.[0] || null)}
               className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 text-sm file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-emerald-600 file:text-white hover:file:bg-emerald-500"
@@ -873,14 +894,14 @@ function TemplateUploader() {
             </div>
             <div className="p-3 rounded-lg bg-gray-800/50">
               <p className="text-gray-500 text-xs">Summary Table</p>
-              <p className={validation.hasSummaryTable ? 'text-emerald-400' : 'text-red-400'}>
-                {validation.hasSummaryTable ? 'Detected' : 'Missing'}
+              <p className={validation.hasSummaryTable === null ? 'text-gray-400' : validation.hasSummaryTable ? 'text-emerald-400' : 'text-red-400'}>
+                {validation.hasSummaryTable === null ? 'N/A (Excel)' : validation.hasSummaryTable ? 'Detected' : 'Missing'}
               </p>
             </div>
             <div className="p-3 rounded-lg bg-gray-800/50">
               <p className="text-gray-500 text-xs">Detailed Table</p>
-              <p className={validation.hasDetailedTable ? 'text-emerald-400' : 'text-red-400'}>
-                {validation.hasDetailedTable ? 'Detected' : 'Missing'}
+              <p className={validation.hasDetailedTable === null ? 'text-gray-400' : validation.hasDetailedTable ? 'text-emerald-400' : 'text-red-400'}>
+                {validation.hasDetailedTable === null ? 'N/A (Excel)' : validation.hasDetailedTable ? 'Detected' : 'Missing'}
               </p>
             </div>
             <div className="p-3 rounded-lg bg-gray-800/50">

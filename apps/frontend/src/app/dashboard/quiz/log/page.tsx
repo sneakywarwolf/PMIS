@@ -8,7 +8,8 @@ import { api } from '@/contexts/auth-context';
 import { formatDate } from '@/lib/datetime';
 import { QUIZ_HOVER, QuizHeader, QuizSkeleton, Ring, useQuizMotion } from '@/components/quiz-ui';
 
-type LogItem = { id: string; question: string; revealedAt: string };
+type MyAttempt = { selectedOption: number; isCorrect: boolean; isLate: boolean } | null;
+type LogItem = { id: string; question: string; revealedAt: string; myAttempt: MyAttempt };
 type LogDetail = {
   id: string;
   question: string;
@@ -19,6 +20,7 @@ type LogDetail = {
   participants: number;
   correctCount: number;
   incorrectCount: number;
+  myAttempt: MyAttempt;
 };
 
 export default function QuizLogPage() {
@@ -34,6 +36,21 @@ export default function QuizLogPage() {
       setLoading(false);
     });
   }, []);
+
+  const [answering, setAnswering] = useState(false);
+
+  // Late answer: recorded for the user only, never scored or counted on the leaderboard.
+  const answerLate = async (selectedOption: number) => {
+    if (!detail) return;
+    setAnswering(true);
+    try {
+      const res = await api.post(`/quiz/log/${detail.id}/answer`, { questionId: detail.id, selectedOption });
+      setDetail({ ...detail, myAttempt: res.data });
+      setItems((prev) => prev.map((it) => (it.id === detail.id ? { ...it, myAttempt: res.data } : it)));
+    } finally {
+      setAnswering(false);
+    }
+  };
 
   const openDetail = async (id: string) => {
     setOpening(id);
@@ -75,6 +92,9 @@ export default function QuizLogPage() {
                   <p className="truncate">{item.question}</p>
                   <p className="mt-0.5 font-mono text-xs text-gray-500">{formatDate(item.revealedAt)}</p>
                 </div>
+                <span className={`shrink-0 text-xs ${item.myAttempt ? (item.myAttempt.isLate ? 'text-amber-400' : 'text-emerald-400') : 'text-gray-500'}`}>
+                  {item.myAttempt ? (item.myAttempt.isLate ? 'Answered late' : 'Answered') : 'Not answered'}
+                </span>
                 <ChevronRight className="w-4 h-4 shrink-0 text-gray-500 transition-transform group-hover:translate-x-0.5 group-hover:text-gray-300" />
               </button>
             </motion.li>
@@ -98,9 +118,24 @@ export default function QuizLogPage() {
                   </Dialog.Close>
                 </div>
 
+                {!detail.myAttempt && (
+                  <p className="text-xs text-amber-400">You missed this one. Pick an answer to record it as a late answer — it earns no points and doesn't affect the leaderboard.</p>
+                )}
+                {detail.myAttempt?.isLate && (
+                  <p className="text-xs text-amber-400">Answered late — no points awarded.</p>
+                )}
+
                 <div className="space-y-2">
                   {detail.options.map((opt, i) => {
                     const correct = i === detail.correctIndex;
+                    if (!detail.myAttempt) {
+                      return (
+                        <button key={i} disabled={answering} onClick={() => answerLate(i)} className="flex w-full items-center gap-3 rounded-lg border border-gray-700 px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none disabled:opacity-60">
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-gray-700 text-xs font-semibold">{'ABCDEFGH'[i]}</span>
+                          <span className="flex-1">{opt}</span>
+                        </button>
+                      );
+                    }
                     return (
                       <div key={i} className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-sm ${correct ? 'border-emerald-500/40 bg-emerald-500/10 text-white' : 'border-gray-800 text-gray-500'}`}>
                         <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border text-xs font-semibold ${correct ? 'border-emerald-400 bg-emerald-500 text-black' : 'border-gray-700'}`}>
@@ -108,6 +143,7 @@ export default function QuizLogPage() {
                         </span>
                         <span className="flex-1">{opt}</span>
                         {correct && <span className="text-xs font-medium text-emerald-400">Correct</span>}
+                        {detail.myAttempt.selectedOption === i && <span className="text-xs font-medium text-sky-400">Your answer</span>}
                       </div>
                     );
                   })}

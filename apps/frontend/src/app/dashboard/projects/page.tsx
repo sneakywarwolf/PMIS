@@ -533,7 +533,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
   useEffect(() => {
     const fetchTemplates = async () => {
       try {
-        const res = await api.get(`/reports/templates?category=${form.complianceType}`);
+        const res = await api.get(`/reports/templates?category=${form.complianceType}&reportFormat=WORD`);
         setTemplates(res.data);
       } catch (error) {
         console.error('Failed to fetch templates:', error);

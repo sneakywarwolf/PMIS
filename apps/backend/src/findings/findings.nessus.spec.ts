@@ -3,7 +3,8 @@ import { FindingsService } from './findings.service';
 
 const XML = `<?xml version="1.0"?><NessusClientData_v2><Report name="r">
 <ReportHost name="10.0.0.1">
-  <ReportItem port="443" protocol="tcp" severity="3" pluginID="100" pluginName="TLS Weak Cipher"><cvss3_base_score>7.5</cvss3_base_score><cvss3_vector>CVSS:3.0/AV:N</cvss3_vector><description>d</description><synopsis>s</synopsis><solution>fix</solution></ReportItem>
+  <ReportItem port="443" protocol="tcp" severity="3" pluginID="100" pluginName="TLS Weak Cipher"><cvss3_base_score>7.5</cvss3_base_score><cvss3_vector>CVSS:3.0/AV:N</cvss3_vector><description>d</description><synopsis>s</synopsis><solution>fix</solution><plugin_output>Port 443 offers TLS 1.0
+and 3DES</plugin_output></ReportItem>
   <ReportItem port="22" protocol="tcp" severity="2" pluginID="200" pluginName="SSH Weak Algorithms"><cvss_base_score>5.0</cvss_base_score><description>d</description><synopsis>s</synopsis><solution>fix</solution></ReportItem>
   <ReportItem port="80" protocol="tcp" severity="1" pluginID="300" pluginName="Already Imported"><description>d</description></ReportItem>
   <ReportItem port="21" protocol="tcp" severity="4" pluginID="400" pluginName="Not Selected"><description>d</description></ReportItem>
@@ -11,11 +12,11 @@ const XML = `<?xml version="1.0"?><NessusClientData_v2><Report name="r">
 </ReportHost></Report></NessusClientData_v2>`;
 const file = { originalname: 'scan.nessus', buffer: Buffer.from(XML) } as Express.Multer.File;
 
-function setup(opts: { role: string; subType?: string; testerId?: string; findingCreateFails?: boolean }) {
+function setup(opts: { role: string; subType?: string; testerId?: string; findingCreateFails?: boolean; exposure?: string | null }) {
   let n = 0;
   const prisma: any = {
     project: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'p1', subType: opts.subType ?? 'NETWORK', testerId: opts.testerId ?? 'u1', tlId: null, status: 'IN_PROGRESS', tester: { assignedTlId: null } }),
+      findUnique: jest.fn().mockResolvedValue({ id: 'p1', subType: opts.subType ?? 'NETWORK', testerId: opts.testerId ?? 'u1', tlId: null, status: 'IN_PROGRESS', tester: { assignedTlId: null }, externalInternal: opts.exposure === undefined ? 'External' : opts.exposure }),
       update: jest.fn(),
     },
     projectVulnerability: {
@@ -34,6 +35,7 @@ function setup(opts: { role: string; subType?: string; testerId?: string; findin
           : Promise.resolve({ id: 'f' + n, ...data, vulnerability: null, projectVulnerability: { id: data.projectVulnId } }),
       ),
     },
+    pocStep: { create: jest.fn().mockResolvedValue({}) },
     // Deliberately absent: any use of the global library would throw `undefined.findMany/create`.
     vulnerability: undefined,
   };
@@ -68,6 +70,93 @@ describe('FindingsService Nessus import (project-scoped)', () => {
     const findings = prisma.finding.create.mock.calls.map((c: any) => c[0].data);
     expect(findings[0]).toMatchObject({ projectId: 'p1', projectVulnId: 'pv1', affectedInstances: ['10.0.0.1:443/tcp'], status: 'DRAFT', createdById: 'u1' });
     expect(findings[0].vulnId).toBeUndefined();
+  });
+
+  it('keeps a scan-provided vector, calculates a missing one from score + exposure, and never changes the score', async () => {
+    const { svc, prisma, user } = setup({ role: 'ADMIN', exposure: 'External' });
+    await svc.importNessus('p1', file, ['100', '200'], user, 'ip', 'ua');
+    const [withVector, withoutVector] = prisma.projectVulnerability.create.mock.calls.map((c: any) => c[0].data);
+    expect(withVector).toMatchObject({ cvssScore: 7.5, cvssVector: 'CVSS:3.0/AV:N', cvssVectorSource: 'nessus' });
+    expect(withoutVector).toMatchObject({ cvssScore: 5, cvssVectorSource: 'calculated' });
+    expect(withoutVector.cvssVector).toMatch(/^AV:N\/AC:.\/Au:.\/C:.\/I:.\/A:.$/); // 5.0 came from CVSS v2
+  });
+
+  it('leaves the vector unresolved when the project has no exposure set', async () => {
+    const { svc, prisma, user } = setup({ role: 'ADMIN', exposure: null });
+    await svc.importNessus('p1', file, ['200'], user, 'ip', 'ua');
+    expect(prisma.projectVulnerability.create.mock.calls[0][0].data).toMatchObject({ cvssScore: 5, cvssVector: null, cvssVectorSource: 'unresolved' });
+  });
+
+  it('stores plugin output as the PoC with one "Observe the output." step; none when the scan has no output', async () => {
+    const { svc, prisma, user } = setup({ role: 'ADMIN' });
+    await svc.importNessus('p1', file, ['100', '200'], user, 'ip', 'ua');
+    const [withOutput, without] = prisma.finding.create.mock.calls.map((c: any) => c[0].data);
+    expect(withOutput.proofOfConcept).toBe('Port 443 offers TLS 1.0\nand 3DES');
+    expect(without.proofOfConcept).toBeUndefined();
+    expect(prisma.pocStep.create).toHaveBeenCalledTimes(1); // only the finding that has output
+    expect(prisma.pocStep.create).toHaveBeenCalledWith({ data: { findingId: 'f1', stepNo: 1, description: 'Observe the output.' } });
+  });
+
+  it('keeps each host\'s output with its host, and truncates visibly', () => {
+    expect(FindingsService.nessusPocText([])).toBeNull();
+    expect(FindingsService.nessusPocText([{ at: 'h:1/tcp', text: 'a' }, { at: 'h2:1/tcp', text: 'b' }])).toBe('[h:1/tcp]\na\n\n[h2:1/tcp]\nb');
+    const big = FindingsService.nessusPocText([{ at: 'h', text: 'x'.repeat(40000) }])!;
+    expect(big.endsWith('\n[output truncated]')).toBe(true);
+    expect(big.length).toBeLessThan(32100);
+  });
+
+  it('the preview does not carry plugin outputs', async () => {
+    const { svc, user } = setup({ role: 'ADMIN' });
+    const { items } = await svc.previewNessus('p1', file, user);
+    expect(items.every((i: any) => !('pluginOutputs' in i))).toBe(true);
+  });
+
+  describe('adding plugin output to findings imported before output was captured', () => {
+    // plugin 100 has output in the file; 300 does not. Both were imported earlier.
+    const older = (findingsOf100: any[]) => (p: any) => {
+      p.projectVulnerability.findMany.mockImplementation(({ select }: any) =>
+        select.findings && select.findings.where
+          ? Promise.resolve([{ findings: findingsOf100 }])
+          : Promise.resolve([{ sourceKey: '100', findings: findingsOf100 }, { sourceKey: '300', findings: [{ proofOfConcept: null }] }]));
+      p.finding.update = jest.fn().mockResolvedValue({});
+    };
+
+    it('previews as "refresh" only when the file has output and the existing finding has none', async () => {
+      const { svc, prisma, user } = setup({ role: 'ADMIN' });
+      older([{ id: 'fOld', proofOfConcept: null, pocSteps: [] }])(prisma);
+      const { items } = await svc.previewNessus('p1', file, user);
+      const status = Object.fromEntries(items.map((i: any) => [i.key, i.status]));
+      expect(status['100']).toBe('refresh');   // has output in the file, finding has none
+      expect(status['300']).toBe('duplicate'); // nothing to add: the file has no output for it
+    });
+
+    it('is not offered again once the finding has its output', async () => {
+      const { svc, prisma, user } = setup({ role: 'ADMIN' });
+      older([{ id: 'fOld', proofOfConcept: 'already here', pocSteps: [] }])(prisma);
+      const { items } = await svc.previewNessus('p1', file, user);
+      expect(items.find((i: any) => i.key === '100')!.status).toBe('duplicate');
+    });
+
+    it('writes only the output and the one step, on the existing finding, creating nothing else', async () => {
+      const { svc, prisma, user } = setup({ role: 'ADMIN' });
+      older([{ id: 'fOld', proofOfConcept: null, pocSteps: [] }])(prisma);
+      const r = await svc.importNessus('p1', file, ['100'], user, 'ip', 'ua');
+      expect(r.refreshed).toEqual([{ key: '100', name: 'TLS Weak Cipher' }]);
+      expect(r.created).toHaveLength(0);
+      expect(prisma.finding.update).toHaveBeenCalledWith({ where: { id: 'fOld' }, data: { proofOfConcept: 'Port 443 offers TLS 1.0\nand 3DES' } });
+      expect(prisma.pocStep.create).toHaveBeenCalledWith({ data: { findingId: 'fOld', stepNo: 1, description: 'Observe the output.' } });
+      expect(prisma.projectVulnerability.create).not.toHaveBeenCalled();
+      expect(prisma.finding.create).not.toHaveBeenCalled();
+    });
+
+    it('never overwrites existing output or duplicates an existing step', async () => {
+      const { svc, prisma, user } = setup({ role: 'ADMIN' });
+      older([{ id: 'hasPoc', proofOfConcept: 'mine', pocSteps: [] }, { id: 'hasStep', proofOfConcept: null, pocSteps: [{ id: 's1' }] }])(prisma);
+      await svc.importNessus('p1', file, ['100'], user, 'ip', 'ua');
+      expect(prisma.finding.update).toHaveBeenCalledTimes(1);
+      expect(prisma.finding.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'hasStep' } }));
+      expect(prisma.pocStep.create).not.toHaveBeenCalled();
+    });
   });
 
   it('removes the project record if its finding cannot be created', async () => {

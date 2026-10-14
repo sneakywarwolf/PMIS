@@ -31,6 +31,7 @@ export const CANONICAL_TEMPLATE_PARAMETERS: { key: string; label: string }[] = [
   { key: 'project.mobilePlatform', label: 'Mobile Platform (Android/iOS)' },
   { key: 'project.sha1', label: 'SHA-1 Hash' },
   { key: 'project.externalInternal', label: 'Scope Exposure (External/Internal)' },
+  { key: 'project.networkActivityType', label: 'Network Activity Type (VA/PT/VAPT)' },
   { key: 'project.totalScopeCount', label: 'Total Scope Count' },
   { key: 'project.quarter', label: 'Quarter' },
   { key: 'report.generationDateIso', label: 'Report Date (format set in Admin Settings)' },
@@ -133,6 +134,7 @@ export function resolveTemplateParameter(key: string, project: any, formatDate: 
     case 'project.mobilePlatform': return project.mobilePlatform || '';
     case 'project.sha1': return project.sha1 || '';
     case 'project.externalInternal': return project.externalInternal || '';
+    case 'project.networkActivityType': return project.networkActivityType || '';
     case 'project.totalScopeCount': return project.totalScopeCount != null ? String(project.totalScopeCount) : '';
     case 'project.quarter': return project.quarter || '';
     case 'report.generationDateIso': return reportDate ?? new Date().toISOString().slice(0, 10);

@@ -9,6 +9,7 @@ import { useBranding } from '@/contexts/branding-context';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
 import { formatDateTime } from '@/lib/datetime';
+import { stripCvssPrefix } from '@/lib/cvss';
 
 const DEFAULT_SEVERITY_COLORS: Record<string, string> = {
   Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#3b82f6', Info: '#6b7280',
@@ -655,7 +656,7 @@ export default function VulnerabilitiesPage() {
                   {vuln.cvssVector && (
                     <div>
                       <p className="text-xs text-gray-500 mb-1">CVSS Vector</p>
-                      <p className="text-gray-300">{vuln.cvssVector}</p>
+                      <p className="text-gray-300">{stripCvssPrefix(vuln.cvssVector)}</p>
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-4">
@@ -1032,7 +1033,7 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
             </div>
             <div className="flex items-center justify-between pt-1 text-sm">
               <span className="text-gray-400">Score: <span className="text-white font-semibold">{form.cvssScore || '-'}</span></span>
-              <span className="text-gray-400 truncate ml-4">Vector: <span className="text-cyan-400">{form.cvssVector}</span></span>
+              <span className="text-gray-400 truncate ml-4">Vector: <span className="text-cyan-400">{stripCvssPrefix(form.cvssVector)}</span></span>
             </div>
           </div>
 
@@ -1117,11 +1118,11 @@ function ChangeRequestDiffModal({ changeRequest, onClose }: { changeRequest: any
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <p className="text-[10px] uppercase text-gray-600 mb-1">Current</p>
-                    <p className="text-red-300/90 whitespace-pre-wrap break-words">{String(before[field] ?? '—')}</p>
+                    <p className="text-red-300/90 whitespace-pre-wrap break-words">{field === 'cvssVector' ? stripCvssPrefix(before[field]) || '—' : String(before[field] ?? '—')}</p>
                   </div>
                   <div>
                     <p className="text-[10px] uppercase text-gray-600 mb-1">Proposed</p>
-                    <p className="text-emerald-300/90 whitespace-pre-wrap break-words">{String(after[field] ?? '—')}</p>
+                    <p className="text-emerald-300/90 whitespace-pre-wrap break-words">{field === 'cvssVector' ? stripCvssPrefix(after[field]) || '—' : String(after[field] ?? '—')}</p>
                   </div>
                 </div>
               </div>
