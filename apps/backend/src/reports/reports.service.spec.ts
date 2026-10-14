@@ -299,7 +299,7 @@ describe('ReportsService.getReportGenerationStatus', () => {
     const result = await service.getReportGenerationStatus('r1', actor(UserRole.TESTER, 'tester-1'));
 
     expect(result.status).toBe('COMPLETED');
-    expect(result.docxUrl).toBe('https://example.com/signed');
+    expect(result.docxUrl).toContain('/api/reports/download?path=reports%2Fp1%2F1_report.docx');
   });
 
   it('allows an Admin to poll any project\'s report', async () => {
