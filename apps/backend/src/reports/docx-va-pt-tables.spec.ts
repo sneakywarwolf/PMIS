@@ -293,3 +293,33 @@ describe('Network Word report: {VA Output} and VA text cleanup', () => {
     expect(new DocxManipulatorService().resolveFindingParameter('va_output', va('V', null))).toBe('');
   });
 });
+
+describe('{#VA}/{#PT} activity blocks', () => {
+  const p = (t: string) => `<w:p><w:r><w:t>${t}</w:t></w:r></w:p>`;
+  const body = [p('intro'), p('{#VA}'), p('va-text'), tbl(row('va-table', 'x')), p('{/VA}'), p('{#PT}'), p('pt-text'), p('{/PT}'), p('outro')].join('');
+
+  const run = async (activityType?: string | null) => {
+    const svc = new DocxManipulatorService();
+    const out = await svc.generateReport(await docxWith(body), [], [], [], undefined, undefined, [], [], [], undefined, { activityType });
+    return (await JSZip.loadAsync(out)).file('word/document.xml').async('text') as Promise<string>;
+  };
+
+  it.each([
+    ['VA', ['va-text', 'va-table'], ['pt-text']],
+    ['PT', ['pt-text'], ['va-text', 'va-table']],
+    ['VAPT', ['va-text', 'va-table', 'pt-text'], []],
+    [undefined, ['va-text', 'va-table', 'pt-text'], []],
+  ])('%s keeps %j and drops %j, never leaving markers', async (activity, kept, dropped) => {
+    const xml = await run(activity);
+    for (const k of kept) expect(xml).toContain(k);
+    for (const d of dropped) expect(xml).not.toContain(d);
+    expect(xml).toContain('intro');
+    expect(xml).toContain('outro');
+    expect(xml).not.toMatch(/\{[#/](VA|PT)\}/);
+  });
+
+  it('does not report markers as template fields', async () => {
+    const fields = await new DocxManipulatorService().extractPlaceholderFields(await docxWith(body));
+    expect(fields).toEqual([]);
+  });
+});

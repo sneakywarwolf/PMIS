@@ -151,6 +151,7 @@ export class DocxManipulatorService {
       let match: RegExpExecArray | null;
       while ((match = re.exec(fullText))) {
         const raw = match[1].trim();
+        if (/^[#/]\s*(VA|PT)$/i.test(raw)) continue; // conditional block marker, not a field
         if (!raw) continue;
 
         const normalizedName = this.normalizeFieldName(raw);
@@ -252,7 +253,7 @@ export class DocxManipulatorService {
     nmapPorts: NmapPortRecord[] = [],
     toolsUsed: ToolUsedRow[] = [],
     reportName?: string,
-    options?: { splitVaPt?: boolean },
+    options?: { splitVaPt?: boolean; activityType?: string | null },
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -268,6 +269,9 @@ export class DocxManipulatorService {
 
     // Step 1: merge split highlighted runs so placeholders are whole
     this.mergeAllHighlightedRuns(doc);
+
+    // Step 1.2: {#VA}...{/VA} / {#PT}...{/PT} blocks, kept or dropped by the project's activity type
+    this.applyActivityBlocks(doc, options?.activityType);
 
     // Step 1.5: {Report Name} resolves to the final generated filename and,
     // unlike the generic project-info rules below, must populate every
@@ -345,6 +349,43 @@ export class DocxManipulatorService {
     await this.markFieldsForUpdate(zip);
 
     return zip.generateAsync({ type: 'nodebuffer' });
+  }
+
+  /**
+   * Conditional blocks. A paragraph that is only `{#VA}` / `{#PT}` opens a block, one that is only
+   * `{/VA}` / `{/PT}` closes it; everything between (paragraphs, tables, ...) is kept or removed as
+   * a unit. Marker paragraphs are always removed. VA keeps VA blocks, PT keeps PT blocks, VAPT keeps
+   * both; an unset/unknown activity type keeps both, so existing templates and projects are unchanged.
+   */
+  private applyActivityBlocks(doc: Document, activityType?: string | null): void {
+    const activity = (activityType || '').trim().toUpperCase();
+    const keep = (kind: string) => !['VA', 'PT', 'VAPT'].includes(activity) || activity.includes(kind);
+    const marker = (el: Node) =>
+      el.nodeType === 1 && (el as Element).localName === 'p'
+        ? /^\{\s*([#/])\s*(VA|PT)\s*\}$/i.exec(this.getElementText(el as Element).trim())
+        : null;
+
+    const paragraphs = Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
+    for (const open of paragraphs) {
+      const m = open.parentNode && marker(open);
+      if (!m || m[1] !== '#') continue;
+      const kind = m[2].toUpperCase();
+      const between: Node[] = [];
+      let close: Node | null = null;
+      for (let n = open.nextSibling; n; n = n.nextSibling) {
+        const c = marker(n);
+        if (c && c[1] === '/' && c[2].toUpperCase() === kind) { close = n; break; }
+        between.push(n);
+      }
+      const parent = open.parentNode!;
+      if (!close) {
+        this.logger.warn(`Template block {#${kind}} has no matching {/${kind}} in the same section; leaving it as is`);
+        continue;
+      }
+      if (!keep(kind)) between.forEach((n) => parent.removeChild(n));
+      parent.removeChild(open);
+      parent.removeChild(close);
+    }
   }
 
   /**
