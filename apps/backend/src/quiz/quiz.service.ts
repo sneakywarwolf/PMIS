@@ -179,6 +179,10 @@ export class QuizService {
     });
     if (!recentlyRevealed) return null;
 
+    // Someone who never answered must not see the answer here; they attempt it from the Question Log first.
+    const attempted = await this.prisma.quizAttempt.findUnique({ where: { questionId_userId: { questionId: recentlyRevealed.id, userId } } });
+    if (!attempted) return null;
+
     return this.buildRevealedSummary(recentlyRevealed, userId);
   }
 

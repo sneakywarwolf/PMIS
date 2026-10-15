@@ -275,6 +275,7 @@ describe('QuizService admin/read methods', () => {
         explanation: 'because',
         revealedAt: new Date(),
       });
+    prisma.quizAttempt.findUnique.mockResolvedValue({ userId: 'u1', isCorrect: false });
     prisma.quizAttempt.findMany.mockResolvedValue([
       { userId: 'u1', isCorrect: false },
       { userId: 'u2', isCorrect: true },
@@ -285,7 +286,7 @@ describe('QuizService admin/read methods', () => {
     expect(result.userIsCorrect).toBe(false);
   });
 
-  it('getTodayQuestion returns userIsCorrect null when the viewing user never answered', async () => {
+  it('getTodayQuestion withholds the revealed question (and its answer) from a user who never answered', async () => {
     prisma.quizQuestion.findFirst
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
@@ -296,11 +297,9 @@ describe('QuizService admin/read methods', () => {
         explanation: 'because',
         revealedAt: new Date(),
       });
-    prisma.quizAttempt.findMany.mockResolvedValue([{ userId: 'u2', isCorrect: true }]);
+    prisma.quizAttempt.findUnique.mockResolvedValue(null);
 
-    const result: any = await service.getTodayQuestion('u1');
-
-    expect(result.userIsCorrect).toBeNull();
+    await expect(service.getTodayQuestion('u1')).resolves.toBeNull();
   });
 
   it('createQuestion creates the question and logs an audit entry with ipAddress/userAgent', async () => {
