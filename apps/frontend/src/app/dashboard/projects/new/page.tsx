@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Loader2, Save, FolderKanban } from 'lucide-react';
 import { api } from '@/contexts/auth-context';
+import { ScopeImportButton } from '@/components/scope-import-button';
 import { useToast } from '@/components/toast-provider';
 
 const inputCls =
@@ -57,6 +58,9 @@ export default function NewProjectPage() {
   }, [form.subType, form.clientName, form.quarter]);
 
   const [networkScope, setNetworkScope] = useState<{ ip: string; domainHostname: string; purpose: string }[]>([]);
+  // Imported rows are appended after any rows the user has actually filled in (untouched blank rows are dropped).
+  const importScopeRows = (added: { ip: string; domainHostname: string; purpose: string }[]) =>
+    setNetworkScope((rows) => [...rows.filter((r) => r.ip || r.domainHostname || r.purpose), ...added]);
   const addScopeRow = () => setNetworkScope((rows) => [...rows, { ip: '', domainHostname: '', purpose: '' }]);
   const removeScopeRow = (i: number) => setNetworkScope((rows) => rows.filter((_, idx) => idx !== i));
   const setScopeRow = (i: number, key: 'ip' | 'domainHostname' | 'purpose', value: string) =>
@@ -306,11 +310,15 @@ export default function NewProjectPage() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className={labelCls}>Network Scope</label>
-                <button type="button" onClick={addScopeRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <ScopeImportButton rows={networkScope} onImport={importScopeRows} />
+                  <button type="button" onClick={addScopeRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+                </div>
               </div>
               <div className="space-y-2">
                 {networkScope.map((row, i) => (
-                  <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                  <div key={i} className="grid grid-cols-1 md:grid-cols-[2rem_1fr_1fr_1fr_auto] gap-2 items-center">
+                    <span className="text-xs text-gray-500 md:text-right" aria-label="S.No">{i + 1}</span>
                     <input type="text" value={row.ip || ''} onChange={(e) => setScopeRow(i, 'ip', e.target.value)} className={inputCls} placeholder="IP" />
                     <input type="text" value={row.domainHostname || ''} onChange={(e) => setScopeRow(i, 'domainHostname', e.target.value)} className={inputCls} placeholder="Domain / Hostname" />
                     <input type="text" value={row.purpose || ''} onChange={(e) => setScopeRow(i, 'purpose', e.target.value)} className={inputCls} placeholder="Purpose" />

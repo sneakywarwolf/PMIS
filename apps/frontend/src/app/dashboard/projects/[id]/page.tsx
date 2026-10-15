@@ -26,6 +26,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { ScopeImportButton } from '@/components/scope-import-button';
 import { triggerDownload } from '@/lib/download';
 import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
@@ -542,6 +543,7 @@ export default function ProjectDetailPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-gray-500 text-xs">
+                  <th className="text-left font-normal pb-1 w-12">S.No</th>
                   <th className="text-left font-normal pb-1">IP</th>
                   <th className="text-left font-normal pb-1">Domain/Hostname</th>
                   <th className="text-left font-normal pb-1">Purpose</th>
@@ -550,6 +552,7 @@ export default function ProjectDetailPage() {
               <tbody>
                 {project.networkScope.map((row, i) => (
                   <tr key={i} className="text-white border-t border-gray-800">
+                    <td className="py-1 text-gray-400">{i + 1}</td>
                     <td className="py-1">{row.ip || 'NA'}</td>
                     <td className="py-1">{row.domainHostname || 'NA'}</td>
                     <td className="py-1">{row.purpose || 'NA'}</td>
@@ -651,11 +654,11 @@ export default function ProjectDetailPage() {
                 <button
                   onClick={() => nmapInputRef.current?.click()}
                   disabled={uploadingNmap}
-                  title="Upload Nmap port scan result"
+                  title="Upload Nmap port scan result (adds ports)"
                   className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm disabled:opacity-50"
                 >
                   {uploadingNmap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  Add Ports
+                  Nmap Ports
                 </button>
                 <input
                   ref={nessusInputRef}
@@ -844,6 +847,9 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
       purpose: r?.purpose || '',
     })),
   );
+  // Imported rows are appended after any rows the user has actually filled in (untouched blank rows are dropped).
+  const importScopeRows = (added: { ip: string; domainHostname: string; purpose: string }[]) =>
+    setNetworkScope((rows) => [...rows.filter((r) => r.ip || r.domainHostname || r.purpose), ...added]);
   const addScopeRow = () => setNetworkScope((rows) => [...rows, { ip: '', domainHostname: '', purpose: '' }]);
   const removeScopeRow = (i: number) => setNetworkScope((rows) => rows.filter((_, idx) => idx !== i));
   const setScopeRow = (i: number, key: 'ip' | 'domainHostname' | 'purpose', value: string) =>
@@ -1055,11 +1061,15 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className={labelCls}>Network Scope</label>
-                <button type="button" onClick={addScopeRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <ScopeImportButton rows={networkScope} onImport={importScopeRows} />
+                  <button type="button" onClick={addScopeRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+                </div>
               </div>
               <div className="space-y-2">
                 {networkScope.map((row, i) => (
-                  <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                  <div key={i} className="grid grid-cols-1 md:grid-cols-[2rem_1fr_1fr_1fr_auto] gap-2 items-center">
+                    <span className="text-xs text-gray-500 md:text-right" aria-label="S.No">{i + 1}</span>
                     <input type="text" value={row.ip || ''} onChange={(e) => setScopeRow(i, 'ip', e.target.value)} className={inputCls} placeholder="IP" />
                     <input type="text" value={row.domainHostname || ''} onChange={(e) => setScopeRow(i, 'domainHostname', e.target.value)} className={inputCls} placeholder="Domain / Hostname" />
                     <input type="text" value={row.purpose || ''} onChange={(e) => setScopeRow(i, 'purpose', e.target.value)} className={inputCls} placeholder="Purpose" />

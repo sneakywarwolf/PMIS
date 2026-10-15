@@ -8,9 +8,9 @@ import { findingPocReadiness } from '../common/poc-validation.util';
 import { parseNessusFile } from '../common/nessus-parser.util';
 import { assertPocKey, assertPocKeys } from '../common/upload-security.util';
 
-/** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) */
+/** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) · merge: same plugin already imported, but this file adds affected hosts */
 // 'refresh' = already imported, but its plugin output was not captured then (older import): the same file can add it.
-export type NessusImportStatus = 'new' | 'duplicate' | 'refresh';
+export type NessusImportStatus = 'new' | 'duplicate' | 'refresh' | 'merge';
 
 @Injectable()
 export class FindingsService {
@@ -70,7 +70,7 @@ export class FindingsService {
     const [scoped, existing] = await Promise.all([
       this.prisma.projectVulnerability.findMany({
         where: { projectId, source: 'nessus' },
-        select: { sourceKey: true, findings: { select: { proofOfConcept: true } } },
+        select: { sourceKey: true, findings: { select: { proofOfConcept: true, affectedInstances: true } } },
       }),
       this.prisma.finding.findMany({
         where: { projectId },
@@ -79,12 +79,19 @@ export class FindingsService {
     ]);
     const imported = new Set(scoped.map((v) => v.sourceKey));
     const lacksOutput = new Set(scoped.filter((v) => (v.findings ?? []).some((f) => !f.proofOfConcept)).map((v) => v.sourceKey));
+    const knownHosts = new Map<string, Set<string>>();
+    for (const v of scoped) {
+      const set = knownHosts.get(v.sourceKey!) ?? new Set<string>();
+      (v.findings ?? []).forEach((f) => (f.affectedInstances ?? []).forEach((h) => set.add(h)));
+      if ((v.findings ?? []).length > 0) knownHosts.set(v.sourceKey!, set); // a record whose finding was deleted has nothing to merge into
+    }
     const names = new Set(existing.map((f) => (f.vulnerability ?? f.projectVulnerability)!.name.trim().toLowerCase()));
 
     const items = parsed.map((item) => ({
       ...item,
       status: (imported.has(item.key)
-        ? (item.pluginOutputs.length > 0 && lacksOutput.has(item.key) ? 'refresh' : 'duplicate')
+        ? (knownHosts.has(item.key) && item.affected.some((h) => !knownHosts.get(item.key)!.has(h)) ? 'merge'
+          : item.pluginOutputs.length > 0 && lacksOutput.has(item.key) ? 'refresh' : 'duplicate')
         : names.has(item.name.trim().toLowerCase()) ? 'duplicate' : 'new') as NessusImportStatus,
     }));
     return { items, exposure: project.externalInternal };
@@ -135,6 +142,35 @@ export class FindingsService {
     }
   }
 
+  /**
+   * Same plugin imported from another scan: add the hosts the finding doesn't have yet (union, nothing
+   * removed or reordered) and, if the finding has no plugin output yet, the output too. Everything else on the
+   * finding is left alone.
+   */
+  private async mergeNessusInstances(projectId: string, item: { key: string; affected: string[]; pluginOutputs: { at: string; text: string }[] }, user: User, ipAddress: string, userAgent: string) {
+    const records = await this.prisma.projectVulnerability.findMany({
+      where: { projectId, source: 'nessus', sourceKey: item.key },
+      select: { findings: { where: { projectId }, select: { id: true, affectedInstances: true } } },
+    });
+    for (const finding of records.flatMap((r) => r.findings)) {
+      const added = item.affected.filter((h) => !finding.affectedInstances.includes(h));
+      if (added.length === 0) continue;
+      await this.prisma.finding.update({ where: { id: finding.id }, data: { affectedInstances: [...finding.affectedInstances, ...added] } });
+      await this.auditService.log({
+        actorId: user.id,
+        action: 'PROJECT_UPDATED',
+        targetType: 'FINDING',
+        targetId: finding.id,
+        ipAddress,
+        userAgent,
+        details: { nessusInstancesAdded: added },
+      });
+    }
+    if (item.pluginOutputs.length > 0) {
+      await this.addNessusOutput(projectId, item.key, FindingsService.nessusPocText(item.pluginOutputs)!, user, ipAddress, userAgent);
+    }
+  }
+
   async importNessus(
     projectId: string,
     file: Express.Multer.File | undefined,
@@ -151,6 +187,7 @@ export class FindingsService {
       skipped: [] as { key: string; name: string; reason: string }[],
       failed: [] as { key: string; name: string; error: string }[],
       refreshed: [] as { key: string; name: string }[],
+      merged: [] as { key: string; name: string }[],
     };
 
     for (const key of new Set(selected)) {
@@ -161,6 +198,15 @@ export class FindingsService {
       }
       if (item.status === 'duplicate') {
         result.skipped.push({ key, name: item.name, reason: 'Already in this project' });
+        continue;
+      }
+      if (item.status === 'merge') {
+        try {
+          await this.mergeNessusInstances(projectId, item, user, ipAddress, userAgent);
+          result.merged.push({ key, name: item.name });
+        } catch (e: any) {
+          result.failed.push({ key, name: item.name, error: e.message || 'Merge failed' });
+        }
         continue;
       }
       if (item.status === 'refresh') {
