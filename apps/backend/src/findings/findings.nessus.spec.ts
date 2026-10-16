@@ -41,7 +41,7 @@ function setup(opts: { role: string; subType?: string; testerId?: string; findin
   };
   const audit: any = { log: jest.fn() };
   const user: any = { id: 'u1', role: opts.role };
-  return { svc: new FindingsService(prisma, audit), prisma, user };
+  return { svc: new FindingsService(prisma, audit, { deleteFile: jest.fn() } as any), prisma, user };
 }
 
 describe('FindingsService Nessus import (project-scoped)', () => {

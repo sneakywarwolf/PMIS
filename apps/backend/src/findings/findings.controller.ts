@@ -84,6 +84,21 @@ export class FindingsController {
     return this.findingsService.findByProject(projectId, user);
   }
 
+  // Declared before the ':id' routes so "project" is never taken for a finding id.
+  @Get('project/:projectId/nessus-count')
+  @ApiOperation({ summary: 'Number of Nessus-imported VA findings the caller may delete in this project' })
+  async countNessus(@Param('projectId') projectId: string, @CurrentUser() user: User) {
+    return this.findingsService.countNessusFindings(projectId, user);
+  }
+
+  @Delete('project/:projectId/nessus')
+  @ApiOperation({ summary: 'Delete all Nessus-imported VA findings of a project' })
+  async removeAllNessus(@Param('projectId') projectId: string, @CurrentUser() user: User, @Req() request: any) {
+    const ipAddress = request.ip || 'unknown';
+    const userAgent = request.headers['user-agent'] || 'unknown';
+    return this.findingsService.removeAllNessusFindings(projectId, user, ipAddress, userAgent);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get finding by ID' })
   async findOne(

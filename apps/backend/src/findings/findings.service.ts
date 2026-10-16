@@ -7,6 +7,7 @@ import { resolveCvssVector } from '../common/cvss-vector.util';
 import { findingPocReadiness } from '../common/poc-validation.util';
 import { parseNessusFile } from '../common/nessus-parser.util';
 import { assertPocKey, assertPocKeys } from '../common/upload-security.util';
+import { StorageService } from '../reports/storage.service';
 
 /** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) · merge: same plugin already imported, but this file adds affected hosts */
 // 'refresh' = already imported, but its plugin output was not captured then (older import): the same file can add it.
@@ -17,6 +18,7 @@ export class FindingsService {
   constructor(
     private prisma: PrismaService,
     private auditService: AuditService,
+    private storage: StorageService,
   ) {}
 
   private async checkProjectAccess(projectId: string, user: User) {
@@ -260,6 +262,82 @@ export class FindingsService {
       }
     }
     return result;
+  }
+
+  /**
+   * The Nessus-imported VA findings of one project, identified by the project-scoped record's source
+   * (never by name or severity). A tester can only touch findings they created, as with single delete.
+   */
+  private nessusFindingsWhere(projectId: string, user: User) {
+    return {
+      projectId,
+      projectVulnerability: { is: { projectId, source: 'nessus' } },
+      ...(user.role === UserRole.TESTER && { createdById: user.id }),
+    };
+  }
+
+  async countNessusFindings(projectId: string, user: User) {
+    await this.checkProjectAccess(projectId, user);
+    return { count: await this.prisma.finding.count({ where: this.nessusFindingsWhere(projectId, user) }) };
+  }
+
+  /**
+   * Deletes every Nessus-imported VA finding of this project in one transaction (project row locked, so
+   * two bulk deletes can't interleave): the findings (their PoC steps cascade), then their now-unused
+   * project-scoped vulnerability records. PT findings, the global Vulnerability DB, other projects, Nmap data,
+   * scope and reports are never selected. Stored PoC/evidence files are removed after the commit, and only
+   * those no remaining finding still points at. Repeating the call deletes nothing and returns 0.
+   */
+  async removeAllNessusFindings(projectId: string, user: User, ipAddress: string, userAgent: string) {
+    await this.checkProjectAccess(projectId, user);
+
+    const { deleted, files } = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`;
+      const targets = await tx.finding.findMany({
+        where: this.nessusFindingsWhere(projectId, user),
+        select: { id: true, evidencePaths: true, pocSteps: { select: { imagePath: true } } },
+      });
+      if (targets.length === 0) return { deleted: 0, files: [] as string[] };
+
+      const ids = targets.map((f) => f.id);
+      const candidates = [...new Set(targets.flatMap((f) => [...f.evidencePaths, ...f.pocSteps.map((s) => s.imagePath ?? '')]).filter(Boolean))];
+
+      const result = await tx.finding.deleteMany({ where: { id: { in: ids } } });
+      // Records left without any finding (this delete, or an interrupted earlier import) go too; ones still in use stay.
+      await tx.projectVulnerability.deleteMany({ where: { projectId, source: 'nessus', findings: { none: {} } } });
+
+      // Only files nothing else references are safe to remove.
+      const stillUsed = new Set<string>();
+      if (candidates.length) {
+        const [steps, evidence] = await Promise.all([
+          tx.pocStep.findMany({ where: { imagePath: { in: candidates } }, select: { imagePath: true } }),
+          tx.finding.findMany({ where: { evidencePaths: { hasSome: candidates } }, select: { evidencePaths: true } }),
+        ]);
+        steps.forEach((s) => stillUsed.add(s.imagePath!));
+        evidence.forEach((f) => f.evidencePaths.forEach((p) => stillUsed.add(p)));
+      }
+
+      await this.auditService.log({
+        actorId: user.id,
+        action: 'PROJECT_UPDATED',
+        targetType: 'PROJECT',
+        targetId: projectId,
+        ipAddress,
+        userAgent,
+        details: { bulkDeleteNessusFindings: true, deletedCount: result.count },
+      });
+      return { deleted: result.count, files: candidates.filter((p) => !stillUsed.has(p)) };
+    });
+
+    // Best effort after commit: a storage hiccup must not undo or fail a completed delete.
+    for (const path of files) {
+      try {
+        await this.storage.deleteFile(path);
+      } catch {
+        // ponytail: orphaned file stays in storage; no retry queue.
+      }
+    }
+    return { deleted };
   }
 
   async findByProject(projectId: string, user: User) {

@@ -191,12 +191,18 @@ export default function ProjectDetailPage() {
   const [reportResult, setReportResult] = useState<any>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showFormatMenu, setShowFormatMenu] = useState(false);
+  const [nessusCount, setNessusCount] = useState(0);
+  const [deletingNessus, setDeletingNessus] = useState(false);
   const [findingFilter, setFindingFilter] = useState<'ALL' | 'VA' | 'PT'>('ALL');
 
   const fetchProject = useCallback(async () => {
     try {
       const response = await api.get(`/projects/${id}`);
       setProject(response.data);
+      // How many Nessus-imported VA findings the caller may bulk-delete (drives the "Delete All VA Findings" button).
+      if (response.data.subType === 'NETWORK') {
+        api.get(`/findings/project/${id}/nessus-count`).then((r) => setNessusCount(r.data.count)).catch(() => setNessusCount(0));
+      }
     } catch (error) {
       console.error('Failed to fetch project:', error);
       showToast('Could not refresh project data — showing may be out of date', 'error');
@@ -208,6 +214,28 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     fetchProject();
   }, [fetchProject]);
+
+  // Deletes ALL of this project's Nessus-imported VA findings (server-side, every page / filter), after an explicit confirm.
+  const handleDeleteAllNessus = async () => {
+    if (!project) return;
+    const ok = await confirmDialog({
+      title: 'Delete all VA findings?',
+      message: `This will permanently delete all ${nessusCount} Nessus-imported VA finding${nessusCount === 1 ? '' : 's'} in this project, with their POC steps. PT findings, the Vulnerability Database, Nmap ports, Network Scope and reports are not affected. This cannot be undone through the UI.`,
+      confirmLabel: `Delete ${nessusCount} VA finding${nessusCount === 1 ? '' : 's'}`,
+      danger: true,
+    });
+    if (!ok) return;
+    setDeletingNessus(true);
+    try {
+      const res = await api.delete(`/findings/project/${project.id}/nessus`);
+      showToast(res.data.deleted === 0 ? 'No Nessus-imported VA findings were left to delete.' : `Deleted ${res.data.deleted} Nessus-imported VA finding${res.data.deleted === 1 ? '' : 's'}.`, 'success');
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to delete VA findings — nothing was changed.', 'error');
+    } finally {
+      setDeletingNessus(false);
+      await fetchProject();
+    }
+  };
 
   const handleDeleteFinding = async (findingId: string) => {
     const ok = await confirmDialog({ title: 'Delete finding?', message: 'This finding and its POC steps will be permanently deleted.', confirmLabel: 'Delete', danger: true });
@@ -675,6 +703,17 @@ export default function ProjectDetailPage() {
                   <ShieldAlert className="w-4 h-4" />
                   Nessus
                 </button>
+                {nessusCount > 0 && (
+                  <button
+                    onClick={handleDeleteAllNessus}
+                    disabled={deletingNessus}
+                    title="Permanently delete every Nessus-imported VA finding in this project"
+                    className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+                  >
+                    {deletingNessus ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    Delete All VA Findings ({nessusCount})
+                  </button>
+                )}
                 {nessusFile && (
                   <NessusImportDialog
                     projectId={project.id}
