@@ -222,17 +222,23 @@ describe('ReportsService.generateReport (fast/enqueue path)', () => {
     expect(result).toEqual({ reportId: 'rg1', status: 'PENDING', version: '1.0' });
   });
 
-  it.each([['In-Progress'], ['Non-Compliant'], [null]])('rejects report generation when the saved status is %s (Word and Excel), enqueuing nothing', async (status) => {
+  it.each([['In-Progress'], ['Non-Compliant'], [null]])('with no findings and status %s: rejected for Word and Excel, nothing enqueued', async (status) => {
     const base = await prisma.project.findUnique();
-    prisma.project.findUnique.mockResolvedValue({ ...base, complianceStatus: status, subType: 'NETWORK' });
+    prisma.project.findUnique.mockResolvedValue({ ...base, complianceStatus: status, subType: 'NETWORK', findings: [] });
     for (const format of ['WORD', 'EXCEL'] as const) {
-      await expect(service.generateReport('p1', actor(UserRole.ADMIN, 'admin1'), '1.2.3.4', 'jest', format as any)).rejects.toThrow(/Report generation is not allowed/);
+      await expect(service.generateReport('p1', actor(UserRole.ADMIN, 'admin1'), '1.2.3.4', 'jest', format as any)).rejects.toThrow(/no findings/);
     }
     expect(prisma.reportGeneration.create).not.toHaveBeenCalled();
     expect(queue.add).not.toHaveBeenCalled();
   });
 
-  it('allows report generation once the saved status is Compliant, even with no findings yet', async () => {
+  it.each([['In-Progress'], ['Non-Compliant'], ['Compliant']])('with findings and status %s: allowed', async (status) => {
+    const base = await prisma.project.findUnique();
+    prisma.project.findUnique.mockResolvedValue({ ...base, complianceStatus: status });
+    await expect(service.generateReport('p1', actor(UserRole.ADMIN, 'admin1'), '1.2.3.4', 'jest')).resolves.toMatchObject({ status: 'PENDING' });
+  });
+
+  it('with no findings but status Compliant: allowed', async () => {
     const base = await prisma.project.findUnique();
     prisma.project.findUnique.mockResolvedValue({ ...base, complianceStatus: 'Compliant', findings: [] });
     await expect(service.generateReport('p1', actor(UserRole.ADMIN, 'admin1'), '1.2.3.4', 'jest')).resolves.toMatchObject({ status: 'PENDING' });

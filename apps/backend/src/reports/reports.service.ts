@@ -36,7 +36,7 @@ const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   APPLICATION: 'Application',
 };
 
-/** The only project status (the Compliance Status dropdown) that allows report generation. */
+/** The project status (Compliance Status dropdown) that allows a report even with no findings. */
 const REPORT_READY_STATUS = 'Compliant';
 
 @Injectable()
@@ -565,9 +565,9 @@ export class ReportsService {
   ) {
     const project = await this.loadProjectForReport(projectId, user);
 
-    // The project's saved compliance status (not its compliance category / testing type) gates every report.
-    if (project.complianceStatus !== REPORT_READY_STATUS) {
-      throw new BadRequestException(`Report generation is not allowed while the project status is "${project.complianceStatus ?? 'not set'}". Add the findings and set the status to "${REPORT_READY_STATUS}" first.`);
+    // Allowed with findings, or when the project's saved status (not its compliance category / testing type) is Compliant.
+    if (project.findings.length === 0 && project.complianceStatus !== REPORT_READY_STATUS) {
+      throw new BadRequestException(`This project has no findings and its status is "${project.complianceStatus ?? 'not set'}". Add findings, or set the status to "${REPORT_READY_STATUS}", before generating a report.`);
     }
 
     if (reportFormat === ReportFormat.EXCEL && project.subType !== TemplateSubType.NETWORK) {

@@ -343,7 +343,7 @@ function ProjectsPageContent() {
                   </button>
                   <button
                     onClick={() => handleGenerateReport(project.id)}
-                    disabled={generatingReport === project.id || project.complianceStatus !== 'Compliant'}
+                    disabled={generatingReport === project.id || ((project._count?.findings ?? 0) === 0 && project.complianceStatus !== 'Compliant')}
                     className="flex items-center justify-center gap-2 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-medium transition-all disabled:opacity-50"
                   >
                     {generatingReport === project.id ? (
@@ -448,9 +448,9 @@ function ProjectsPageContent() {
                         </button>
                         <button
                           onClick={() => handleGenerateReport(project.id)}
-                          disabled={generatingReport === project.id || project.complianceStatus !== 'Compliant'}
+                          disabled={generatingReport === project.id || ((project._count?.findings ?? 0) === 0 && project.complianceStatus !== 'Compliant')}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all disabled:opacity-50"
-                          title={project.complianceStatus === 'Compliant' ? 'Report' : 'Add the findings and set the project status to Compliant before generating a report.'}
+                          title={(project._count?.findings ?? 0) > 0 || project.complianceStatus === 'Compliant' ? 'Report' : 'Add findings, or set the project status to Compliant, before generating a report.'}
                         >
                           {generatingReport === project.id ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />

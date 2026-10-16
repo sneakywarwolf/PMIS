@@ -170,7 +170,7 @@ const CHANGE_LABELS: Record<string, string> = {
   totalScopeCount: 'Total Scope Count', networkScope: 'Network Scope', quarter: 'Quarter/Frequency',
 };
 
-const REPORT_BLOCKED_MESSAGE = 'Add the findings and set the project status to Compliant before generating a report.';
+const REPORT_BLOCKED_MESSAGE = 'Add findings, or set the project status to Compliant, before generating a report.';
 
 const changeLabel = (field: string) =>
   field.startsWith('customFieldValues.') ? field.slice('customFieldValues.'.length) : CHANGE_LABELS[field] || field;
@@ -375,7 +375,7 @@ export default function ProjectDetailPage() {
 
   const changes = project.changes ?? [];
   const changesFor = (field: string) => changes.filter((c) => c.field === field);
-  const reportReady = project.complianceStatus === 'Compliant';
+  const reportReady = project.findings.length > 0 || project.complianceStatus === 'Compliant';
   const canEditFindings = user?.role === 'ADMIN' || user?.role === 'AVP' || user?.role === 'TEAM_LEAD' || project.tester.id === user?.id;
 
   const handleDeleteProject = async () => {
