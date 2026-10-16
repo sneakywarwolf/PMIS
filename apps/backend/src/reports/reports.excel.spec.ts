@@ -14,7 +14,7 @@ import { REPORT_GENERATION_QUEUE } from './report-generation.types';
 
 const admin = { id: 'admin1', role: UserRole.ADMIN } as any;
 const network = (over: object = {}) => ({
-  id: 'p1', name: 'Acme Net', clientName: 'Acme', category: 'VAPT', subType: 'NETWORK', startDate: new Date('2026-10-01'), endDate: new Date('2026-10-10'),
+  id: 'p1', complianceStatus: 'Compliant', name: 'Acme Net', clientName: 'Acme', category: 'VAPT', subType: 'NETWORK', startDate: new Date('2026-10-01'), endDate: new Date('2026-10-10'),
   template: { id: 'wordT', reportFormat: 'WORD' }, tester: { fullName: 'Asha' }, tl: { manager: null }, findings: [], ...over,
 });
 

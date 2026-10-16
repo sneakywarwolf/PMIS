@@ -170,6 +170,8 @@ const CHANGE_LABELS: Record<string, string> = {
   totalScopeCount: 'Total Scope Count', networkScope: 'Network Scope', quarter: 'Quarter/Frequency',
 };
 
+const REPORT_BLOCKED_MESSAGE = 'Add the findings and set the project status to Compliant before generating a report.';
+
 const changeLabel = (field: string) =>
   field.startsWith('customFieldValues.') ? field.slice('customFieldValues.'.length) : CHANGE_LABELS[field] || field;
 
@@ -373,6 +375,7 @@ export default function ProjectDetailPage() {
 
   const changes = project.changes ?? [];
   const changesFor = (field: string) => changes.filter((c) => c.field === field);
+  const reportReady = project.complianceStatus === 'Compliant';
   const canEditFindings = user?.role === 'ADMIN' || user?.role === 'AVP' || user?.role === 'TEAM_LEAD' || project.tester.id === user?.id;
 
   const handleDeleteProject = async () => {
@@ -704,17 +707,6 @@ export default function ProjectDetailPage() {
                   <ShieldAlert className="w-4 h-4" />
                   Nessus
                 </button>
-                {nessusCount > 0 && (
-                  <button
-                    onClick={handleDeleteAllNessus}
-                    disabled={deletingNessus}
-                    title="Permanently delete every Nessus-imported VA finding in this project"
-                    className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
-                  >
-                    {deletingNessus ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                    Delete All VA Findings ({nessusCount})
-                  </button>
-                )}
                 {nessusFile && (
                   <NessusImportDialog
                     projectId={project.id}
@@ -735,7 +727,8 @@ export default function ProjectDetailPage() {
             <div className="relative">
               <button
                 onClick={() => (project.subType === 'NETWORK' ? setShowFormatMenu((v) => !v) : handleGenerateReport())}
-                disabled={generatingReport}
+                disabled={generatingReport || !reportReady}
+                title={reportReady ? undefined : REPORT_BLOCKED_MESSAGE}
                 aria-haspopup={project.subType === 'NETWORK' ? 'menu' : undefined}
                 aria-expanded={project.subType === 'NETWORK' ? showFormatMenu : undefined}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
@@ -760,7 +753,7 @@ export default function ProjectDetailPage() {
         </div>
 
         {project.subType === 'NETWORK' && (
-          <div className="flex items-center gap-2" role="tablist" aria-label="Filter findings">
+          <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Filter findings">
             {(['ALL', 'VA', 'PT'] as const).map((key) => {
               const count = key === 'ALL' ? project.findings.length : project.findings.filter((f) => f.findingType === key).length;
               const label = key === 'ALL' ? 'All' : key === 'VA' ? 'VA Findings' : 'PT Findings';
@@ -780,6 +773,17 @@ export default function ProjectDetailPage() {
                 </button>
               );
             })}
+            {canEditFindings && nessusCount > 0 && (
+              <button
+                onClick={handleDeleteAllNessus}
+                disabled={deletingNessus}
+                title="Permanently delete every Nessus-imported VA finding in this project"
+                className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+              >
+                {deletingNessus ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Delete All VA Findings ({nessusCount})
+              </button>
+            )}
           </div>
         )}
 

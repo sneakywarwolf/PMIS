@@ -36,6 +36,9 @@ const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   APPLICATION: 'Application',
 };
 
+/** The only project status (the Compliance Status dropdown) that allows report generation. */
+const REPORT_READY_STATUS = 'Compliant';
+
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
@@ -561,6 +564,11 @@ export class ReportsService {
     reportFormat: ReportFormat = ReportFormat.WORD,
   ) {
     const project = await this.loadProjectForReport(projectId, user);
+
+    // The project's saved compliance status (not its compliance category / testing type) gates every report.
+    if (project.complianceStatus !== REPORT_READY_STATUS) {
+      throw new BadRequestException(`Report generation is not allowed while the project status is "${project.complianceStatus ?? 'not set'}". Add the findings and set the status to "${REPORT_READY_STATUS}" first.`);
+    }
 
     if (reportFormat === ReportFormat.EXCEL && project.subType !== TemplateSubType.NETWORK) {
       throw new BadRequestException('Excel reports are only available for Network projects');
