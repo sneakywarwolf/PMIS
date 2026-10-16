@@ -26,6 +26,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { NetworkLimitationCaution } from '@/components/network-limitation-caution';
 import { ScopeImportButton } from '@/components/scope-import-button';
 import { triggerDownload } from '@/lib/download';
 import { useConfirm } from '@/components/confirm-provider';
@@ -1166,6 +1167,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
           <div>
             <label className={labelCls}>Testing Limitation</label>
             <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
+            {project.subType === 'NETWORK' && <NetworkLimitationCaution />}
           </div>
 
           {customFields.length > 0 && (

@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FolderKanban, Plus, Search, FileText, Edit, AlertTriangle, X, Loader2, CheckCircle, Eye, LayoutGrid, Table2, Trash2 } from 'lucide-react';
 import { toDateInputValue, formatDate } from '@/lib/datetime';
 import { api, useAuth } from '@/contexts/auth-context';
+import { NetworkLimitationCaution } from '@/components/network-limitation-caution';
 import { triggerDownload } from '@/lib/download';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
@@ -674,6 +675,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
           <div>
             <label className={labelCls}>Testing Limitation</label>
             <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
+            {project?.subType === 'NETWORK' && <NetworkLimitationCaution />}
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Loader2, Save, FolderKanban } from 'lucide-react';
 import { api } from '@/contexts/auth-context';
+import { NetworkLimitationCaution } from '@/components/network-limitation-caution';
 import { ScopeImportButton } from '@/components/scope-import-button';
 import { useToast } from '@/components/toast-provider';
 
@@ -370,6 +371,7 @@ export default function NewProjectPage() {
           <div>
             <label className={labelCls}>Testing Limitation</label>
             <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
+            {form.subType === 'NETWORK' && <NetworkLimitationCaution />}
           </div>
         </motion.section>
 
