@@ -354,19 +354,78 @@ export class DocxManipulatorService {
   /**
    * Conditional blocks. A paragraph that is only `{#VA}` / `{#PT}` opens a block, one that is only
    * `{/VA}` / `{/PT}` closes it; everything between (paragraphs, tables, ...) is kept or removed as
-   * a unit. Marker paragraphs are always removed. VA keeps VA blocks, PT keeps PT blocks, VAPT keeps
-   * both; an unset/unknown activity type keeps both, so existing templates and projects are unchanged.
+   * a unit. VA keeps VA blocks, PT keeps PT blocks, VAPT keeps both; an unset/unknown activity type
+   * keeps both, so existing templates and projects are unchanged.
+   *
+   * Layout is preserved: kept content is never touched. A marker paragraph is deleted, unless it also
+   * carries a page break, section break or bookmark, in which case only its marker text goes and the
+   * (now empty) paragraph stays so that break survives. Excluded blocks vanish with their own breaks;
+   * a section break that ended a section which still has retained content moves onto the paragraph
+   * before the block. Blank paragraphs / page breaks that end up adjacent only because a block was
+   * removed are collapsed to one, so no gap or blank page appears.
    */
   private applyActivityBlocks(doc: Document, activityType?: string | null): void {
     const activity = (activityType || '').trim().toUpperCase();
     const keep = (kind: string) => !['VA', 'PT', 'VAPT'].includes(activity) || activity.includes(kind);
-    const marker = (el: Node) =>
-      el.nodeType === 1 && (el as Element).localName === 'p'
-        ? /^\{\s*([#/])\s*(VA|PT)\s*\}$/i.exec(this.getElementText(el as Element).trim())
-        : null;
+    const W = this.W_NS;
+    const MARKER_RE = /^\{\s*([#/])\s*(VA|PT)\s*\}$/i;
 
-    const paragraphs = Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[];
-    for (const open of paragraphs) {
+    const isPara = (n: Node | null): n is Element => !!n && n.nodeType === 1 && (n as Element).localName === 'p';
+    const has = (el: Element, name: string) => el.getElementsByTagNameNS(W, name).length > 0;
+    const marker = (n: Node | null) => (isPara(n) ? MARKER_RE.exec(this.getElementText(n).trim()) : null);
+    const pageBreaks = (el: Element) =>
+      Array.from(el.getElementsByTagNameNS(W, 'br') as any as Element[]).filter((br) => br.getAttributeNS(W, 'type') === 'page' || br.getAttribute('w:type') === 'page');
+    const paraProp = (el: Element, name: string) => {
+      const pPr = Array.from(el.childNodes as any as Node[]).find((c) => c.nodeType === 1 && (c as Element).localName === 'pPr') as Element | undefined;
+      return pPr ? (Array.from(pPr.childNodes as any as Node[]).find((c) => c.nodeType === 1 && (c as Element).localName === name) as Element | undefined) : undefined;
+    };
+    // Things that make a paragraph more than empty space.
+    const CONTENT = ['drawing', 'pict', 'object', 'fldChar', 'fldSimple', 'instrText', 'sym', 'tab', 'sectPr', 'pageBreakBefore'];
+    const isBlank = (n: Node | null) => isPara(n) && !this.getElementText(n).trim() && pageBreaks(n).length === 0 && !has(n, 'br') && !CONTENT.some((c) => has(n, c));
+    const isPageBreakOnly = (n: Node | null) =>
+      isPara(n) && !this.getElementText(n).trim() && pageBreaks(n).length > 0 && !['drawing', 'pict', 'object', 'sectPr'].some((c) => has(n, c));
+    const prevEl = (n: Node | null) => { let x = n ? n.previousSibling : null; while (x && x.nodeType !== 1) x = x.previousSibling; return x; };
+    const nextEl = (n: Node | null) => { let x = n ? n.nextSibling : null; while (x && x.nodeType !== 1) x = x.nextSibling; return x; };
+
+    /** Drop a marker paragraph, but keep an empty paragraph if it also holds a break/section/bookmark. */
+    const dropMarker = (para: Element) => {
+      const carries = pageBreaks(para).length > 0 || has(para, 'sectPr') || has(para, 'pageBreakBefore') || has(para, 'bookmarkStart') || has(para, 'bookmarkEnd');
+      if (!carries) return para.parentNode!.removeChild(para);
+      for (const run of Array.from(para.childNodes as any as Node[]).filter((c) => c.nodeType === 1 && (c as Element).localName === 'r') as Element[]) {
+        if (pageBreaks(run).length > 0) {
+          Array.from(run.getElementsByTagNameNS(W, 't') as any as Element[]).forEach((t) => t.parentNode!.removeChild(t));
+        } else {
+          para.removeChild(run);
+        }
+      }
+    };
+
+    /** Section break found inside an excluded block, if the section it ends still has retained content before the block. */
+    const rescueSection = (open: Element, between: Node[]) => {
+      const sect = between.filter(isPara).map((pp) => paraProp(pp, 'sectPr')).filter(Boolean).pop() as Element | undefined;
+      if (!sect) return;
+      let retained = false;
+      for (let x = prevEl(open); x; x = prevEl(x)) {
+        if (isPara(x) && paraProp(x, 'sectPr')) break;
+        if (!isBlank(x)) { retained = true; break; }
+      }
+      if (!retained) return;
+      const prev = prevEl(open);
+      const clone = sect.cloneNode(true) as Element;
+      if (isPara(prev) && !paraProp(prev, 'sectPr')) {
+        let pPr = Array.from(prev.childNodes as any as Node[]).find((c) => c.nodeType === 1 && (c as Element).localName === 'pPr') as Element | undefined;
+        if (!pPr) { pPr = doc.createElementNS(W, 'w:pPr'); prev.insertBefore(pPr, prev.firstChild); }
+        pPr.appendChild(clone);
+      } else {
+        const carrier = doc.createElementNS(W, 'w:p');
+        const pPr = doc.createElementNS(W, 'w:pPr');
+        pPr.appendChild(clone);
+        carrier.appendChild(pPr);
+        open.parentNode!.insertBefore(carrier, open);
+      }
+    };
+
+    for (const open of Array.from(doc.getElementsByTagNameNS(W, 'p')) as Element[]) {
       const m = open.parentNode && marker(open);
       if (!m || m[1] !== '#') continue;
       const kind = m[2].toUpperCase();
@@ -377,14 +436,24 @@ export class DocxManipulatorService {
         if (c && c[1] === '/' && c[2].toUpperCase() === kind) { close = n; break; }
         between.push(n);
       }
-      const parent = open.parentNode!;
       if (!close) {
         this.logger.warn(`Template block {#${kind}} has no matching {/${kind}} in the same section; leaving it as is`);
         continue;
       }
-      if (!keep(kind)) between.forEach((n) => parent.removeChild(n));
+      const parent = open.parentNode!;
+      if (keep(kind)) {
+        dropMarker(open);
+        dropMarker(close as Element);
+        continue;
+      }
+      rescueSection(open, between);
+      const before = prevEl(open);
+      const after = nextEl(close);
+      between.forEach((n) => parent.removeChild(n));
       parent.removeChild(open);
       parent.removeChild(close);
+      // Only what the removal made adjacent is collapsed; spacing that was already like that in the template stays.
+      if ((isBlank(before) && isBlank(after)) || (isPageBreakOnly(before) && isPageBreakOnly(after))) parent.removeChild(after!);
     }
   }
 

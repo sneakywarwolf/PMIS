@@ -323,3 +323,103 @@ describe('{#VA}/{#PT} activity blocks', () => {
     expect(fields).toEqual([]);
   });
 });
+
+describe('{#VA}/{#PT} blocks keep formatting, breaks and spacing', () => {
+  const SECT = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440"/></w:sectPr>';
+  const para = (t: string) => `<w:p><w:r><w:t>${t}</w:t></w:r></w:p>`;
+  const fmt = (t: string) =>
+    `<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:jc w:val="center"/><w:spacing w:before="240"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri"/><w:b/><w:color w:val="FF0000"/><w:sz w:val="32"/></w:rPr><w:t>${t}</w:t></w:r></w:p>`;
+  const blank = '<w:p/>';
+  const pageBreak = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+  const sectBreak = `<w:p><w:pPr>${SECT}</w:pPr></w:p>`;
+  const M = (m: string) => para(m);
+
+  const run = async (body: string, activityType?: string | null) => {
+    const svc = new DocxManipulatorService();
+    const out = await svc.generateReport(await docxWith(body), [], [], [], undefined, undefined, [], [], [], undefined, { activityType });
+    return (await JSZip.loadAsync(out)).file('word/document.xml').async('text') as Promise<string>;
+  };
+  /** Top-level body children as a readable list: text, [blank], [pagebreak], [table]; "[sect]" is appended when a section break is attached. */
+  const outline = (xml: string) => {
+    const body = new DOMParser().parseFromString(xml, 'text/xml').getElementsByTagNameNS(W, 'body').item(0)!;
+    return (Array.from(body.childNodes as any as Element[]).filter((n) => n.nodeType === 1)).map((n) => {
+      if (n.localName === 'tbl') return '[table]';
+      const text = Array.from(n.getElementsByTagNameNS(W, 't') as any as Element[]).map((t) => t.textContent).join('');
+      const kind = text || (n.getElementsByTagNameNS(W, 'br').length ? '[pagebreak]' : '[blank]');
+      return kind + (n.getElementsByTagNameNS(W, 'sectPr').length ? '[sect]' : '');
+    });
+  };
+
+  const layout = [
+    para('intro'), blank,
+    M('{#VA}'), fmt('va-heading'), tbl(row('va-cell', 'x')), pageBreak, para('va-end'), M('{/VA}'),
+    blank,
+    M('{#PT}'), fmt('pt-heading'), para('pt-end'), M('{/PT}'),
+    blank, para('outro'),
+  ].join('');
+
+  const both = ['intro', '[blank]', 'va-heading', '[table]', '[pagebreak]', 'va-end', '[blank]', 'pt-heading', 'pt-end', '[blank]', 'outro'];
+  it.each([
+    ['VA', ['intro', '[blank]', 'va-heading', '[table]', '[pagebreak]', 'va-end', '[blank]', 'outro']],
+    ['PT', ['intro', '[blank]', 'pt-heading', 'pt-end', '[blank]', 'outro']],
+    ['VAPT', both],
+    [undefined, both],
+  ])('%s: exact structure, no leftover gaps, no markers', async (activity, expected) => {
+    expect(outline(await run(layout, activity as string | undefined))).toEqual(expected);
+  });
+
+  it('kept content keeps its run and paragraph formatting untouched', async () => {
+    const xml = await run(layout, 'VAPT');
+    expect(xml).toContain('<w:rFonts w:ascii="Calibri"/><w:b/><w:color w:val="FF0000"/><w:sz w:val="32"/>');
+    expect(xml).toContain('<w:pStyle w:val="Heading1"/><w:jc w:val="center"/><w:spacing w:before="240"/>');
+    expect(xml).not.toMatch(/\{[#/](VA|PT)\}/);
+  });
+
+  it('a page break inside an excluded block goes with it; one in kept content stays', async () => {
+    expect(outline(await run(layout, 'PT'))).not.toContain('[pagebreak]');
+    expect(outline(await run(layout, 'VA'))).toContain('[pagebreak]');
+  });
+
+  it('a break that removal makes adjacent to another is collapsed, so no blank page appears', async () => {
+    const body = [para('a'), pageBreak, M('{#VA}'), para('va'), M('{/VA}'), pageBreak, para('b')].join('');
+    expect(outline(await run(body, 'PT'))).toEqual(['a', '[pagebreak]', 'b']);
+    expect(outline(await run(body, 'VA'))).toEqual(['a', '[pagebreak]', 'va', '[pagebreak]', 'b']);
+  });
+
+  it('a break that was already adjacent in the template, outside any block, is left alone', async () => {
+    const body = [para('a'), pageBreak, pageBreak, M('{#VA}'), para('va'), M('{/VA}'), para('b')].join('');
+    expect(outline(await run(body, 'PT'))).toEqual(['a', '[pagebreak]', '[pagebreak]', 'b']);
+  });
+
+  it('a section break closing an excluded block moves to the paragraph before it, so the retained section keeps its settings', async () => {
+    const body = [para('keep'), M('{#VA}'), para('va'), sectBreak, M('{/VA}'), para('next')].join('');
+    const xml = await run(body, 'PT');
+    expect(outline(xml)).toEqual(['keep[sect]', 'next']);
+    expect(xml).toContain('<w:pgSz w:w="12240" w:h="15840"/>');
+  });
+
+  it('a section break that only belonged to excluded content is dropped; kept ones stay in place', async () => {
+    const body = [para('keep'), sectBreak, M('{#VA}'), para('va'), sectBreak, M('{/VA}'), para('next')].join('');
+    expect(outline(await run(body, 'PT'))).toEqual(['keep', '[blank][sect]', 'next']);
+    expect(outline(await run(body, 'VA'))).toEqual(['keep', '[blank][sect]', 'va', '[blank][sect]', 'next']);
+  });
+
+  it('a marker paragraph that also holds a page break keeps the break when the block is kept, loses it with the block', async () => {
+    const markerWithBreak = '<w:p><w:r><w:t>{#VA}</w:t></w:r><w:r><w:br w:type="page"/></w:r></w:p>';
+    const body = [para('a'), markerWithBreak, para('va'), M('{/VA}'), para('b')].join('');
+    expect(outline(await run(body, 'VA'))).toEqual(['a', '[pagebreak]', 'va', 'b']);
+    expect(outline(await run(body, 'PT'))).toEqual(['a', 'b']);
+  });
+
+  it('blank paragraphs that are part of retained content are never removed', async () => {
+    const body = [para('a'), blank, blank, M('{#VA}'), para('va'), M('{/VA}'), para('b'), blank, para('c')].join('');
+    expect(outline(await run(body, 'PT'))).toEqual(['a', '[blank]', '[blank]', 'b', '[blank]', 'c']);
+  });
+
+  it('a template without markers is unchanged', async () => {
+    const body = [para('a'), blank, blank, pageBreak, pageBreak, fmt('h'), tbl(row('x', 'y'))].join('');
+    for (const activity of ['VA', 'PT', 'VAPT', undefined]) {
+      expect(outline(await run(body, activity as string | undefined))).toEqual(['a', '[blank]', '[blank]', '[pagebreak]', '[pagebreak]', 'h', '[table]']);
+    }
+  });
+});
