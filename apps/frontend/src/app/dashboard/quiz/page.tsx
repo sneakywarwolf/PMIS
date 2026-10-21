@@ -9,6 +9,7 @@ import { useToast } from '@/components/toast-provider';
 import { api } from '@/contexts/auth-context';
 import { GlitchOverlay, RevealScanner, SuspiciousMark, useRareGlitch } from '@/components/easter-egg/quiz-eggs';
 import { correctTip, roast, suspiciousOption, type QuizStats } from '@/lib/easter-egg/quiz';
+import { formatDateTime } from '@/lib/datetime';
 import { QUIZ_HOVER, QuizHeader, QuizSkeleton, Ring, StatusPill, useQuizMotion } from '@/components/quiz-ui';
 
 const LETTERS = 'ABCDEFGH';
@@ -21,6 +22,8 @@ type ActiveQuestion = {
   scheduledFor: string;
   status: 'ACTIVE';
   alreadyAnswered: boolean;
+  // Other questions still inside their answer window (sent with the newest one).
+  others?: ActiveQuestion[];
 };
 
 type RevealedQuestion = {
@@ -132,6 +135,7 @@ export default function QuizPage() {
   const showToast = useToast();
   const [data, setData] = useState<TodayResponse>(null);
   const [loading, setLoading] = useState(true);
+  const [pool, setPool] = useState<ActiveQuestion[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [explanationRevealed, setExplanationRevealed] = useState(false);
@@ -147,7 +151,17 @@ export default function QuizPage() {
       const res = await api.get('/quiz/today');
       const serverNow = Date.parse(res.headers?.date);
       if (!Number.isNaN(serverNow)) setSkewMs(serverNow - Date.now());
-      setData(res.data);
+      const d = res.data as TodayResponse;
+      if (d && !isRevealed(d)) {
+        const { others, ...first } = d;
+        const list = [first as ActiveQuestion, ...(others ?? [])];
+        setPool(list);
+        // Stay on the question being viewed (e.g. right after answering it) while it is still open.
+        setData((prev) => (prev && !isRevealed(prev) ? list.find((q) => q.id === prev.id) : undefined) ?? list[0]);
+      } else {
+        setPool([]);
+        setData(d);
+      }
     } finally {
       if (!quiet) setLoading(false);
     }
@@ -238,6 +252,26 @@ export default function QuizPage() {
   return (
     <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-5">
       <QuizHeader title="Question of the Day" subtitle="One question a day. Answer before the reveal to earn points and build your streak." />
+
+      {pool.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Open questions">
+          {pool.map((q, i) => (
+            <button
+              key={q.id}
+              role="tab"
+              aria-selected={active?.id === q.id}
+              onClick={() => { setData(q); setSelected(null); }}
+              className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
+                active?.id === q.id
+                  ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30'
+                  : 'bg-gray-800/50 text-gray-400 border-gray-700 hover:text-white'
+              }`}
+            >
+              Question {i + 1} · {formatDateTime(q.scheduledFor)}{q.alreadyAnswered ? ' ✓' : ''}
+            </button>
+          ))}
+        </div>
+      )}
 
       {!data && (
         <div className="glass-card rounded-xl p-10 text-center">

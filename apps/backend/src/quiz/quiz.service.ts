@@ -158,19 +158,25 @@ export class QuizService {
   }
 
   async getTodayQuestion(userId: string) {
-    const active = await this.prisma.quizQuestion.findFirst({ where: { status: 'ACTIVE' }, orderBy: { scheduledFor: 'desc' } });
-    if (active) {
-      const alreadyAnswered = await this.prisma.quizAttempt.findUnique({
-        where: { questionId_userId: { questionId: active.id, userId } },
+    // Every question still inside its 24h answer window, not just the newest: a question stays answerable
+    // until its own deadline however many others are open. The newest leads; the rest come as `others`.
+    const open = await this.prisma.quizQuestion.findMany({ where: { status: 'ACTIVE' }, orderBy: { scheduledFor: 'desc' } });
+    if (open.length > 0) {
+      const answered = await this.prisma.quizAttempt.findMany({
+        where: { userId, questionId: { in: open.map((q) => q.id) } },
+        select: { questionId: true },
       });
-      return {
-        id: active.id,
-        question: active.question,
-        options: active.options,
-        scheduledFor: active.scheduledFor,
-        status: active.status,
-        alreadyAnswered: Boolean(alreadyAnswered),
-      };
+      const answeredIds = new Set(answered.map((a) => a.questionId));
+      const view = (q: (typeof open)[number]) => ({
+        id: q.id,
+        question: q.question,
+        options: q.options,
+        scheduledFor: q.scheduledFor,
+        status: q.status,
+        alreadyAnswered: answeredIds.has(q.id),
+      });
+      const [first, ...rest] = open;
+      return { ...view(first), ...(rest.length > 0 && { others: rest.map(view) }) };
     }
 
     const recentlyRevealed = await this.prisma.quizQuestion.findFirst({

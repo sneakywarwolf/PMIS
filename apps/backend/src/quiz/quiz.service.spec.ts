@@ -265,8 +265,8 @@ describe('QuizService admin/read methods', () => {
   });
 
   it('getTodayQuestion includes userIsCorrect for the viewing user on a revealed question', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValue([]); // no ACTIVE question
     prisma.quizQuestion.findFirst
-      .mockResolvedValueOnce(null) // no ACTIVE question
       .mockResolvedValueOnce({
         id: 'q1',
         question: 'Q?',
@@ -286,9 +286,31 @@ describe('QuizService admin/read methods', () => {
     expect(result.userIsCorrect).toBe(false);
   });
 
+  it('getTodayQuestion returns every question still inside its answer window, newest first, with per-question answered flags', async () => {
+    const q = (id: string, hoursAgo: number) => ({ id, question: id, options: ['a', 'b'], correctIndex: 1, explanation: 'secret', scheduledFor: new Date(Date.now() - hoursAgo * 3600_000), status: 'ACTIVE' });
+    prisma.quizQuestion.findMany.mockResolvedValue([q('new', 1), q('mid', 10), q('old', 20)]);
+    prisma.quizAttempt.findMany.mockResolvedValue([{ questionId: 'mid' }]);
+
+    const r: any = await service.getTodayQuestion('u1');
+
+    expect(r.id).toBe('new');
+    expect(r.alreadyAnswered).toBe(false);
+    expect(r.others.map((o: any) => [o.id, o.alreadyAnswered])).toEqual([['mid', true], ['old', false]]);
+    expect(JSON.stringify(r)).not.toMatch(/correctIndex|secret/);
+    expect(prisma.quizAttempt.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('getTodayQuestion with a single open question has no others', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValue([{ id: 'only', question: 'Q', options: ['a', 'b'], scheduledFor: new Date(), status: 'ACTIVE' }]);
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+    const r: any = await service.getTodayQuestion('u1');
+    expect(r.id).toBe('only');
+    expect(r).not.toHaveProperty('others');
+  });
+
   it('getTodayQuestion withholds the revealed question (and its answer) from a user who never answered', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValue([]);
     prisma.quizQuestion.findFirst
-      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         id: 'q1',
         question: 'Q?',
