@@ -1005,7 +1005,7 @@ export class ReportsService {
     const fileName = this.buildReportFileName(project, version, template, reportDate);
 
     this.logger.log(`Generating Excel report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
-    const buffer = await this.xlsxTemplate.fill(templateBuffer, this.excelResolver(template, project, version, reportDate, fileName));
+    const buffer = await this.xlsxTemplate.fill(templateBuffer, this.excelResolver(template, project, version, reportDate, fileName), { complianceStatus: project.complianceStatus });
 
     const objectName = `reports/${project.id}/${Date.now()}_${fileName}`;
     await this.storage.uploadFile(objectName, buffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

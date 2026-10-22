@@ -7,6 +7,14 @@ const PLACEHOLDER_RE = /\{([^{}]+)\}/g;
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 const SHEET_RE = /^xl\/worksheets\/[^/]+\.xml$/;
 
+// {Project Status} / {Compliance Status}: same wording and colours as the Word engine.
+const STATUS_RE = /^(project|compliance)[\s_-]*status$/i;
+const STATUS_LOOKS: Record<string, { value: string; fill: string }> = {
+  compliant: { value: 'Compliant', fill: 'FF92D050' },
+  'non-compliant': { value: 'Non-Compliant', fill: 'FFFF0000' },
+};
+const statusLook = (status?: string | null) => STATUS_LOOKS[(status || '').trim().toLowerCase().replace(/[\s_]+/g, '-')] ?? null;
+
 /**
  * Fills `{Parameter}` placeholders in an .xlsx template.
  *
@@ -48,16 +56,25 @@ export class XlsxTemplateService {
     return [...found];
   }
 
-  /** Returns a copy of the workbook with every resolvable placeholder replaced; unresolved ones stay literal. */
-  async fill(xlsx: Buffer, resolve: (raw: string) => string | undefined): Promise<Buffer> {
+  /**
+   * Returns a copy of the workbook with every resolvable placeholder replaced; unresolved ones stay literal.
+   * `{Project Status}` / `{Compliance Status}` print the project's status (Compliant / Non-Compliant, empty
+   * for anything else) and, for those two, give the cell a green / red background. Any other status leaves
+   * the cell's own style exactly as the template has it.
+   */
+  async fill(xlsx: Buffer, resolve: (raw: string) => string | undefined, options?: { complianceStatus?: string | null }): Promise<Buffer> {
     const zip = await this.load(xlsx);
+    const look = statusLook(options?.complianceStatus);
     const subst = (s: string) =>
       s.replace(PLACEHOLDER_RE, (m, raw: string) => {
         const name = raw.trim();
         if (!name) return m;
-        const v = resolve(name);
+        const v = STATUS_RE.test(name) ? look?.value ?? '' : resolve(name);
         return v === undefined ? m : v;
       });
+
+    // Cells holding the status placeholder are found now, before their text is replaced.
+    if (look) await this.colourStatusCells(zip, look.fill);
 
     // Shared strings are workbook-wide: one replacement is seen identically by every cell on every sheet.
     const shared = await this.readShared(zip);
@@ -86,6 +103,75 @@ export class XlsxTemplateService {
   }
 
   // ---------------------------------------------------------------------------
+
+  /** Gives every cell whose text contains a status placeholder a copy of its own style with a solid `argb` fill. */
+  private async colourStatusCells(zip: any, argb: string): Promise<void> {
+    const stylesXml = await zip.file('xl/styles.xml')?.async('text');
+    if (!stylesXml) return;
+    const shared = await this.readShared(zip);
+    const hasStatus = (text: string) => [...text.matchAll(PLACEHOLDER_RE)].some((m) => STATUS_RE.test(m[1].trim()));
+
+    const styles = this.parse(stylesXml);
+    const first = (name: string) => Array.from(styles.getElementsByTagNameNS(NS, name)).find((e) => e.parentNode === styles.documentElement) as Element | undefined;
+    const fills = first('fills');
+    const cellXfs = first('cellXfs');
+    if (!fills || !cellXfs) return;
+
+    let fillId = -1;
+    const clones = new Map<number, number>();
+    const styleFor = (orig: number): number => {
+      if (fillId < 0) {
+        const fill = styles.createElementNS(NS, 'fill');
+        const pattern = styles.createElementNS(NS, 'patternFill');
+        pattern.setAttribute('patternType', 'solid');
+        const fg = styles.createElementNS(NS, 'fgColor');
+        fg.setAttribute('rgb', argb);
+        const bg = styles.createElementNS(NS, 'bgColor');
+        bg.setAttribute('indexed', '64');
+        pattern.appendChild(fg);
+        pattern.appendChild(bg);
+        fill.appendChild(pattern);
+        fills.appendChild(fill);
+        fillId = Array.from(fills.childNodes).filter((n) => n.nodeType === 1).length - 1;
+        fills.setAttribute('count', String(fillId + 1));
+      }
+      if (!clones.has(orig)) {
+        const xfs = Array.from(cellXfs.childNodes).filter((n) => n.nodeType === 1) as Element[];
+        const xf = (xfs[orig] ?? xfs[0]).cloneNode(true) as Element;
+        xf.setAttribute('fillId', String(fillId));
+        xf.setAttribute('applyFill', '1');
+        cellXfs.appendChild(xf);
+        clones.set(orig, xfs.length);
+        cellXfs.setAttribute('count', String(xfs.length + 1));
+      }
+      return clones.get(orig)!;
+    };
+
+    let touched = false;
+    for (const path of this.sheetPaths(zip)) {
+      const doc = this.parse(await zip.file(path)!.async('text'));
+      let changed = false;
+      for (const c of Array.from(doc.getElementsByTagNameNS(NS, 'c'))) {
+        const type = c.getAttribute('t');
+        let text = '';
+        if (type === 's') {
+          const idx = parseInt(c.getElementsByTagNameNS(NS, 'v').item(0)?.textContent ?? '', 10);
+          text = shared.texts[idx] ?? '';
+        } else if (type === 'inlineStr') {
+          const is = c.getElementsByTagNameNS(NS, 'is').item(0);
+          text = is ? this.textNodes(is).map((t) => t.textContent ?? '').join('') : '';
+        }
+        if (!hasStatus(text)) continue;
+        c.setAttribute('s', String(styleFor(parseInt(c.getAttribute('s') ?? '0', 10) || 0)));
+        changed = true;
+      }
+      if (changed) {
+        zip.file(path, this.serialize(doc));
+        touched = true;
+      }
+    }
+    if (touched) zip.file('xl/styles.xml', this.serialize(styles));
+  }
 
   private async load(xlsx: Buffer) {
     const zip = await JSZip.loadAsync(xlsx);
