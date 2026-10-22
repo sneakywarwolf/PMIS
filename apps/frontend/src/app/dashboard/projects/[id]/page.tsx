@@ -123,6 +123,9 @@ interface Project {
   subType: string;
   appVersion?: string;
   location?: string;
+  clientSpocName?: string;
+  clientSpocDesignation?: string;
+  clientSpocEmail?: string;
   documentVersion?: string;
   toolsUsed?: string;
   testingEnvironment?: string;
@@ -162,7 +165,7 @@ interface ProjectChange {
 const CHANGE_LABELS: Record<string, string> = {
   name: 'Project Name', clientName: 'Client', scope: 'Scope', startDate: 'Start Date', endDate: 'End Date',
   templateId: 'Template', complianceStatus: 'Compliance Status', complianceType: 'Compliance Type',
-  appVersion: 'App Version', location: 'Location', documentVersion: 'Document Version',
+  appVersion: 'App Version', location: 'Location', clientSpocName: 'Client SPOC Name', clientSpocDesignation: 'Client SPOC Designation', clientSpocEmail: 'Client SPOC Email ID', documentVersion: 'Document Version',
   toolsUsedTable: 'Tools Used', testingEnvironment: 'Testing Environment', qaReviewerName: 'QA Reviewer',
   applicationDetails: 'Application Details', testingType: 'Testing Type', loginSystemTypes: 'Login Systems',
   applicationNature: 'Application Nature', testingLimitation: 'Testing Limitation', mobilePlatform: 'Android/iOS',
@@ -507,6 +510,9 @@ export default function ProjectDetailPage() {
           <InfoField label="Sub Type" value={project.subType} />
           <InfoField label="App Version" value={project.appVersion || 'N/A'} changes={changesFor('appVersion')} />
           <InfoField label="Location" value={project.location || 'N/A'} changes={changesFor('location')} />
+          <InfoField label="Client SPOC Name" value={project.clientSpocName || 'N/A'} changes={changesFor('clientSpocName')} />
+          <InfoField label="Client SPOC Designation" value={project.clientSpocDesignation || 'N/A'} changes={changesFor('clientSpocDesignation')} />
+          <InfoField label="Client SPOC Email ID" value={project.clientSpocEmail || 'N/A'} changes={changesFor('clientSpocEmail')} />
           <InfoField label="Document Version" value={project.documentVersion || 'N/A'} changes={changesFor('documentVersion')} />
           {(!project.toolsUsedTable || project.toolsUsedTable.length === 0) && (
             <InfoField label="Tools Used" value={project.toolsUsed || 'N/A'} />
@@ -861,6 +867,9 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     endDate: project.endDate ? toDateInputValue(project.endDate) : '',
     appVersion: project.appVersion || '',
     location: project.location || '',
+    clientSpocName: project.clientSpocName || '',
+    clientSpocDesignation: project.clientSpocDesignation || '',
+    clientSpocEmail: project.clientSpocEmail || '',
     documentVersion: project.documentVersion || '',
     toolsUsed: project.toolsUsed || '',
     testingEnvironment: project.testingEnvironment || '',
@@ -1011,6 +1020,18 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
             <div>
               <label className={labelCls}>Location</label>
               <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Name</label>
+              <input type="text" value={form.clientSpocName} onChange={(e) => set('clientSpocName', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Designation</label>
+              <input type="text" value={form.clientSpocDesignation} onChange={(e) => set('clientSpocDesignation', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Email ID</label>
+              <input type="email" value={form.clientSpocEmail} onChange={(e) => set('clientSpocEmail', e.target.value)} className={inputCls} />
             </div>
             <div>
               <label className={labelCls}>Document Version</label>

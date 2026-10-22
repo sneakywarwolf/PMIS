@@ -236,6 +236,7 @@ export class ReportsService {
     'android_ios', 'sha_1', 'sha1', 'report_date',
     'external_internal', 'total_scope_count', 'quarter',
     'testing_type', 'platform_type', 'testing_approach', 'location',
+    'client_spoc_name', 'client_spoc_designation', 'client_spoc_email',
   ];
 
   /** Slug: lowercase, spaces/dashes → underscore, strip anything else. */
@@ -1337,6 +1338,10 @@ export class ReportsService {
       // (1.0, 1.1, 1.2, ...) rather than the static field, same as the report
       // version counter — applies to every testing type uniformly.
       { match: ['version_ex', 'document_version'], value: version || project.documentVersion || '1.0' },
+      // Client SPOC (point of contact): optional on the project, so an empty one prints N/A like the other contact fields.
+      { match: ['client_spoc_name'], value: project.clientSpocName || 'N/A' },
+      { match: ['client_spoc_designation'], value: project.clientSpocDesignation || 'N/A' },
+      { match: ['client_spoc_email'], value: project.clientSpocEmail || 'N/A' },
       { match: ['client_name_location'], value: [project.clientName, project.location].filter(Boolean).join(', ') },
       { match: ['client_name'], value: project.clientName || '' },
       { match: ['month_dd_yyyy'], value: this.formatReportDate(new Date()) },

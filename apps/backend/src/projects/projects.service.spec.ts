@@ -197,6 +197,26 @@ describe('ProjectsService.update — completed projects', () => {
     expect(prisma.project.update.mock.calls[0][0].data).toEqual({ name: 'New' });
   });
 
+  it('Client SPOC fields save on a normal project and are change-tracked on a completed one', async () => {
+    const dto = { clientSpocName: 'Priya', clientSpocDesignation: 'CISO', clientSpocEmail: 'p@acme.com' };
+
+    prisma.project.findUnique.mockResolvedValue(project());
+    prisma.project.update.mockResolvedValue({ id: 'p1' });
+    await service.update('p1', dto as any, tester, '1.2.3.4', 'jest');
+    expect(prisma.project.update.mock.calls[0][0].data).toEqual(dto);
+    expect(prisma.projectChange.createMany).not.toHaveBeenCalled();
+
+    prisma.project.update.mockClear();
+    prisma.project.findUnique.mockResolvedValue(done({ clientSpocName: 'Priya', clientSpocDesignation: null, clientSpocEmail: null }));
+    await service.update('p1', dto as any, tester, '1.2.3.4', 'jest');
+    expect(prisma.project.update.mock.calls[0][0].data).toEqual({ clientSpocDesignation: 'CISO', clientSpocEmail: 'p@acme.com' }); // unchanged name not written
+    const rows = prisma.projectChange.createMany.mock.calls[0][0].data;
+    expect(rows.map((r: any) => [r.field, r.oldValue, r.newValue])).toEqual([
+      ['clientSpocDesignation', expect.anything(), 'CISO'],
+      ['clientSpocEmail', expect.anything(), 'p@acme.com'],
+    ]);
+  });
+
   it('shows change history to leads/admins only', async () => {
     prisma.project.findUnique.mockResolvedValue({ ...done(), tester: { assignedTlId: 'tl-1' }, tl: {}, findings: [] });
     const asLead: any = await service.findOne('p1', { id: 'tl-1', role: UserRole.TEAM_LEAD } as any);

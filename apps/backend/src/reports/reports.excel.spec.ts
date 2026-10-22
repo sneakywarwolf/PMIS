@@ -128,3 +128,52 @@ describe('Activation is per report format', () => {
     });
   });
 });
+
+describe('Client SPOC placeholders', () => {
+  const resolverFor = async (project: any) => {
+    const { service } = await setup();
+    return (service as any).excelResolver({ fields: [] }, project, '1.0', '12-10-2026') as (raw: string) => string | undefined;
+  };
+
+  it('{Client SPOC name} / {Client SPOC Designation} / {Client SPOC Email ID} fill from the project, in Word and Excel alike', async () => {
+    const { service } = await setup();
+    const docx = (service as any).docxManipulator as DocxManipulatorService;
+    const project = network({ clientName: 'Acme', clientSpocName: 'Priya Nair', clientSpocDesignation: 'Head of IT Security', clientSpocEmail: 'priya@acme.com' });
+    const wordLookup = docx.buildResolver((service as any).buildFieldRules(project, '1.0', '12-10-2026'));
+    const excel = await resolverFor(project);
+
+    const expected: Record<string, string> = {
+      'Client SPOC name': 'Priya Nair',
+      'Client SPOC Designation': 'Head of IT Security',
+      'Client SPOC Email ID': 'priya@acme.com',
+    };
+    for (const [raw, value] of Object.entries(expected)) {
+      expect(excel(raw)).toBe(value);
+      expect(wordLookup(raw.toLowerCase().replace(/[^a-z0-9]+/g, '_'))).toBe(value);
+    }
+  });
+
+  it('are optional: a project without them prints N/A', async () => {
+    const excel = await resolverFor(network({ clientName: 'Acme' }));
+    expect(excel('Client SPOC name')).toBe('N/A');
+    expect(excel('Client SPOC Designation')).toBe('N/A');
+    expect(excel('Client SPOC Email ID')).toBe('N/A');
+  });
+
+  it('do not disturb the existing client placeholders', async () => {
+    const excel = await resolverFor(network({ clientName: 'Acme', location: 'Pune', clientSpocName: 'Priya' }));
+    expect(excel('Client Name')).toBe('Acme');
+    expect(excel('Client Name & Location')).toBe('Acme, Pune');
+    expect(excel('Location')).toBe('Pune');
+  });
+
+  it('can be mapped in Template Mapping through the canonical parameter list', async () => {
+    const { CANONICAL_TEMPLATE_PARAMETERS, resolveTemplateParameter } = await import('./template-parameters');
+    const project = { clientSpocName: 'Priya', clientSpocDesignation: '', clientSpocEmail: 'p@acme.com' };
+    const keys = CANONICAL_TEMPLATE_PARAMETERS.map((p) => p.key);
+    expect(keys).toEqual(expect.arrayContaining(['project.clientSpocName', 'project.clientSpocDesignation', 'project.clientSpocEmail']));
+    expect(resolveTemplateParameter('project.clientSpocName', project, String)).toBe('Priya');
+    expect(resolveTemplateParameter('project.clientSpocDesignation', project, String)).toBe('N/A');
+    expect(resolveTemplateParameter('project.clientSpocEmail', project, String)).toBe('p@acme.com');
+  });
+});

@@ -16,6 +16,9 @@ export const CANONICAL_TEMPLATE_PARAMETERS: { key: string; label: string }[] = [
   { key: 'project.documentVersion', label: 'Document Version' },
   { key: 'project.clientNameLocation', label: 'Client Name & Location (combined)' },
   { key: 'project.clientName', label: 'Client Name' },
+  { key: 'project.clientSpocName', label: 'Client SPOC Name' },
+  { key: 'project.clientSpocDesignation', label: 'Client SPOC Designation' },
+  { key: 'project.clientSpocEmail', label: 'Client SPOC Email ID' },
   { key: 'report.generationDate', label: 'Report Generation Date' },
   { key: 'report.name', label: 'Report Name (Generated Filename)' },
   { key: 'project.platformType', label: 'Testing Type (Platform)' },
@@ -121,6 +124,9 @@ export function resolveTemplateParameter(key: string, project: any, formatDate: 
     case 'tester.email': return tester?.email || 'N/A';
     case 'project.clientNameLocation': return [project.clientName, project.location].filter(Boolean).join(', ');
     case 'project.clientName': return project.clientName || '';
+    case 'project.clientSpocName': return project.clientSpocName || 'N/A';
+    case 'project.clientSpocDesignation': return project.clientSpocDesignation || 'N/A';
+    case 'project.clientSpocEmail': return project.clientSpocEmail || 'N/A';
     case 'report.generationDate': return formatDate(new Date());
     case 'project.toolsUsed': return project.toolsUsed || '';
     case 'project.detailsAndScope': return [project.applicationDetails, project.scope].filter(Boolean).join('\n');

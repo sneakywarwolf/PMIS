@@ -218,6 +218,10 @@ model Project {
   // Report detail fields
   appVersion         String?  @map("app_version")
   location           String?  @map("location")
+  // Client point of contact for the report (all optional)
+  clientSpocName        String? @map("client_spoc_name")
+  clientSpocDesignation String? @map("client_spoc_designation")
+  clientSpocEmail       String? @map("client_spoc_email")
   documentVersion    String?  @map("document_version")
   toolsUsed          String?  @map("tools_used")
   testingEnvironment String?  @map("testing_environment")

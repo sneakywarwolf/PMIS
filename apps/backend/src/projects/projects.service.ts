@@ -39,7 +39,7 @@ const sameValue = (a: unknown, b: unknown) => JSON.stringify(normalizeForCompare
 type FieldChange = { field: string; oldValue: unknown; newValue: unknown };
 
 const DETAIL_FIELDS = [
-  'appVersion', 'location', 'documentVersion', 'toolsUsed', 'testingEnvironment',
+  'appVersion', 'location', 'clientSpocName', 'clientSpocDesignation', 'clientSpocEmail', 'documentVersion', 'toolsUsed', 'testingEnvironment',
   'qaReviewerName', 'applicationDetails', 'testingType', 'loginSystemTypes',
   'applicationNature', 'testingLimitation', 'complianceType',
   'mobilePlatform', 'sha1', 'externalInternal', 'networkActivityType', 'totalScopeCount', 'networkScope', 'quarter',
@@ -194,6 +194,9 @@ export class ProjectsService {
         status: ProjectStatus.NOT_STARTED,
         appVersion: dto.appVersion,
         location: dto.location,
+        clientSpocName: dto.clientSpocName,
+        clientSpocDesignation: dto.clientSpocDesignation,
+        clientSpocEmail: dto.clientSpocEmail,
         documentVersion: dto.documentVersion,
         toolsUsed: dto.toolsUsedTable ? deriveToolsUsedSummary(dto.toolsUsedTable) : dto.toolsUsed,
         toolsUsedTable: dto.toolsUsedTable as any,

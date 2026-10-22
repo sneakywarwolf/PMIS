@@ -36,6 +36,9 @@ interface Project {
   endDate?: string;
   appVersion?: string;
   location?: string;
+  clientSpocName?: string;
+  clientSpocDesignation?: string;
+  clientSpocEmail?: string;
   documentVersion?: string;
   toolsUsed?: string;
   testingEnvironment?: string;
@@ -516,6 +519,9 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
     endDate: project.endDate ? toDateInputValue(project.endDate) : '',
     appVersion: project.appVersion || '',
     location: project.location || '',
+    clientSpocName: project.clientSpocName || '',
+    clientSpocDesignation: project.clientSpocDesignation || '',
+    clientSpocEmail: project.clientSpocEmail || '',
     documentVersion: project.documentVersion || '',
     toolsUsed: project.toolsUsed || '',
     testingEnvironment: project.testingEnvironment || '',
@@ -595,6 +601,18 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
             <div>
               <label className={labelCls}>Location</label>
               <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Name</label>
+              <input type="text" value={form.clientSpocName} onChange={(e) => set('clientSpocName', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Designation</label>
+              <input type="text" value={form.clientSpocDesignation} onChange={(e) => set('clientSpocDesignation', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Email ID</label>
+              <input type="email" value={form.clientSpocEmail} onChange={(e) => set('clientSpocEmail', e.target.value)} className={inputCls} />
             </div>
             <div>
               <label className={labelCls}>Document Version</label>

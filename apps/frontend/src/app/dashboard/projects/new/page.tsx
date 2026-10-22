@@ -30,6 +30,9 @@ export default function NewProjectPage() {
     // Report detail fields — captured once, reused at report generation
     appVersion: '',
     location: '',
+    clientSpocName: '',
+    clientSpocDesignation: '',
+    clientSpocEmail: '',
     documentVersion: '1.0',
     toolsUsed: '',
     testingEnvironment: '',
@@ -106,7 +109,7 @@ export default function NewProjectPage() {
       if (form.subType !== 'NETWORK') payload.scope = form.scope;
       // Optional fields — only send when filled
       const optional = [
-        'endDate', 'appVersion', 'location', 'documentVersion', 'toolsUsed',
+        'endDate', 'appVersion', 'location', 'clientSpocName', 'clientSpocDesignation', 'clientSpocEmail', 'documentVersion', 'toolsUsed',
         'testingEnvironment', 'qaReviewerName', 'applicationDetails', 'testingType',
         'loginSystemTypes', 'applicationNature', 'testingLimitation',
         'mobilePlatform', 'sha1', 'externalInternal', 'networkActivityType', 'quarter',
@@ -202,6 +205,18 @@ export default function NewProjectPage() {
             <div>
               <label className={labelCls}>Location</label>
               <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} placeholder="e.g. Mumbai, India" />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Name</label>
+              <input type="text" value={form.clientSpocName} onChange={(e) => set('clientSpocName', e.target.value)} className={inputCls} placeholder="e.g. Priya Nair" />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Designation</label>
+              <input type="text" value={form.clientSpocDesignation} onChange={(e) => set('clientSpocDesignation', e.target.value)} className={inputCls} placeholder="e.g. Head of IT Security" />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Email ID</label>
+              <input type="email" value={form.clientSpocEmail} onChange={(e) => set('clientSpocEmail', e.target.value)} className={inputCls} placeholder="e.g. priya@acme.com" />
             </div>
             <div>
               <label className={labelCls}>Start Date *</label>

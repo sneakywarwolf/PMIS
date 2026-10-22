@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsDateString, IsObject, IsArray, IsInt, IsIn, ValidateNested } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsDateString, IsObject, IsArray, IsInt, IsIn, ValidateNested, IsEmail, MaxLength, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { TemplateCategory, TemplateSubType, ComplianceType } from '@prisma/client';
 
@@ -68,6 +68,22 @@ export class CreateProjectDto {
   @IsOptional()
   @IsString()
   location?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  clientSpocName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  clientSpocDesignation?: string;
+
+  // Optional; an empty string (cleared field) is allowed, anything else must look like an email address.
+  @ValidateIf((_, v) => v !== undefined && v !== null && v !== '')
+  @IsEmail()
+  @MaxLength(255)
+  clientSpocEmail?: string;
 
   @IsOptional()
   @IsString()
@@ -182,6 +198,22 @@ export class UpdateProjectDto {
   @IsOptional()
   @IsString()
   location?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  clientSpocName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  clientSpocDesignation?: string;
+
+  // Optional; an empty string (cleared field) is allowed, anything else must look like an email address.
+  @ValidateIf((_, v) => v !== undefined && v !== null && v !== '')
+  @IsEmail()
+  @MaxLength(255)
+  clientSpocEmail?: string;
 
   @IsOptional()
   @IsString()
