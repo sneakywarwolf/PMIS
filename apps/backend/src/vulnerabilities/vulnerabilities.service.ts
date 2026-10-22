@@ -6,6 +6,9 @@ import { AuditService } from '../audit/audit.service';
 import { UserRole, VulnerabilityStatus, NotificationType } from '@prisma/client';
 import { validateExactCsvHeaders, parseCsv } from '../common/csv-validation.util';
 
+/** Duplicate check key: case, leading/trailing and repeated spaces don't make a name different. */
+export const normalizeVulnName = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+
 @Injectable()
 export class VulnerabilitiesService {
   constructor(
@@ -535,7 +538,12 @@ export class VulnerabilitiesService {
     return `${headers}\n${sampleRow}\n`;
   }
 
-  async bulkUpload(csvContent: string, category: string, adminId: string, ipAddress: string, userAgent: string) {
+  /**
+   * `resolutions` maps a duplicated vulnerability name (trimmed, whitespace-collapsed, lower-cased) to the
+   * file row number the admin chose to keep. Names repeated in the file with no valid choice reject the whole
+   * upload, listing the competing rows, before anything is written.
+   */
+  async bulkUpload(csvContent: string, category: string, adminId: string, ipAddress: string, userAgent: string, resolutions: Record<string, number> = {}) {
     if (category !== 'APPLICATION_API' && category !== 'NETWORK') {
       throw new BadRequestException('category must be APPLICATION_API or NETWORK.');
     }
@@ -592,6 +600,7 @@ export class VulnerabilitiesService {
       const cvssScore = cvssRaw ? parseFloat(cvssRaw) : null;
 
       rows.push({
+        sourceRow: i + 1,
         name,
         severity,
         cvssScore: cvssScore && !isNaN(cvssScore) ? cvssScore : null,
@@ -611,6 +620,34 @@ export class VulnerabilitiesService {
     if (rows.length === 0) {
       throw new BadRequestException('No valid data rows found in CSV.');
     }
+
+    // Same name twice in the file (ignoring case and extra spaces): the admin must pick which version to keep.
+    const groups = new Map<string, any[]>();
+    for (const r of rows) {
+      const key = normalizeVulnName(r.name);
+      groups.set(key, [...(groups.get(key) ?? []), r]);
+    }
+    const unresolved = [...groups.entries()].filter(([key, g]) => g.length > 1 && !g.some((r) => r.sourceRow === resolutions[key]));
+    if (unresolved.length > 0) {
+      throw new BadRequestException({
+        message: `${unresolved.length} vulnerability name${unresolved.length === 1 ? ' appears' : 's appear'} more than once in the file. Choose which version to keep for each; nothing has been uploaded.`,
+        duplicates: unresolved.map(([key, g]) => ({
+          key,
+          name: g[0].name,
+          rows: g.map(({ sourceRow, severity, cvssScore, cvssVector, cveId, cweId, description, impact, remediation, references }) => ({
+            row: sourceRow, severity, cvssScore, cvssVector, cveId, cweId, description, impact, remediation, references,
+          })),
+        })),
+      });
+    }
+    const dropped = rows.length;
+    const kept = rows.filter((r) => {
+      const g = groups.get(normalizeVulnName(r.name))!;
+      return g.length === 1 || r.sourceRow === resolutions[normalizeVulnName(r.name)];
+    });
+    rows.length = 0;
+    rows.push(...kept.map(({ sourceRow, ...data }) => data));
+    const duplicatesRemoved = dropped - rows.length;
 
     // Transaction: soft-delete existing entries IN THIS CATEGORY ONLY, then
     // insert the new ones — scoping this to `category` is what keeps an
@@ -632,10 +669,13 @@ export class VulnerabilitiesService {
       targetType: 'VULNERABILITY',
       ipAddress,
       userAgent,
-      details: { action: 'bulk_upload', count: rows.length, category },
+      details: { action: 'bulk_upload', count: rows.length, category, duplicatesRemoved },
     });
 
-    return { message: `Successfully uploaded ${rows.length} vulnerabilities. The existing ${category.replace('_', '/')} database has been replaced.`, count: rows.length };
+    return {
+      message: `Successfully uploaded ${rows.length} vulnerabilities${duplicatesRemoved ? ` (${duplicatesRemoved} duplicate row${duplicatesRemoved === 1 ? '' : 's'} left out)` : ''}. The existing ${category.replace('_', '/')} database has been replaced.`,
+      count: rows.length,
+    };
   }
 
   private escapeCsv(value: string): string {

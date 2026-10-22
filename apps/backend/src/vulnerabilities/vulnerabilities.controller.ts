@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, Res, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, Res, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Response } from 'express';
@@ -108,11 +108,19 @@ export class VulnerabilitiesController {
     @Body('category') category: string,
     @CurrentUser() user: User,
     @Req() req: any,
+    @Body('resolutions') resolutions?: string,
   ) {
     const csv = await parseUploadedFileToCsv(file);
     const ipAddress = req.ip || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
-    return this.vulnerabilitiesService.bulkUpload(csv, category, user.id, ipAddress, userAgent);
+    let chosen: Record<string, number> = {};
+    try {
+      const parsed = resolutions ? JSON.parse(resolutions) : {};
+      if (parsed && typeof parsed === 'object') chosen = Object.fromEntries(Object.entries(parsed).filter(([, v]) => Number.isInteger(v))) as Record<string, number>;
+    } catch {
+      throw new BadRequestException('resolutions must be valid JSON.');
+    }
+    return this.vulnerabilitiesService.bulkUpload(csv, category, user.id, ipAddress, userAgent, chosen);
   }
 
   @Put(':id')
