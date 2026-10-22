@@ -117,6 +117,11 @@ export default function NewProjectPage() {
       for (const key of optional) {
         if ((form as any)[key]) payload[key] = (form as any)[key];
       }
+      if (form.category !== 'CERT_IN') {
+        delete payload.clientSpocName;
+        delete payload.clientSpocDesignation;
+        delete payload.clientSpocEmail;
+      }
       if (form.totalScopeCount) payload.totalScopeCount = parseInt(form.totalScopeCount, 10);
       if (form.subType === 'NETWORK' && networkScope.length > 0) payload.networkScope = networkScope;
       if (toolsUsedTable.length > 0) payload.toolsUsedTable = toolsUsedTable;
@@ -206,6 +211,8 @@ export default function NewProjectPage() {
               <label className={labelCls}>Location</label>
               <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} placeholder="e.g. Mumbai, India" />
             </div>
+            {form.category === 'CERT_IN' && (
+              <>
             <div>
               <label className={labelCls}>Client SPOC Name</label>
               <input type="text" value={form.clientSpocName} onChange={(e) => set('clientSpocName', e.target.value)} className={inputCls} placeholder="e.g. Priya Nair" />
@@ -218,6 +225,8 @@ export default function NewProjectPage() {
               <label className={labelCls}>Client SPOC Email ID</label>
               <input type="email" value={form.clientSpocEmail} onChange={(e) => set('clientSpocEmail', e.target.value)} className={inputCls} placeholder="e.g. priya@acme.com" />
             </div>
+              </>
+            )}
             <div>
               <label className={labelCls}>Start Date *</label>
               <input type="date" required value={form.startDate} onChange={(e) => set('startDate', e.target.value)} className={inputCls} />

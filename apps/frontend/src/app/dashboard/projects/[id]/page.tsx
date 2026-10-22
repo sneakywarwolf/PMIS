@@ -510,9 +510,13 @@ export default function ProjectDetailPage() {
           <InfoField label="Sub Type" value={project.subType} />
           <InfoField label="App Version" value={project.appVersion || 'N/A'} changes={changesFor('appVersion')} />
           <InfoField label="Location" value={project.location || 'N/A'} changes={changesFor('location')} />
+          {project.complianceType === 'CERT_IN' && (
+            <>
           <InfoField label="Client SPOC Name" value={project.clientSpocName || 'N/A'} changes={changesFor('clientSpocName')} />
           <InfoField label="Client SPOC Designation" value={project.clientSpocDesignation || 'N/A'} changes={changesFor('clientSpocDesignation')} />
           <InfoField label="Client SPOC Email ID" value={project.clientSpocEmail || 'N/A'} changes={changesFor('clientSpocEmail')} />
+            </>
+          )}
           <InfoField label="Document Version" value={project.documentVersion || 'N/A'} changes={changesFor('documentVersion')} />
           {(!project.toolsUsedTable || project.toolsUsedTable.length === 0) && (
             <InfoField label="Tools Used" value={project.toolsUsed || 'N/A'} />
@@ -1021,6 +1025,8 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
               <label className={labelCls}>Location</label>
               <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} />
             </div>
+            {form.complianceType === 'CERT_IN' && (
+              <>
             <div>
               <label className={labelCls}>Client SPOC Name</label>
               <input type="text" value={form.clientSpocName} onChange={(e) => set('clientSpocName', e.target.value)} className={inputCls} />
@@ -1033,6 +1039,8 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
               <label className={labelCls}>Client SPOC Email ID</label>
               <input type="email" value={form.clientSpocEmail} onChange={(e) => set('clientSpocEmail', e.target.value)} className={inputCls} />
             </div>
+              </>
+            )}
             <div>
               <label className={labelCls}>Document Version</label>
               <input type="text" value={form.documentVersion} onChange={(e) => set('documentVersion', e.target.value)} className={inputCls} placeholder="e.g. 1.0" />

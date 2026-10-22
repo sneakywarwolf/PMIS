@@ -602,6 +602,8 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
               <label className={labelCls}>Location</label>
               <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} />
             </div>
+            {form.complianceType === 'CERT_IN' && (
+              <>
             <div>
               <label className={labelCls}>Client SPOC Name</label>
               <input type="text" value={form.clientSpocName} onChange={(e) => set('clientSpocName', e.target.value)} className={inputCls} />
@@ -614,6 +616,8 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
               <label className={labelCls}>Client SPOC Email ID</label>
               <input type="email" value={form.clientSpocEmail} onChange={(e) => set('clientSpocEmail', e.target.value)} className={inputCls} />
             </div>
+              </>
+            )}
             <div>
               <label className={labelCls}>Document Version</label>
               <input type="text" value={form.documentVersion} onChange={(e) => set('documentVersion', e.target.value)} className={inputCls} placeholder="e.g. 1.0" />
