@@ -476,10 +476,16 @@ export class DocxManipulatorService {
       const text = this.getParagraphRunSpans(para).map((s) => s.text).join('');
       const hasStatus = [...text.matchAll(new RegExp(this.PLACEHOLDER_RE))].some((m) => NAME_RE.test(m[1].trim()));
       if (!hasStatus) continue;
-      this.replacePlaceholdersInParagraph(para, resolver);
-      if (!look) continue;
       let cell: Node | null = para.parentNode;
       while (cell && (cell as Element).localName !== 'tc') cell = cell.parentNode;
+      // The colour is only for a placeholder that stands alone ("{Compliance Status}"). With other text beside
+      // it ("{Compliance Status} Report Delivered") only the text is filled and the background is left alone.
+      const scope = (cell as Element | null) ?? para;
+      const standsAlone = !this.getElementText(scope)
+        .replace(new RegExp(this.PLACEHOLDER_RE), (m, name: string) => (NAME_RE.test(name.trim()) ? '' : m))
+        .trim();
+      this.replacePlaceholdersInParagraph(para, resolver);
+      if (!look || !standsAlone) continue;
       if (cell) this.setCellShading(cell as Element, look.fill);
       else this.setParagraphShading(para, look.fill);
     }

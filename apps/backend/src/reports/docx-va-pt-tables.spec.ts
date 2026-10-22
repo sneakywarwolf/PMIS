@@ -453,10 +453,13 @@ describe('{Project Status} placeholder text and background', () => {
     expect(xml).not.toMatch(/w:fill="(92D050|FF0000)"/);
   });
 
-  it('{Compliance Status} is the same placeholder; outside a table the paragraph is shaded', async () => {
-    const xml = await run(para('Result: {Compliance Status}'), 'Compliant');
-    expect(xml).toContain('Result: Compliant');
-    expect(xml).toMatch(/<w:pPr><w:shd [^>]*w:fill="92D050"/);
+  it('{Compliance Status} is the same placeholder; on its own outside a table the paragraph is shaded, with other text it is not', async () => {
+    const alone = await run(para('{Compliance Status}'), 'Compliant');
+    expect(alone).toContain('<w:t>Compliant</w:t>');
+    expect(alone).toMatch(/<w:pPr><w:shd [^>]*w:fill="92D050"/);
+    const withText = await run(para('Result: {Compliance Status}'), 'Compliant');
+    expect(withText).toContain('Result: Compliant');
+    expect(withText).not.toContain('w:fill=');
   });
 
   it('paragraph shading goes before spacing/justification in an existing pPr, and a second status in the document is handled too', async () => {
@@ -464,6 +467,21 @@ describe('{Project Status} placeholder text and background', () => {
     const xml = await run(body, 'Non-Compliant');
     expect(xml).toMatch(/<w:pPr><w:shd [^>]*w:fill="FF0000"[^>]*\/><w:spacing/);
     expect((xml.match(/w:fill="FF0000"/g) || []).length).toBe(2);
+  });
+
+  it.each(['Compliant', 'Non-Compliant'])('%s: with other text beside it ("{Compliance Status} Report Delivered") only the text is filled, the background is left alone', async (status) => {
+    const body = `<w:tbl><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid><w:tr>${cellWithShade('{Compliance Status} Report Delivered')}<w:tc>${para('{Project Status}')}</w:tc></w:tr></w:tbl>`;
+    const xml = await run(body, status);
+    expect(xml).toContain(`${status} Report Delivered`);
+    expect(xml).toContain('w:fill="DDDDDD"'); // that cell keeps the template's background
+    expect((xml.match(/w:fill="(92D050|FF0000)"/g) || []).length).toBe(1); // only the stand-alone placeholder's cell is coloured
+  });
+
+  it('another placeholder in the cell counts as other content, so no background', async () => {
+    const body = `<w:tbl><w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid><w:tr>${cellWithShade('{Project Status} {Client Name}')}</w:tr></w:tbl>`;
+    const xml = await run(body, 'Compliant');
+    expect(xml).toContain('w:fill="DDDDDD"');
+    expect(xml).not.toMatch(/w:fill="(92D050|FF0000)"/);
   });
 
   it('a template without the placeholder is unchanged whatever the status', async () => {
