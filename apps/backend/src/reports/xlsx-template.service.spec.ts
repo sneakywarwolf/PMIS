@@ -134,6 +134,24 @@ describe('XlsxTemplateService {Project Status}', () => {
     expect(sheet).not.toMatch(/<c r="D1"[^>]* s=/);
   });
 
+  it('a cell with other text beside the placeholder ("{Compliance Status} Report Delivered") gets the text but no colour', async () => {
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+    zip.file('xl/workbook.xml', `<workbook xmlns="${M}"><sheets><sheet name="S" sheetId="1" r:id="rId1" xmlns:r="x"/></sheets></workbook>`);
+    zip.file('xl/styles.xml', STYLES);
+    zip.file('xl/sharedStrings.xml', `<sst xmlns="${M}" count="3" uniqueCount="3"><si><t>{Compliance Status} Report Delivered</t></si><si><t>{Project Status}</t></si><si><t>{Project Status} {Client Name}</t></si></sst>`);
+    zip.file('xl/worksheets/sheet1.xml', `<worksheet xmlns="${M}"><sheetData><row r="1"><c r="A1" s="1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" s="1" t="s"><v>2</v></c></row></sheetData></worksheet>`);
+    const { sheet, styles, shared } = await open(await svc.fill(await zip.generateAsync({ type: 'nodebuffer' }), resolve, { complianceStatus: 'Non-Compliant' }));
+    expect(shared).toContain('>Non-Compliant Report Delivered</t>');
+    expect(shared).toContain('>Non-Compliant Acme</t>');
+    expect(styleOf(sheet, 'A1')).toBe('1'); // untouched
+    expect(styleOf(sheet, 'C1')).toBe('1'); // another placeholder counts as other content
+    const b1 = Number(styleOf(sheet, 'B1')); // the stand-alone one is coloured
+    expect(b1).toBeGreaterThanOrEqual(2);
+    expect((styles.match(/<fgColor rgb="FFFF0000"\/>/g) || []).length).toBe(1);
+    expect(styles).toContain('<cellXfs count="3">'); // just one new style, for B1
+  });
+
   it('without the options argument (existing callers) the placeholder is simply emptied', async () => {
     const { shared } = await open(await svc.fill(await book(), resolve));
     expect(shared).not.toContain('{Project Status}');

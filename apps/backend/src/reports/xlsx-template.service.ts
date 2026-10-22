@@ -59,8 +59,8 @@ export class XlsxTemplateService {
   /**
    * Returns a copy of the workbook with every resolvable placeholder replaced; unresolved ones stay literal.
    * `{Project Status}` / `{Compliance Status}` print the project's status (Compliant / Non-Compliant, empty
-   * for anything else) and, for those two, give the cell a green / red background. Any other status leaves
-   * the cell's own style exactly as the template has it.
+   * for anything else) and, for those two, give the cell a green / red background when the placeholder is all
+   * the cell holds. Any other status, or a cell with other text, keeps the cell's own style exactly as the template has it.
    */
   async fill(xlsx: Buffer, resolve: (raw: string) => string | undefined, options?: { complianceStatus?: string | null }): Promise<Buffer> {
     const zip = await this.load(xlsx);
@@ -104,12 +104,16 @@ export class XlsxTemplateService {
 
   // ---------------------------------------------------------------------------
 
-  /** Gives every cell whose text contains a status placeholder a copy of its own style with a solid `argb` fill. */
+  /** Gives every cell whose text is just a status placeholder a copy of its own style with a solid `argb` fill. */
   private async colourStatusCells(zip: any, argb: string): Promise<void> {
     const stylesXml = await zip.file('xl/styles.xml')?.async('text');
     if (!stylesXml) return;
     const shared = await this.readShared(zip);
-    const hasStatus = (text: string) => [...text.matchAll(PLACEHOLDER_RE)].some((m) => STATUS_RE.test(m[1].trim()));
+    // Only a cell holding nothing but the status placeholder is coloured; with other text beside it
+    // ("{Compliance Status} Report Delivered") just the text is filled and the style is left alone.
+    const hasStatus = (text: string) =>
+      [...text.matchAll(PLACEHOLDER_RE)].some((m) => STATUS_RE.test(m[1].trim()))
+      && !text.replace(PLACEHOLDER_RE, (m, name: string) => (STATUS_RE.test(name.trim()) ? '' : m)).trim();
 
     const styles = this.parse(stylesXml);
     const first = (name: string) => Array.from(styles.getElementsByTagNameNS(NS, name)).find((e) => e.parentNode === styles.documentElement) as Element | undefined;
