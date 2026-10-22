@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { Info } from 'lucide-react';
 import { api } from '@/contexts/auth-context';
 
 type ScopeRow = { ip: string; domainHostname: string; purpose: string };
@@ -55,6 +56,17 @@ export function ScopeImportButton({ rows, onImport }: { rows: ScopeRow[]; onImpo
       >
         {busy ? 'Importing…' : 'Import'}
       </button>
+      <span className="group relative inline-flex">
+        <button type="button" aria-label="Supported import formats" className="rounded text-gray-500 hover:text-gray-300 focus-visible:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50">
+          <Info className="w-3.5 h-3.5" />
+        </button>
+        <span role="tooltip" className="pointer-events-none absolute right-0 top-full z-30 mt-1.5 hidden w-72 rounded-lg border border-gray-700 bg-gray-900 p-3 text-left text-xs leading-relaxed text-gray-300 shadow-xl group-hover:block group-focus-within:block">
+          <span className="block font-medium text-white">Supported formats</span>
+          <span className="mt-1 block"><code className="text-emerald-400">.txt</code> — one IP address or CIDR range per line (e.g. 10.0.0.5 or 10.0.0.0/24).</span>
+          <span className="mt-1 block"><code className="text-emerald-400">.csv</code> / <code className="text-emerald-400">.xlsx</code> — first row must be the header <code className="text-emerald-400">IP | Domain | Purpose</code>; only IP is required.</span>
+          <span className="mt-1 block text-gray-500">Other layouts are not imported. Invalid lines are listed and repeated IP + Domain pairs are skipped.</span>
+        </span>
+      </span>
       {message && (
         <div className="basis-full" role="status">
           <p className={`text-xs ${message.tone === 'ok' ? 'text-emerald-400' : message.tone === 'warn' ? 'text-amber-400' : 'text-red-400'}`}>{message.text}</p>
