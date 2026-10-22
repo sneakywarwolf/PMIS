@@ -304,6 +304,8 @@ model ReportTemplate {
 
   category      TemplateCategory @default(VAPT) @map("category")
   subType       TemplateSubType  @default(WEB) @map("sub_type")
+  // Further Activity Types this same template also serves (the primary one stays in subType).
+  extraSubTypes TemplateSubType[] @default([]) @map("extra_sub_types")
   projectType   String    @map("project_type")
   /// Word (.docx) or Excel (.xlsx) template; activation only replaces a template of the same format.
   reportFormat  ReportFormat @default(WORD) @map("report_format")

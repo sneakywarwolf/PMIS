@@ -124,7 +124,13 @@ describe('Activation is per report format', () => {
     prisma.reportTemplate.update.mockResolvedValue({ id: 'x2', name: 'X' });
     await service.activateTemplate('x2', 'admin1', 'ip', 'ua').catch(() => undefined);
     expect(prisma.reportTemplate.findMany).toHaveBeenCalledWith({
-      where: { category: 'VAPT', subType: 'NETWORK', reportFormat: 'EXCEL', isActive: true, id: { not: 'x2' } },
+      where: {
+        category: 'VAPT',
+        OR: [{ subType: 'NETWORK' }, { extraSubTypes: { has: 'NETWORK' } }],
+        reportFormat: 'EXCEL',
+        isActive: true,
+        id: { not: 'x2' },
+      },
     });
   });
 });
@@ -175,5 +181,81 @@ describe('Client SPOC placeholders', () => {
     expect(resolveTemplateParameter('project.clientSpocName', project, String)).toBe('Priya');
     expect(resolveTemplateParameter('project.clientSpocDesignation', project, String)).toBe('N/A');
     expect(resolveTemplateParameter('project.clientSpocEmail', project, String)).toBe('p@acme.com');
+  });
+});
+
+describe('Template Activity Types (multi-select)', () => {
+  const file = (name: string) => ({ originalname: name, buffer: Buffer.from('x'), mimetype: 'application/octet-stream' }) as Express.Multer.File;
+  const covers = (t: string) => ({ OR: [{ subType: t }, { extraSubTypes: { has: t } }] });
+  // The workbook content is irrelevant here; only what is stored with the template is under test.
+  const stub = (service: any) => {
+    service.xlsxTemplate.extractPlaceholders = jest.fn().mockResolvedValue(['Client Name']);
+    service.xlsxTemplate.fill = jest.fn().mockResolvedValue(Buffer.from('x'));
+    service.storage.deleteFile = jest.fn().mockResolvedValue(undefined);
+    return service;
+  };
+
+  it('stores the extra Activity Types on one template record (no duplicate records), primary first', async () => {
+    const { service: svc, prisma } = await setup();
+    const service = stub(svc);
+    prisma.reportTemplate.create.mockImplementation(({ data }: any) => Promise.resolve({ id: 't1', ...data, fields: [] }));
+    await service.uploadTemplate(file('t.xlsx'), 'T', 'VAPT' as any, 'WEB' as any, new Date(), null, 'admin1', 'ip', 'ua', ReportFormat.EXCEL, '["API","MOBILE","WEB","API"]');
+    expect(prisma.reportTemplate.create).toHaveBeenCalledTimes(1);
+    expect(prisma.reportTemplate.create.mock.calls[0][0].data).toMatchObject({ subType: 'WEB', extraSubTypes: ['API', 'MOBILE'] });
+  });
+
+  it('a single Activity Type (what every existing caller sends) stores no extras', async () => {
+    const { service: svc, prisma } = await setup();
+    const service = stub(svc);
+    prisma.reportTemplate.create.mockImplementation(({ data }: any) => Promise.resolve({ id: 't1', ...data, fields: [] }));
+    await service.uploadTemplate(file('t.xlsx'), 'T', 'VAPT' as any, 'NETWORK' as any, new Date(), null, 'admin1', 'ip', 'ua', ReportFormat.EXCEL);
+    expect(prisma.reportTemplate.create.mock.calls[0][0].data).toMatchObject({ subType: 'NETWORK', extraSubTypes: [] });
+  });
+
+  it('rejects unknown Activity Types, and non-Cert-In ones on a Cert-In template, before storing anything', async () => {
+    const { service, prisma } = await setup();
+    const up = (category: string, sub: string, extra: string) =>
+      service.uploadTemplate(file('t.xlsx'), 'T', category as any, sub as any, new Date(), null, 'admin1', 'ip', 'ua', ReportFormat.EXCEL, extra);
+    await expect(up('VAPT', 'WEB', 'WEB,BOGUS')).rejects.toThrow(/not a valid Activity Type/);
+    await expect(up('VAPT', 'WEB', '[not json')).rejects.toThrow(BadRequestException);
+    await expect(up('CERT_IN', 'APPLICATION', 'MOBILE')).rejects.toThrow(/Cert-In/);
+    expect(prisma.reportTemplate.create).not.toHaveBeenCalled();
+  });
+
+  it('listing and the generation fallback find a template through any of its Activity Types', async () => {
+    const { service, prisma } = await setup();
+    await service.getTemplates('VAPT' as any, 'API' as any, false);
+    expect(prisma.reportTemplate.findMany.mock.calls[0][0].where).toMatchObject({ category: 'VAPT', isActive: true, ...covers('API') });
+
+    prisma.reportTemplate.findFirst.mockResolvedValue(null);
+    await service.generateReport('p1', admin, 'ip', 'ua', ReportFormat.EXCEL).catch(() => undefined);
+    expect(prisma.reportTemplate.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ ...covers('NETWORK'), reportFormat: 'EXCEL' }) }));
+  });
+
+  it('activating a multi-type template that fully covers an old one replaces it (existing behaviour)', async () => {
+    const { service: svc, prisma } = await setup();
+    const service = stub(svc);
+    prisma.reportTemplate.findUnique.mockResolvedValue({ id: 'new', category: 'VAPT', subType: 'WEB', extraSubTypes: ['API'], reportFormat: 'WORD', name: 'N' });
+    prisma.reportTemplate.findMany.mockResolvedValue([{ id: 'oldWeb', category: 'VAPT', subType: 'WEB', extraSubTypes: [], filePath: 'f1' }]);
+    prisma.reportTemplate.update.mockResolvedValue({ id: 'new' });
+    prisma.reportTemplate.delete = jest.fn();
+    prisma.project.updateMany = jest.fn().mockResolvedValue({ count: 0 });
+    await service.activateTemplate('new', 'admin1', 'ip', 'ua');
+    expect(prisma.reportTemplate.findMany.mock.calls[0][0].where.OR).toEqual(expect.arrayContaining([{ subType: 'WEB' }, { extraSubTypes: { has: 'API' } }]));
+    expect(prisma.reportTemplate.delete).toHaveBeenCalledWith({ where: { id: 'oldWeb' } });
+  });
+
+  it('activating a template that only overlaps part of an old multi-type one shrinks the old one instead of deleting it', async () => {
+    const { service: svc, prisma } = await setup();
+    const service = stub(svc);
+    prisma.reportTemplate.findUnique.mockResolvedValue({ id: 'new', category: 'VAPT', subType: 'WEB', extraSubTypes: [], reportFormat: 'WORD', name: 'N' });
+    prisma.reportTemplate.findMany.mockResolvedValue([{ id: 'old', category: 'VAPT', subType: 'WEB', extraSubTypes: ['API', 'MOBILE'], filePath: 'f1' }]);
+    prisma.reportTemplate.update.mockResolvedValue({ id: 'new' });
+    prisma.reportTemplate.delete = jest.fn();
+    prisma.project.updateMany = jest.fn().mockResolvedValue({ count: 2 });
+    await service.activateTemplate('new', 'admin1', 'ip', 'ua');
+    expect(prisma.reportTemplate.delete).not.toHaveBeenCalled();
+    expect(prisma.reportTemplate.update).toHaveBeenCalledWith({ where: { id: 'old' }, data: { subType: 'API', extraSubTypes: ['MOBILE'], projectType: 'VAPT_API' } });
+    expect(prisma.project.updateMany).toHaveBeenCalledWith({ where: { templateId: 'old', subType: { in: ['WEB'] } }, data: { templateId: 'new' } }); // only Web projects move
   });
 });

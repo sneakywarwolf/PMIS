@@ -18,6 +18,7 @@ import { nessusTextForReport, stripNessusBoilerplate } from '../common/nessus-te
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { canAccessProject } from '../common/project-access.util';
 import { assertSafeDocx, safeFileName } from '../common/docx-package.util';
+import { coveredSubTypes, coversSubType, coversAnySubType, parseExtraSubTypes } from './template-subtypes';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
 
@@ -69,9 +70,11 @@ export class ReportsService {
     ipAddress: string,
     userAgent: string,
     reportFormat: ReportFormat = ReportFormat.WORD,
+    extraSubTypesRaw?: unknown,
   ) {
+    const extraSubTypes = parseExtraSubTypes(extraSubTypesRaw, subType, category);
     if (reportFormat === ReportFormat.EXCEL) {
-      return this.uploadExcelTemplate(file, name, category, subType, effectiveFrom, effectiveTo, adminId, ipAddress, userAgent);
+      return this.uploadExcelTemplate(file, name, category, subType, effectiveFrom, effectiveTo, adminId, ipAddress, userAgent, extraSubTypes);
     }
     if (!file?.buffer || !file.originalname.toLowerCase().endsWith('.docx')) {
       throw new BadRequestException(
@@ -106,7 +109,7 @@ export class ReportsService {
 
     // Diff against the currently active version of the same category + subType
     const previousActive = await this.prisma.reportTemplate.findFirst({
-      where: { category, subType, isActive: true, reportFormat: ReportFormat.WORD },
+      where: { category, ...coversSubType(subType), isActive: true, reportFormat: ReportFormat.WORD },
       include: { fields: true },
       orderBy: { effectiveFrom: 'desc' },
     });
@@ -131,6 +134,7 @@ export class ReportsService {
         fileHash,
         category,
         subType,
+        extraSubTypes,
         projectType: `${category}_${subType}`,
         effectiveFrom,
         effectiveTo,
@@ -158,7 +162,7 @@ export class ReportsService {
       ipAddress,
       userAgent,
       details: {
-        name, category, subType,
+        name, category, subType, extraSubTypes,
         fieldCount: analysis.fields.length,
         dryRunOk,
         missingMandatory: analysis.missingMandatory,
@@ -186,7 +190,7 @@ export class ReportsService {
     if (!includeInactive) where.isActive = true;
     if (reportFormat) where.reportFormat = reportFormat;
     if (category) where.category = category;
-    if (subType) where.subType = subType;
+    if (subType) Object.assign(where, coversSubType(subType));
 
     return this.prisma.reportTemplate.findMany({
       where,
@@ -370,16 +374,30 @@ export class ReportsService {
     // and its field mappings. Existing ReportGeneration rows are
     // FK-SetNull, so already generated reports and their stored docx/pdf
     // files are never touched by any of this.
+    const mine = coveredSubTypes(template);
     const replaced = await this.prisma.reportTemplate.findMany({
       where: {
         category: template.category,
-        subType: template.subType,
+        ...coversAnySubType(mine),
         reportFormat: template.reportFormat,
         isActive: true,
         id: { not: id },
       },
     });
     for (const old of replaced) {
+      const overlap = coveredSubTypes(old).filter((t) => mine.includes(t));
+      const remaining = coveredSubTypes(old).filter((t) => !mine.includes(t));
+      if (remaining.length > 0) {
+        // The old template also serves Activity Types this one doesn't: it keeps those and loses only the
+        // overlap. Projects of the overlapping types move to the new template; nothing else is touched.
+        const [primary, ...extra] = remaining;
+        await this.prisma.project.updateMany({ where: { templateId: old.id, subType: { in: overlap } }, data: { templateId: id } });
+        await this.prisma.reportTemplate.update({
+          where: { id: old.id },
+          data: { subType: primary, extraSubTypes: extra, projectType: `${old.category}_${primary}` },
+        });
+        continue;
+      }
       const rebound = await this.prisma.project.updateMany({
         where: { templateId: old.id },
         data: { templateId: id },
@@ -593,7 +611,7 @@ export class ReportsService {
     let template = reportFormat === ReportFormat.WORD && project.template?.reportFormat !== ReportFormat.EXCEL ? project.template : null;
     if (!template) {
       template = await this.prisma.reportTemplate.findFirst({
-        where: { isActive: true, category: project.category, subType: project.subType, reportFormat },
+        where: { isActive: true, category: project.category, ...coversSubType(project.subType), reportFormat },
         orderBy: { effectiveFrom: 'desc' },
         include: { fields: true },
       });
@@ -870,6 +888,7 @@ export class ReportsService {
     adminId: string,
     ipAddress: string,
     userAgent: string,
+    extraSubTypes: TemplateSubType[] = [],
   ) {
     if (!file.originalname.toLowerCase().endsWith('.xlsx')) {
       throw new BadRequestException(
@@ -904,14 +923,14 @@ export class ReportsService {
     // Admin should not have to map again: start from the mappings already saved on the active Word template
     // of the same category + sub type (copied by name; that template is not modified).
     const wordTemplate = await this.prisma.reportTemplate.findFirst({
-      where: { category, subType, isActive: true, reportFormat: ReportFormat.WORD },
+      where: { category, ...coversSubType(subType), isActive: true, reportFormat: ReportFormat.WORD },
       include: { fields: true },
       orderBy: { effectiveFrom: 'desc' },
     });
     const savedMapping = new Map((wordTemplate?.fields || []).filter((f) => f.mappedParameter).map((f) => [f.normalizedName, f.mappedParameter!]));
 
     const previousActive = await this.prisma.reportTemplate.findFirst({
-      where: { category, subType, isActive: true, reportFormat: ReportFormat.EXCEL },
+      where: { category, ...coversSubType(subType), isActive: true, reportFormat: ReportFormat.EXCEL },
       include: { fields: true },
       orderBy: { effectiveFrom: 'desc' },
     });
@@ -944,6 +963,7 @@ export class ReportsService {
         fileHash,
         category,
         subType,
+        extraSubTypes,
         projectType: `${category}_${subType}`,
         reportFormat: ReportFormat.EXCEL,
         effectiveFrom,
@@ -972,7 +992,7 @@ export class ReportsService {
       targetId: template.id,
       ipAddress,
       userAgent,
-      details: { name, category, subType, reportFormat: 'EXCEL', fieldCount: analysed.length, dryRunOk },
+      details: { name, category, subType, extraSubTypes, reportFormat: 'EXCEL', fieldCount: analysed.length, dryRunOk },
     });
 
     return {
