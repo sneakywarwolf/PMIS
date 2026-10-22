@@ -423,3 +423,55 @@ describe('{#VA}/{#PT} blocks keep formatting, breaks and spacing', () => {
     }
   });
 });
+
+describe('{Project Status} placeholder text and background', () => {
+  const run = async (body: string, complianceStatus?: string | null) => {
+    const svc = new DocxManipulatorService();
+    const out = await svc.generateReport(await docxWith(body), [], [], [], undefined, undefined, [], [], [], undefined, { complianceStatus });
+    return (await JSZip.loadAsync(out)).file('word/document.xml').async('text') as Promise<string>;
+  };
+  const para = (t: string) => `<w:p><w:r><w:t>${t}</w:t></w:r></w:p>`;
+  const cellWithShade = (t: string) => `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="DDDDDD"/></w:tcPr>${para(t)}</w:tc>`;
+  const tableBody = `<w:tbl><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid><w:tr><w:tc>${para('Status')}</w:tc>${cellWithShade('{Project Status}')}</w:tr></w:tbl>`;
+
+  it.each([
+    ['Compliant', 'Compliant', '92D050'],
+    ['Non-Compliant', 'Non-Compliant', 'FF0000'],
+    ['non-compliant', 'Non-Compliant', 'FF0000'],
+  ])('%s: prints %s with background %s on the cell holding it', async (status, text, fill) => {
+    const xml = await run(tableBody, status);
+    expect(xml).toContain(`<w:t>${text}</w:t>`);
+    expect(xml).not.toContain('{Project Status}');
+    expect(xml).toContain(`w:fill="${fill}"`);
+    expect(xml).not.toContain('w:fill="DDDDDD"'); // the template's grey is replaced, not stacked
+  });
+
+  it.each(['In-Progress', 'In Progress', null, undefined, 'something else'])('%s: empty text and the template background untouched', async (status) => {
+    const xml = await run(tableBody, status as string | null | undefined);
+    expect(xml).not.toContain('{Project Status}');
+    expect(xml).toContain('w:fill="DDDDDD"');
+    expect(xml).not.toMatch(/w:fill="(92D050|FF0000)"/);
+  });
+
+  it('{Compliance Status} is the same placeholder; outside a table the paragraph is shaded', async () => {
+    const xml = await run(para('Result: {Compliance Status}'), 'Compliant');
+    expect(xml).toContain('Result: Compliant');
+    expect(xml).toMatch(/<w:pPr><w:shd [^>]*w:fill="92D050"/);
+  });
+
+  it('paragraph shading goes before spacing/justification in an existing pPr, and a second status in the document is handled too', async () => {
+    const body = `<w:p><w:pPr><w:spacing w:before="120"/><w:jc w:val="center"/></w:pPr><w:r><w:t>{Project Status}</w:t></w:r></w:p>` + tableBody;
+    const xml = await run(body, 'Non-Compliant');
+    expect(xml).toMatch(/<w:pPr><w:shd [^>]*w:fill="FF0000"[^>]*\/><w:spacing/);
+    expect((xml.match(/w:fill="FF0000"/g) || []).length).toBe(2);
+  });
+
+  it('a template without the placeholder is unchanged whatever the status', async () => {
+    const body = tableBody.replace('{Project Status}', 'plain');
+    for (const status of ['Compliant', 'Non-Compliant', 'In-Progress']) {
+      const xml = await run(body, status);
+      expect(xml).toContain('w:fill="DDDDDD"');
+      expect(xml).toContain('plain');
+    }
+  });
+});

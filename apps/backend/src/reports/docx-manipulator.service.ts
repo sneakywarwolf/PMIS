@@ -253,7 +253,7 @@ export class DocxManipulatorService {
     nmapPorts: NmapPortRecord[] = [],
     toolsUsed: ToolUsedRow[] = [],
     reportName?: string,
-    options?: { splitVaPt?: boolean; activityType?: string | null },
+    options?: { splitVaPt?: boolean; activityType?: string | null; complianceStatus?: string | null },
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -272,6 +272,9 @@ export class DocxManipulatorService {
 
     // Step 1.2: {#VA}...{/VA} / {#PT}...{/PT} blocks, kept or dropped by the project's activity type
     this.applyActivityBlocks(doc, options?.activityType);
+
+    // Step 1.3: {Project Status} / {Compliance Status} text and background colour
+    this.applyComplianceStatus(doc, options?.complianceStatus);
 
     // Step 1.5: {Report Name} resolves to the final generated filename and,
     // unlike the generic project-info rules below, must populate every
@@ -455,6 +458,51 @@ export class DocxManipulatorService {
       // Only what the removal made adjacent is collapsed; spacing that was already like that in the template stays.
       if ((isBlank(before) && isBlank(after)) || (isPageBreakOnly(before) && isPageBreakOnly(after))) parent.removeChild(after!);
     }
+  }
+
+  /**
+   * {Project Status} / {Compliance Status}: the project's saved status as text, with a background colour.
+   * Compliant -> "Compliant" on #92D050; Non-Compliant -> "Non-Compliant" on #FF0000; any other status
+   * (In Progress) -> empty, and the template's own background is left exactly as it is. The colour goes on
+   * the table cell holding the placeholder, or on the paragraph when it is not in a table.
+   */
+  private applyComplianceStatus(doc: Document, status?: string | null): void {
+    const key = (status || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+    const look = key === 'compliant' ? { value: 'Compliant', fill: '92D050' } : key === 'non-compliant' ? { value: 'Non-Compliant', fill: 'FF0000' } : null;
+    const NAME_RE = /^(project|compliance)[\s_-]*status$/i;
+    const resolver = (n: string) => (/^(project|compliance)_status$/.test(n) ? look?.value ?? '' : undefined);
+
+    for (const para of Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[]) {
+      const text = this.getParagraphRunSpans(para).map((s) => s.text).join('');
+      const hasStatus = [...text.matchAll(new RegExp(this.PLACEHOLDER_RE))].some((m) => NAME_RE.test(m[1].trim()));
+      if (!hasStatus) continue;
+      this.replacePlaceholdersInParagraph(para, resolver);
+      if (!look) continue;
+      let cell: Node | null = para.parentNode;
+      while (cell && (cell as Element).localName !== 'tc') cell = cell.parentNode;
+      if (cell) this.setCellShading(cell as Element, look.fill);
+      else this.setParagraphShading(para, look.fill);
+    }
+  }
+
+  /** Paragraph background, placed where the schema wants <w:shd> inside <w:pPr>. */
+  private setParagraphShading(para: Element, hexColor: string): void {
+    const doc = para.ownerDocument;
+    let pPr = this.getFirstChildByTagName(para, 'pPr');
+    if (!pPr) {
+      pPr = doc.createElementNS(this.W_NS, 'w:pPr');
+      para.insertBefore(pPr, para.firstChild);
+    }
+    for (const old of Array.from(pPr.getElementsByTagNameNS(this.W_NS, 'shd')) as Element[]) {
+      if (old.parentNode === pPr) pPr.removeChild(old);
+    }
+    const shd = doc.createElementNS(this.W_NS, 'w:shd');
+    shd.setAttributeNS(this.W_NS, 'w:val', 'clear');
+    shd.setAttributeNS(this.W_NS, 'w:color', 'auto');
+    shd.setAttributeNS(this.W_NS, 'w:fill', hexColor);
+    const after = ['tabs', 'suppressAutoHyphens', 'kinsoku', 'wordWrap', 'overflowPunct', 'topLinePunct', 'autoSpaceDE', 'autoSpaceDN', 'bidi', 'adjustRightInd', 'snapToGrid', 'spacing', 'ind', 'contextualSpacing', 'mirrorIndents', 'suppressOverlap', 'jc', 'textDirection', 'textAlignment', 'textboxTightWrap', 'outlineLvl', 'divId', 'cnfStyle', 'rPr', 'sectPr', 'pPrChange'];
+    const next = Array.from(pPr.childNodes as any as Node[]).find((c) => c.nodeType === 1 && after.includes((c as Element).localName));
+    pPr.insertBefore(shd, next ?? null);
   }
 
   /**
