@@ -33,9 +33,12 @@ interface SortConfig {
   order: 'asc' | 'desc';
 }
 
+type BulkVersion = { severity: string; cvssScore: number | null; cvssVector: string | null; cveId: string | null; cweId: string | null; description: string; impact: string; remediation: string; references: string };
 type BulkDuplicate = {
   key: string;
   name: string;
+  // The entry the category already has under this name (merge only); choosing it is sent as row 0.
+  existing?: BulkVersion | null;
   rows: { row: number; severity: string; cvssScore: number | null; cvssVector: string | null; cveId: string | null; cweId: string | null; description: string; impact: string; remediation: string; references: string }[];
 };
 
@@ -99,6 +102,7 @@ export default function VulnerabilitiesPage() {
   const [bulkErrorMsg, setBulkErrorMsg] = useState('');
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkCategory, setBulkCategory] = useState('');
+  const [bulkMode, setBulkMode] = useState<'REPLACE' | 'MERGE'>('REPLACE');
   // Names repeated in the uploaded file: key -> competing rows, and the row the admin picked for each.
   const [bulkDuplicates, setBulkDuplicates] = useState<BulkDuplicate[]>([]);
   const [bulkChoices, setBulkChoices] = useState<Record<string, number>>({});
@@ -248,6 +252,7 @@ export default function VulnerabilitiesPage() {
       const formData = new FormData();
       formData.append('file', pendingFileRef.current);
       formData.append('category', bulkCategory);
+      formData.append('mode', bulkMode);
       if (resolutions) formData.append('resolutions', JSON.stringify(resolutions));
       const response = await api.post('/vulnerabilities/bulk-upload', formData, {
         headers: { 'Content-Type': undefined },
@@ -258,6 +263,7 @@ export default function VulnerabilitiesPage() {
       setBulkChoices({});
       pendingFileRef.current = null;
       setBulkCategory('');
+      setBulkMode('REPLACE');
       fetchVulnerabilities();
     } catch (error: any) {
       const dups: BulkDuplicate[] | undefined = error.response?.data?.duplicates;
@@ -758,10 +764,12 @@ export default function VulnerabilitiesPage() {
                 <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
                   <AlertTriangle className="w-5 h-5 text-red-400" />
                 </div>
-                <h2 className="text-lg font-semibold text-white">Replace Vulnerability Database?</h2>
+                <h2 className="text-lg font-semibold text-white">{bulkMode === 'MERGE' ? 'Merge into Vulnerability Database?' : 'Replace Vulnerability Database?'}</h2>
               </div>
               <p className="text-gray-400 text-sm mb-4">
-                This action will <span className="text-red-400 font-medium">permanently replace</span> the existing vulnerabilities in the category you select below with the uploaded CSV file. Vulnerabilities in the other category are not affected. This action cannot be undone.
+                {bulkMode === 'MERGE'
+                  ? <>This will <span className="text-emerald-400 font-medium">add</span> the uploaded file's vulnerabilities to the category you select below and keep the existing ones. Vulnerabilities in the other category are not affected.</>
+                  : <>This action will <span className="text-red-400 font-medium">permanently replace</span> the existing vulnerabilities in the category you select below with the uploaded CSV file. Vulnerabilities in the other category are not affected. This action cannot be undone.</>}
               </p>
               <div className="mb-6">
                 <label className="block text-xs text-gray-400 mb-1">Category *</label>
@@ -775,9 +783,24 @@ export default function VulnerabilitiesPage() {
                   <option value="NETWORK">Network</option>
                 </select>
               </div>
+              <fieldset className="mb-6 space-y-2">
+                <legend className="block text-xs text-gray-400 mb-1">Upload mode *</legend>
+                {([
+                  ['REPLACE', 'Replace completely', 'The category is emptied and filled with the file. Current entries not in the file are retired.'],
+                  ['MERGE', 'Merge with existing', 'Current entries are kept and new names are added. If a name is repeated in the file or already exists, you choose which version to keep.'],
+                ] as const).map(([value, label, hint]) => (
+                  <label key={value} className={`flex gap-3 cursor-pointer rounded-lg border p-3 ${bulkMode === value ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-gray-700 hover:border-gray-600'}`}>
+                    <input type="radio" name="bulk-mode" className="mt-1" checked={bulkMode === value} onChange={() => setBulkMode(value)} />
+                    <span>
+                      <span className="block text-sm text-white">{label}</span>
+                      <span className="block text-xs text-gray-400">{hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
               <div className="flex justify-end gap-3">
                 <button
-                  onClick={() => { setShowBulkConfirm(false); pendingFileRef.current = null; setBulkCategory(''); }}
+                  onClick={() => { setShowBulkConfirm(false); pendingFileRef.current = null; setBulkCategory(''); setBulkMode('REPLACE'); }}
                   className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm"
                 >
                   Cancel
@@ -785,9 +808,9 @@ export default function VulnerabilitiesPage() {
                 <button
                   onClick={() => confirmBulkUpload()}
                   disabled={bulkUploading || !bulkCategory}
-                  className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm disabled:opacity-50"
+                  className={`px-4 py-2 rounded-lg text-white text-sm disabled:opacity-50 ${bulkMode === 'MERGE' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-red-600 hover:bg-red-500'}`}
                 >
-                  {bulkUploading ? 'Uploading...' : 'Yes, Replace Database'}
+                  {bulkUploading ? 'Uploading...' : bulkMode === 'MERGE' ? 'Yes, Merge' : 'Yes, Replace Database'}
                 </button>
               </div>
             </div>
@@ -809,15 +832,25 @@ export default function VulnerabilitiesPage() {
                   <AlertTriangle className="w-5 h-5 text-amber-400" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Duplicate vulnerability names in the file</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">Nothing has been uploaded. Choose the version to keep for each name; the other rows are left out.</p>
+                  <h2 className="text-lg font-semibold text-white">Duplicate vulnerability names</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">Nothing has been uploaded. Choose the version to keep for each name; the others are left out.</p>
                 </div>
               </div>
             </div>
             <div className="p-6 space-y-5 overflow-y-auto">
               {bulkDuplicates.map((d) => (
                 <fieldset key={d.key} className="space-y-2">
-                  <legend className="text-sm font-medium text-white mb-1">{d.name} <span className="text-gray-500 font-normal">({d.rows.length} rows)</span></legend>
+                  <legend className="text-sm font-medium text-white mb-1">{d.name} <span className="text-gray-500 font-normal">({d.rows.length} in file{d.existing ? ', 1 already in database' : ''})</span></legend>
+                  {d.existing && (
+                    <label className={`block cursor-pointer rounded-lg border p-3 text-xs transition-all ${bulkChoices[d.key] === 0 ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-gray-700 hover:border-gray-600'}`}>
+                      <span className="flex items-center gap-2 text-sm text-white">
+                        <input type="radio" name={`dup-${d.key}`} checked={bulkChoices[d.key] === 0} onChange={() => setBulkChoices((c) => ({ ...c, [d.key]: 0 }))} />
+                        Keep the existing entry · {d.existing.severity}{d.existing.cvssScore != null ? ` · CVSS ${d.existing.cvssScore}` : ''}{d.existing.cveId ? ` · ${d.existing.cveId}` : ''}
+                      </span>
+                      <span className="mt-1.5 block text-gray-300 line-clamp-3"><span className="text-gray-500">Description: </span>{d.existing.description}</span>
+                      <span className="mt-1 block text-gray-400 line-clamp-2"><span className="text-gray-500">Remediation: </span>{d.existing.remediation}</span>
+                    </label>
+                  )}
                   {d.rows.map((r) => (
                     <label
                       key={r.row}
@@ -825,7 +858,7 @@ export default function VulnerabilitiesPage() {
                     >
                       <span className="flex items-center gap-2 text-sm text-white">
                         <input type="radio" name={`dup-${d.key}`} checked={bulkChoices[d.key] === r.row} onChange={() => setBulkChoices((c) => ({ ...c, [d.key]: r.row }))} />
-                        Row {r.row} · {r.severity}{r.cvssScore != null ? ` · CVSS ${r.cvssScore}` : ''}{r.cveId ? ` · ${r.cveId}` : ''}{r.cweId ? ` · ${r.cweId}` : ''}
+                        Uploaded row {r.row} · {r.severity}{r.cvssScore != null ? ` · CVSS ${r.cvssScore}` : ''}{r.cveId ? ` · ${r.cveId}` : ''}{r.cweId ? ` · ${r.cweId}` : ''}
                       </span>
                       <span className="mt-1.5 block text-gray-300 line-clamp-3"><span className="text-gray-500">Description: </span>{r.description}</span>
                       <span className="mt-1 block text-gray-400 line-clamp-2"><span className="text-gray-500">Remediation: </span>{r.remediation}</span>
@@ -838,7 +871,7 @@ export default function VulnerabilitiesPage() {
               <span className="text-xs text-gray-500">{Object.keys(bulkChoices).length} of {bulkDuplicates.length} chosen</span>
               <div className="flex gap-3">
                 <button
-                  onClick={() => { setBulkDuplicates([]); setBulkChoices({}); pendingFileRef.current = null; setBulkCategory(''); }}
+                  onClick={() => { setBulkDuplicates([]); setBulkChoices({}); pendingFileRef.current = null; setBulkCategory(''); setBulkMode('REPLACE'); }}
                   className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm"
                 >
                   Cancel
@@ -848,7 +881,7 @@ export default function VulnerabilitiesPage() {
                   disabled={bulkUploading || Object.keys(bulkChoices).length < bulkDuplicates.length}
                   className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm disabled:opacity-50"
                 >
-                  {bulkUploading ? 'Uploading...' : 'Keep selected & replace database'}
+                  {bulkUploading ? 'Uploading...' : 'Keep selected & merge'}
                 </button>
               </div>
             </div>

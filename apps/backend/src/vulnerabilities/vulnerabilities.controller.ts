@@ -109,6 +109,7 @@ export class VulnerabilitiesController {
     @CurrentUser() user: User,
     @Req() req: any,
     @Body('resolutions') resolutions?: string,
+    @Body('mode') mode?: string,
   ) {
     const csv = await parseUploadedFileToCsv(file);
     const ipAddress = req.ip || 'unknown';
@@ -120,7 +121,7 @@ export class VulnerabilitiesController {
     } catch {
       throw new BadRequestException('resolutions must be valid JSON.');
     }
-    return this.vulnerabilitiesService.bulkUpload(csv, category, user.id, ipAddress, userAgent, chosen);
+    return this.vulnerabilitiesService.bulkUpload(csv, category, user.id, ipAddress, userAgent, chosen, (mode ?? 'REPLACE') as 'REPLACE' | 'MERGE');
   }
 
   @Put(':id')
