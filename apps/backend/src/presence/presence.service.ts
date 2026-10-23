@@ -57,10 +57,10 @@ export class PresenceService {
     private readonly config: ConfigService,
   ) {}
 
-  /** Inactivity threshold in ms: LIVE_USERS_INACTIVITY_MINUTES, default 10. */
+  /** Inactivity threshold in ms: LIVE_USERS_INACTIVITY_MINUTES, default 2. */
   get thresholdMs(): number {
     const minutes = Number(this.config.get('LIVE_USERS_INACTIVITY_MINUTES'));
-    return (Number.isFinite(minutes) && minutes >= MIN_THRESHOLD_MINUTES ? Math.min(minutes, 120) : 10) * 60_000;
+    return (Number.isFinite(minutes) && minutes >= MIN_THRESHOLD_MINUTES ? Math.min(minutes, 120) : 2) * 60_000;
   }
 
   /** Records that this user is active right now. */

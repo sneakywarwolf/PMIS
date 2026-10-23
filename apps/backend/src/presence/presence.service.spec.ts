@@ -47,14 +47,14 @@ describe('PresenceService', () => {
     expect(await svc.count()).toBe(1);
   });
 
-  it('excludes users idle past the threshold (default 10 minutes) and honours the configured one', async () => {
-    const seen = { fresh: NOW - 60_000, nineMin: NOW - 9 * 60_000, elevenMin: NOW - 11 * 60_000 };
-    expect(await setup({ seen }).svc.count()).toBe(2); // 1m and 9m are within the 10-minute default; 11m is idle
-    expect(await setup({ seen, minutes: '5' }).svc.count()).toBe(1);
-    expect(await setup({ seen, minutes: '15' }).svc.count()).toBe(3);
+  it('excludes users idle past the threshold (default 2 minutes) and honours the configured one', async () => {
+    const seen = { fresh: NOW - 30_000, oneMin: NOW - 90_000, threeMin: NOW - 3 * 60_000 };
+    expect(await setup({ seen }).svc.count()).toBe(2); // 30s and 90s are within the 2-minute default; 3m is idle
+    expect(await setup({ seen, minutes: '5' }).svc.count()).toBe(3);
     expect(await setup({ seen, minutes: '1' }).svc.count()).toBe(2); // below the 2-minute floor falls back to the default
-    expect(setup({ seen }).svc.thresholdMs).toBe(10 * 60_000);
+    expect(setup({ seen }).svc.thresholdMs).toBe(2 * 60_000);
   });
+
 
   it('idle users (signed in, no activity past the threshold) are listed as IDLE but never counted', async () => {
     const { svc } = setup({ seen: { active: NOW - 60_000, idle: NOW - 12 * 60_000 } });
