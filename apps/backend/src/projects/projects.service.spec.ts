@@ -227,3 +227,54 @@ describe('ProjectsService.update — completed projects', () => {
     expect(prisma.projectChange.findMany).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ProjectsService — report template is selected automatically', () => {
+  let service: ProjectsService;
+  let prisma: { project: { create: jest.Mock; update: jest.Mock; findUnique: jest.Mock }; reportTemplate: { findFirst: jest.Mock } };
+
+  beforeEach(async () => {
+    prisma = {
+      project: { create: jest.fn().mockResolvedValue({ id: 'p1', name: 'n', clientName: 'c' }), update: jest.fn(), findUnique: jest.fn() },
+      reportTemplate: { findFirst: jest.fn() },
+    };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ProjectsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AuditService, useValue: { log: jest.fn() } },
+        { provide: SettingsService, useValue: {} },
+        { provide: NotificationsService, useValue: {} },
+        { provide: ProjectPurgeService, useValue: {} },
+      ],
+    }).compile();
+    service = moduleRef.get(ProjectsService);
+  });
+
+  const dto = (over: object = {}) => ({ name: 'n', clientName: 'c', category: 'CERT_IN', subType: 'WEB', complianceType: 'CERT_IN', startDate: '2026-01-01', ...over }) as any;
+
+  it('Cert-In non-Network: the lookup accepts the Application umbrella; the template found is saved on the project', async () => {
+    prisma.reportTemplate.findFirst.mockResolvedValue({ id: 'app-tpl' });
+    await service.create(dto(), 'tester-1', 'tl-1', 'ip', 'ua');
+    const where = prisma.reportTemplate.findFirst.mock.calls[0][0].where;
+    expect(where).toMatchObject({ isActive: true, category: 'CERT_IN', reportFormat: 'WORD' });
+    expect(JSON.stringify(where)).toContain('APPLICATION');
+    expect(prisma.project.create.mock.calls[0][0].data.templateId).toBe('app-tpl');
+  });
+
+  it('Network and PCI/VAPT never match the Application template', async () => {
+    prisma.reportTemplate.findFirst.mockResolvedValue({ id: 't' });
+    await service.create(dto({ subType: 'NETWORK' }), 'tester-1', 'tl-1', 'ip', 'ua');
+    await service.create(dto({ category: 'PCI', complianceType: 'PCI' }), 'tester-1', 'tl-1', 'ip', 'ua');
+    for (const call of prisma.reportTemplate.findFirst.mock.calls) expect(JSON.stringify(call[0].where)).not.toContain('APPLICATION');
+  });
+
+  it('a template id sent by a client is ignored on create and on update; no match leaves the project without one', async () => {
+    prisma.reportTemplate.findFirst.mockResolvedValue(null);
+    await service.create(dto({ templateId: 'chosen-by-user' }), 'tester-1', 'tl-1', 'ip', 'ua');
+    expect(prisma.project.create.mock.calls[0][0].data.templateId).toBeUndefined();
+
+    prisma.project.findUnique.mockResolvedValue(project());
+    await service.update('p1', { templateId: 'chosen-by-user', name: 'x' } as any, actor(UserRole.ADMIN, 'a1'), 'ip', 'ua');
+    expect(prisma.project.update.mock.calls[0][0].data).not.toHaveProperty('templateId');
+  });
+});

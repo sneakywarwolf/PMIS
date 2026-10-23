@@ -56,8 +56,9 @@ export class ReportsController {
     @Query('category') category?: TemplateCategory,
     @Query('subType') subType?: TemplateSubType,
     @Query('reportFormat') reportFormat?: ReportFormat,
+    @Query('forProject') forProject?: string,
   ) {
-    return this.reportsService.getTemplates(category, subType, false, reportFormat);
+    return this.reportsService.getTemplates(category, subType, false, reportFormat, forProject === 'true');
   }
 
   @Get('templates/all')

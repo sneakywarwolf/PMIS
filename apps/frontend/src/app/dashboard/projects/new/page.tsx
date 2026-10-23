@@ -77,20 +77,24 @@ export default function NewProjectPage() {
     setToolsUsedTable((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
 
   const [customFields, setCustomFields] = useState<any[]>([]);
+  // null until the lookup for the chosen category + Testing Type has answered
+  const [matchedTemplate, setMatchedTemplate] = useState<{ id: string; name: string } | null | undefined>(undefined);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const setCustomFieldValue = (name: string, value: string) =>
     setCustomFieldValues((prev) => ({ ...prev, [name]: value }));
 
   useEffect(() => {
     let cancelled = false;
-    api.get(`/reports/templates?category=${form.category}&subType=${form.subType}&reportFormat=WORD`)
+    setMatchedTemplate(undefined);
+    api.get(`/reports/templates?category=${form.category}&subType=${form.subType}&reportFormat=WORD&forProject=true`)
       .then(async (res) => {
         const template = res.data[0];
-        if (!template) return;
+        if (!cancelled) setMatchedTemplate(template ? { id: template.id, name: template.name } : null);
+        if (!template) { if (!cancelled) setCustomFields([]); return; }
         const fieldsRes = await api.get(`/reports/templates/${template.id}/fields`);
         if (!cancelled) setCustomFields(fieldsRes.data.filter((f: any) => f.isCustom));
       })
-      .catch(() => { if (!cancelled) setCustomFields([]); });
+      .catch(() => { if (!cancelled) { setCustomFields([]); setMatchedTemplate(undefined); } });
     return () => { cancelled = true; };
   }, [form.category, form.subType]);
 
@@ -419,6 +423,14 @@ export default function NewProjectPage() {
               ))}
             </div>
           </motion.section>
+        )}
+
+        {matchedTemplate !== undefined && (
+          <p className={`text-xs ${matchedTemplate ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {matchedTemplate
+              ? `Report template: ${matchedTemplate.name} (selected automatically)`
+              : 'No active report template matches this Compliance Category and Testing Type. The project can still be created, but an Admin must upload a matching template before a report can be generated.'}
+          </p>
         )}
 
         <div className="flex justify-end gap-3">

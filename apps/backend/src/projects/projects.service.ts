@@ -163,21 +163,19 @@ export class ProjectsService {
   }
 
   async create(dto: CreateProjectDto, testerId: string, tlId: string, ipAddress: string, userAgent: string) {
-    let templateId = dto.templateId;
-    if (!templateId) {
-      const defaultTemplate = await this.prisma.reportTemplate.findFirst({
-        where: {
-          isActive: true,
-          category: dto.category,
-          ...eligibleForProject(dto.category, dto.subType),
-          reportFormat: ReportFormat.WORD,
-        },
-        orderBy: { effectiveFrom: 'desc' },
-      });
-      if (defaultTemplate) {
-        templateId = defaultTemplate.id;
-      }
-    }
+    // The report template is never chosen by the user: it is the active Word template for this category and Testing
+    // Type (newest effective date if several). None yet -> the project is created without one and report
+    // generation says exactly which template is missing.
+    const defaultTemplate = await this.prisma.reportTemplate.findFirst({
+      where: {
+        isActive: true,
+        category: dto.category,
+        ...eligibleForProject(dto.category, dto.subType),
+        reportFormat: ReportFormat.WORD,
+      },
+      orderBy: { effectiveFrom: 'desc' },
+    });
+    const templateId = defaultTemplate?.id;
 
     const project = await this.prisma.project.create({
       data: {
@@ -270,7 +268,6 @@ export class ProjectsService {
         startDateChangedAt: new Date(),
       }),
       ...(dto.endDate !== undefined && { endDate: dto.endDate ? new Date(dto.endDate) : null }),
-      ...(dto.templateId !== undefined && { templateId: dto.templateId || null }),
       ...(dto.complianceStatus !== undefined && { complianceStatus: dto.complianceStatus }),
       ...(dto.customFieldValues !== undefined && { customFieldValues: dto.customFieldValues }),
     };

@@ -27,6 +27,18 @@ export const eligibleForProject = (category: TemplateCategory, subType: Template
     ? coversAnySubType([subType, TemplateSubType.APPLICATION])
     : coversSubType(subType);
 
+/** The same rule as `eligibleForProject`, for a template already loaded: active, same category, Activity Type fits, right format. */
+export const isEligibleTemplate = (
+  t: { isActive: boolean; category: TemplateCategory; subType: TemplateSubType; extraSubTypes?: TemplateSubType[] | null; reportFormat: string },
+  category: TemplateCategory,
+  subType: TemplateSubType,
+  reportFormat: string,
+): boolean => {
+  const covered = coveredSubTypes(t);
+  const fits = covered.includes(subType) || (category === TemplateCategory.CERT_IN && subType !== TemplateSubType.NETWORK && covered.includes(TemplateSubType.APPLICATION));
+  return t.isActive && t.category === category && t.reportFormat === reportFormat && fits;
+};
+
 /** PCI / VAPT templates are uploaded per concrete Activity Type; the `Application` umbrella is Cert-In only. */
 const noApplicationCategories: TemplateCategory[] = [TemplateCategory.PCI, TemplateCategory.VAPT];
 

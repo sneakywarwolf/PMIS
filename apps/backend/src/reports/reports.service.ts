@@ -18,7 +18,7 @@ import { LINE_SEP, nessusTextForReport, stripNessusBoilerplate } from '../common
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { canAccessProject } from '../common/project-access.util';
 import { assertSafeDocx, safeFileName } from '../common/docx-package.util';
-import { coveredSubTypes, coversSubType, coversAnySubType, eligibleForProject, parseExtraSubTypes } from './template-subtypes';
+import { coveredSubTypes, coversSubType, coversAnySubType, eligibleForProject, isEligibleTemplate, parseExtraSubTypes } from './template-subtypes';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
 
@@ -191,12 +191,13 @@ export class ReportsService {
     };
   }
 
-  async getTemplates(category?: TemplateCategory, subType?: TemplateSubType, includeInactive = false, reportFormat?: ReportFormat) {
+  async getTemplates(category?: TemplateCategory, subType?: TemplateSubType, includeInactive = false, reportFormat?: ReportFormat, forProject = false) {
     const where: any = {};
     if (!includeInactive) where.isActive = true;
     if (reportFormat) where.reportFormat = reportFormat;
     if (category) where.category = category;
-    if (subType) Object.assign(where, coversSubType(subType));
+    // forProject: the project-eligibility rule (Cert-In Application umbrella); otherwise plain Activity Type coverage.
+    if (subType) Object.assign(where, forProject && category ? eligibleForProject(category, subType) : coversSubType(subType));
 
     return this.prisma.reportTemplate.findMany({
       where,
@@ -614,13 +615,19 @@ export class ReportsService {
     }
 
     // A project's pinned template is always a Word one; the Excel template is looked up by category + sub type.
+    // The pinned template is checked again here: if it is no longer eligible (deactivated, replaced) the project
+    // is re-pointed at the eligible one, never silently kept on a stale template.
     let template = reportFormat === ReportFormat.WORD && project.template?.reportFormat !== ReportFormat.EXCEL ? project.template : null;
+    if (template && !isEligibleTemplate(template, project.category, project.subType, reportFormat)) template = null;
     if (!template) {
       template = await this.prisma.reportTemplate.findFirst({
         where: { isActive: true, category: project.category, ...eligibleForProject(project.category, project.subType), reportFormat },
         orderBy: { effectiveFrom: 'desc' },
         include: { fields: true },
       });
+      if (template && reportFormat === ReportFormat.WORD && project.templateId !== template.id) {
+        await this.prisma.project.update({ where: { id: project.id }, data: { templateId: template.id } });
+      }
     }
     if (!template) {
       throw new BadRequestException(

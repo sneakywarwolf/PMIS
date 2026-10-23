@@ -15,12 +15,12 @@ import { REPORT_GENERATION_QUEUE } from './report-generation.types';
 const admin = { id: 'admin1', role: UserRole.ADMIN } as any;
 const network = (over: object = {}) => ({
   id: 'p1', complianceStatus: 'Compliant', name: 'Acme Net', clientName: 'Acme', category: 'VAPT', subType: 'NETWORK', startDate: new Date('2026-10-01'), endDate: new Date('2026-10-10'),
-  template: { id: 'wordT', reportFormat: 'WORD' }, tester: { fullName: 'Asha' }, tl: { manager: null }, findings: [], ...over,
+  template: { id: 'wordT', reportFormat: 'WORD', isActive: true, category: 'VAPT', subType: 'NETWORK' }, tester: { fullName: 'Asha' }, tl: { manager: null }, findings: [], ...over,
 });
 
 async function setup(project: any = network()) {
   const prisma: any = {
-    project: { findUnique: jest.fn().mockResolvedValue(project) },
+    project: { findUnique: jest.fn().mockResolvedValue(project), update: jest.fn() },
     reportTemplate: { findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]), create: jest.fn(), update: jest.fn() },
     reportGeneration: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: 'rg1' }) },
   };
@@ -64,13 +64,31 @@ describe('Excel report generation', () => {
     expect(queue.add).toHaveBeenCalled();
   });
 
+  describe('template is re-validated on the backend', () => {
+    it('a pinned template that is no longer eligible (deactivated) is replaced by the eligible one, and the project follows', async () => {
+      const { service, prisma } = await setup(network({ templateId: 'old', template: { id: 'old', reportFormat: 'WORD', isActive: false, category: 'VAPT', subType: 'NETWORK' } }));
+      prisma.reportTemplate.findFirst.mockResolvedValue({ id: 'new', reportFormat: 'WORD', fields: [] });
+      await service.generateReport('p1', admin, 'ip', 'ua');
+      expect(prisma.reportTemplate.findFirst.mock.calls[0][0].where).toMatchObject({ isActive: true, category: 'VAPT', reportFormat: 'WORD' });
+      expect(prisma.reportGeneration.create.mock.calls[0][0].data.templateId).toBe('new');
+      expect(prisma.project.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { templateId: 'new' } });
+    });
+
+    it('a pinned template for another category is never used; with nothing eligible the error names what is missing', async () => {
+      const { service, prisma, queue } = await setup(network({ template: { id: 'pci', reportFormat: 'WORD', isActive: true, category: 'PCI', subType: 'NETWORK' } }));
+      await expect(service.generateReport('p1', admin, 'ip', 'ua')).rejects.toThrow(/No active template found for VAPT \/ NETWORK/);
+      expect(prisma.reportGeneration.create).not.toHaveBeenCalled();
+      expect(queue.add).not.toHaveBeenCalled();
+    });
+  });
+
   it('Word generation is unchanged: it uses the pinned Word template and never an Excel one', async () => {
     const { service, prisma } = await setup();
     await service.generateReport('p1', admin, 'ip', 'ua');
     expect(prisma.reportGeneration.create.mock.calls[0][0].data.templateId).toBe('wordT');
     expect(prisma.reportTemplate.findFirst).not.toHaveBeenCalled();
 
-    const pinnedExcel = await setup(network({ template: { id: 'xlsxT', reportFormat: 'EXCEL' } }));
+    const pinnedExcel = await setup(network({ template: { id: 'xlsxT', reportFormat: 'EXCEL', isActive: true, category: 'VAPT', subType: 'NETWORK' } }));
     pinnedExcel.prisma.reportTemplate.findFirst.mockResolvedValue({ id: 'wordDefault', reportFormat: 'WORD', fields: [] });
     await pinnedExcel.service.generateReport('p1', admin, 'ip', 'ua');
     expect(pinnedExcel.prisma.reportGeneration.create.mock.calls[0][0].data.templateId).toBe('wordDefault');

@@ -47,6 +47,7 @@ export class CreateProjectDto {
   @IsDateString()
   endDate?: string;
 
+  /** @deprecated Ignored: the template is selected automatically from the project's category and Testing Type. */
   @IsOptional()
   @IsString()
   templateId?: string;
@@ -183,6 +184,7 @@ export class UpdateProjectDto {
   @IsDateString()
   endDate?: string;
 
+  /** @deprecated Ignored: the template is selected automatically from the project's category and Testing Type. */
   @IsOptional()
   @IsString()
   templateId?: string;

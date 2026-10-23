@@ -546,7 +546,7 @@ export default function ProjectDetailPage() {
             <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
           )}
           <InfoField label="Team Lead" value={project.tl.fullName || project.tl.username} />
-          <InfoField label="Template" value={project.template?.name || 'Default'} changes={changesFor('templateId')} />
+          <InfoField label="Template" value={project.template?.name || 'None - no matching template uploaded'} changes={changesFor('templateId')} />
         </div>
 
         {changes.length > 0 && (
@@ -861,7 +861,6 @@ export default function ProjectDetailPage() {
 
 function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose: () => void; onSaved: () => void }) {
   const [submitting, setSubmitting] = useState(false);
-  const [templates, setTemplates] = useState<any[]>([]);
   const [customFields, setCustomFields] = useState<any[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>(project.customFieldValues || {});
   const [form, setForm] = useState({
@@ -890,7 +889,6 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     totalScopeCount: project.totalScopeCount != null ? String(project.totalScopeCount) : '',
     quarter: project.quarter || '',
     complianceType: project.complianceType || 'VAPT',
-    templateId: project.template?.id || '',
   });
 
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
@@ -934,26 +932,14 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
   }, [project.subType, form.clientName, form.quarter]);
 
   useEffect(() => {
-    const fetchTemplates = async () => {
-      try {
-        const res = await api.get(`/reports/templates?category=${form.complianceType}&reportFormat=WORD`);
-        setTemplates(res.data);
-      } catch (error) {
-        console.error('Failed to fetch templates:', error);
-      }
-    };
-    fetchTemplates();
-  }, [form.complianceType]);
-
-  useEffect(() => {
-    if (!form.templateId) {
+    if (!project.template?.id) {
       setCustomFields([]);
       return;
     }
-    api.get(`/reports/templates/${form.templateId}/fields`)
+    api.get(`/reports/templates/${project.template.id}/fields`)
       .then((res) => setCustomFields(res.data.filter((f: any) => f.isCustom)))
       .catch(() => setCustomFields([]));
-  }, [form.templateId]);
+  }, [project.template?.id]);
 
   const setCustomFieldValue = (name: string, value: string) =>
     setCustomFieldValues((prev) => ({ ...prev, [name]: value }));
@@ -963,7 +949,6 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     setSubmitting(true);
     try {
       const payload: any = { ...form, customFieldValues };
-      if (!payload.templateId) payload.templateId = undefined;
       payload.totalScopeCount = form.totalScopeCount ? parseInt(form.totalScopeCount, 10) : undefined;
       if (project.subType === 'NETWORK') payload.networkScope = networkScope;
       payload.toolsUsedTable = toolsUsedTable;
@@ -1048,15 +1033,6 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
             <div>
               <label className={labelCls}>QA Reviewer Name</label>
               <input type="text" value={form.qaReviewerName} onChange={(e) => set('qaReviewerName', e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Report Template</label>
-              <select value={form.templateId} onChange={(e) => set('templateId', e.target.value)} className={inputCls}>
-                <option value="">{templates.length > 0 ? 'Select template' : 'No templates'}</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
             </div>
             <div>
               <label className={labelCls}>End Date</label>
