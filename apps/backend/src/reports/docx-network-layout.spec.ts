@@ -52,3 +52,37 @@ describe('Network template: PT risk matrix, numbering and spacing', () => {
     expect(spacers(await run(para('a') + spacer + spacer + spacer + para('b'), 'VAPT'))).toBe(3);
   });
 });
+
+describe('Network template: Scope and Detail Findings start on a new page', () => {
+  const h = (t: string, style = 'Heading1') => `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr><w:r><w:t>${t}</w:t></w:r></w:p>`;
+  const tblEl = '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>';
+  const pageBreak = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+  const withSplit = async (body: string, split = true) => {
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+    zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="${W}"><w:body>${body}</w:body></w:document>`);
+    const out = await new DocxManipulatorService().generateReport(await zip.generateAsync({ type: 'nodebuffer' }), [], [], [], undefined, undefined, [], [], [], undefined, { splitVaPt: split });
+    return (await (await JSZip.loadAsync(out)).file('word/document.xml').async('text')) as string;
+  };
+  const pbb = (xml: string) => xml.match(/<w:pageBreakBefore\/>/g)?.length ?? 0;
+
+  it('both headings get pageBreakBefore, right after pStyle, without any new paragraph', async () => {
+    const body = para('intro') + tblEl + para('') + h('Scope', 'Heading') + para('body') + tblEl + h('Detail Findings') + h('Details of VA Findings', 'Heading2');
+    const xml = await withSplit(body);
+    expect(xml).toContain('<w:pStyle w:val="Heading"/><w:pageBreakBefore/></w:pPr><w:r><w:t>Scope');
+    expect(xml).toContain('<w:pStyle w:val="Heading1"/><w:pageBreakBefore/></w:pPr><w:r><w:t>Detail Findings');
+    expect(pbb(xml)).toBe(2);
+    expect(xml.match(/<w:p[ >]/g)!.length).toBe(body.match(/<w:p[ >]/g)!.length);
+  });
+
+  it('no second break where the template already has one (page break, heading flag) or at the top of the document', async () => {
+    expect(pbb(await withSplit(para('a') + pageBreak + h('Scope', 'Heading') + para('b') + pageBreak + para('') + h('Detail Findings')))).toBe(0);
+    expect(pbb(await withSplit(h('Scope', 'Heading') + para('x')))).toBe(0);
+  });
+
+  it('only Heading-styled paragraphs and only Network reports are touched', async () => {
+    const body = para('a') + tblEl + para('Scope') + para('b') + h('Methodology');
+    expect(pbb(await withSplit(body))).toBe(0);
+    expect(pbb(await withSplit(para('a') + h('Scope', 'Heading'), false))).toBe(0);
+  });
+});

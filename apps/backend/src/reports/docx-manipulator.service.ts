@@ -276,6 +276,9 @@ export class DocxManipulatorService {
     // Step 1.25: a sub-heading must continue its parent heading's list, not restart another one ("2.1")
     this.alignSubheadingNumbering(doc);
 
+    // Step 1.26: Network reports start the Scope and Detail Findings sections on a new page
+    if (options?.splitVaPt) this.startSectionsOnNewPage(doc);
+
     // Step 1.3: {Project Status} / {Compliance Status} text and background colour
     this.applyComplianceStatus(doc, options?.complianceStatus);
 
@@ -368,6 +371,35 @@ export class DocxManipulatorService {
       this.mergeAllHighlightedRuns(part);
       this.applyComplianceStatus(part, status);
       zip.file(name, new XMLSerializer().serializeToString(part));
+    }
+  }
+
+  /**
+   * "Scope" and "Detail(s) Findings" headings begin on a fresh page. Done with the paragraph's own
+   * pageBreakBefore, so no extra paragraph or blank page is added, and skipped where the template already
+   * provides the transition (heading already has it, or a page/section break sits right before it).
+   */
+  private startSectionsOnNewPage(doc: Document): void {
+    const W = this.W_NS;
+    const child = (el: Element, name: string) => Array.from(el.childNodes as any as Node[]).find((c) => c.nodeType === 1 && (c as Element).localName === name) as Element | undefined;
+    const breaks = (p: Element) =>
+      Array.from(p.getElementsByTagNameNS(W, 'br') as any as Element[]).some((br) => br.getAttributeNS(W, 'type') === 'page' || br.getAttribute('w:type') === 'page') ||
+      !!child(p, 'pPr') && !!child(child(p, 'pPr')!, 'pageBreakBefore') ||
+      (() => { const t = child(p, 'pPr') && child(child(p, 'pPr')!, 'sectPr'); const ty = t && child(t, 'type'); return !!t && ty?.getAttributeNS(W, 'val') !== 'continuous' && ty?.getAttribute('w:val') !== 'continuous'; })();
+    const empty = (p: Element) => !this.getElementText(p).trim() && !breaks(p) && !p.getElementsByTagNameNS(W, 'drawing').length && !p.getElementsByTagNameNS(W, 'pict').length;
+
+    for (const p of Array.from(doc.getElementsByTagNameNS(W, 'p')) as Element[]) {
+      const style = child(p, 'pPr') && child(child(p, 'pPr')!, 'pStyle')?.getAttributeNS(W, 'val');
+      if (!style || !/^heading/i.test(style) || !/^(scope|details?\s+findings)$/i.test(this.getElementText(p).trim()) || (p.parentNode as Element | null)?.localName !== 'body') continue;
+      if (breaks(p)) continue;
+      let prev = p.previousSibling;
+      while (prev && (prev.nodeType !== 1 || ((prev as Element).localName === 'p' && empty(prev as Element)))) prev = prev.previousSibling;
+      if (!prev || ((prev as Element).localName === 'p' && breaks(prev as Element))) continue; // top of document, or a break is already there
+      let pPr = child(p, 'pPr');
+      if (!pPr) { pPr = doc.createElementNS(W, 'w:pPr'); p.insertBefore(pPr, p.firstChild); }
+      const flag = doc.createElementNS(W, 'w:pageBreakBefore');
+      const after = Array.from(pPr.childNodes as any as Node[]).filter((c) => c.nodeType === 1 && ['pStyle', 'keepNext', 'keepLines'].includes((c as Element).localName)).pop();
+      pPr.insertBefore(flag, after ? after.nextSibling : pPr.firstChild);
     }
   }
 
