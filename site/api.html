@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API reference - PMIS-Project Management for Information Security</title>
+  <meta name="description" content="Backend API reference for PMIS, with the access rule for every endpoint.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="index.html">PMIS</a>
+    <nav class="nav">
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="access-control.html">Access control</a>
+      <a href="reports.html">Reports</a>
+      <a href="api.html" aria-current="page">API</a>
+      <a href="deployment.html">Deployment</a>
+    </nav>
+  </div>
+</header>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="crumb">PMIS documentation</p>
+    <h1>API reference</h1>
+    <p class="tagline">Every backend route, grouped by module, with its access rule. Generated from the controllers in <code>apps/backend/src</code>.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="conventions">
+    <h2>Conventions</h2>
+    <ul class="plain">
+      <li><strong>Paths</strong> below are backend paths. The browser calls them with an <code>/api</code> prefix, which the frontend forwards. For example, <code>POST /auth/login</code> is called as <code>POST /api/auth/login</code>.</li>
+      <li><strong>Authentication</strong> uses the <code>access_token</code> cookie set by <code>/auth/login</code>. Bearer tokens are declared in Swagger, but cookies are the path the frontend uses.</li>
+      <li><strong>Access</strong>: <em>Public</em> means no authentication. <em>Signed in</em> means any authenticated user, with no controller-level role restriction. Role names mean the controller accepts only those roles. Service-level data checks apply to every route.</li>
+      <li><strong>Rate limits</strong> apply to all routes. Routes listed as heavy on the <a href="access-control.html#rate-limits">rate limits</a> section have a lower per-user budget.</li>
+      <li><strong>Interactive docs</strong> (Swagger) are served at <code>/api/docs</code> on the backend only outside production, unless <code>ENABLE_SWAGGER=1</code>.</li>
+    </ul>
+  </section>
+
+  <section id="auth">
+    <h2>Auth</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>POST</td><td><code>/auth/login</code></td><td>Public</td><td>Sign in with username or email and password. Sets the access and refresh cookies.</td></tr>
+        <tr><td>POST</td><td><code>/auth/refresh</code></td><td>Public (refresh cookie)</td><td>Rotates the refresh token and issues a new access token.</td></tr>
+        <tr><td>POST</td><td><code>/auth/logout</code></td><td>Signed in</td><td>Revokes the refresh token and clears the session and cookies.</td></tr>
+        <tr><td>POST</td><td><code>/auth/change-password</code></td><td>Signed in</td><td>Changes the password. Revokes all refresh tokens.</td></tr>
+        <tr><td>GET</td><td><code>/auth/me</code></td><td>Signed in</td><td>Current user.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="users">
+    <h2>Users</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/users</code></td><td>Admin, AVP, Team Lead</td><td>List users, scoped by the service.</td></tr>
+        <tr><td>GET</td><td><code>/users/team-leads</code></td><td>Admin</td><td>Active Team Leads.</td></tr>
+        <tr><td>GET</td><td><code>/users/managers</code></td><td>Admin</td><td>Active users for manager selection.</td></tr>
+        <tr><td>GET</td><td><code>/users/team-hierarchy</code></td><td>Admin</td><td>Team hierarchy tree.</td></tr>
+        <tr><td>GET</td><td><code>/users/my-team</code></td><td>Signed in</td><td>The caller's lead, manager and members (names only).</td></tr>
+        <tr><td>GET</td><td><code>/users/profile</code></td><td>Signed in</td><td>Own profile.</td></tr>
+        <tr><td>PUT</td><td><code>/users/profile</code></td><td>Signed in</td><td>Update own full name, phone, designation.</td></tr>
+        <tr><td>GET</td><td><code>/users/sample-csv</code></td><td>Signed in</td><td>Sample CSV for bulk upload.</td></tr>
+        <tr><td>GET</td><td><code>/users/:id</code></td><td>Admin, AVP, Team Lead</td><td>One user.</td></tr>
+        <tr><td>POST</td><td><code>/users</code></td><td>Admin</td><td>Create a user.</td></tr>
+        <tr><td>POST</td><td><code>/users/bulk-upload</code></td><td>Admin</td><td>Add users from CSV or XLSX. Heavy route.</td></tr>
+        <tr><td>PUT</td><td><code>/users/:id</code></td><td>Admin</td><td>Update a user.</td></tr>
+        <tr><td>PUT</td><td><code>/users/:id/activate</code></td><td>Admin</td><td>Reactivate a user.</td></tr>
+        <tr><td>POST</td><td><code>/users/:id/reset-password</code></td><td>Admin</td><td>Force a password reset.</td></tr>
+        <tr><td>DELETE</td><td><code>/users/:id</code></td><td>Admin</td><td>Deactivate with a 24-hour grace period. After it, owned data and files are purged.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="projects">
+    <h2>Projects</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/projects</code></td><td>Signed in (scoped)</td><td>List projects visible to the caller.</td></tr>
+        <tr><td>GET</td><td><code>/projects/search</code></td><td>Signed in (scoped)</td><td>Projects for the Ctrl+K search palette.</td></tr>
+        <tr><td>GET</td><td><code>/projects/:id</code></td><td>Signed in (scoped)</td><td>One project.</td></tr>
+        <tr><td>POST</td><td><code>/projects</code></td><td>Signed in</td><td>Create a project assigned to the caller.</td></tr>
+        <tr><td>PUT</td><td><code>/projects/:id</code></td><td>Signed in (scoped)</td><td>Update project details.</td></tr>
+        <tr><td>POST</td><td><code>/projects/:id/reassign</code></td><td>Admin, AVP, Team Lead</td><td>Reassign to another tester.</td></tr>
+        <tr><td>DELETE</td><td><code>/projects/:id</code></td><td>Admin</td><td>Permanently delete a project and related data.</td></tr>
+        <tr><td>POST</td><td><code>/projects/:id/nmap-import</code></td><td>Signed in (scoped)</td><td>Import an Nmap XML scan into a Network project. Heavy route.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="findings">
+    <h2>Findings</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/findings/project/:projectId</code></td><td>Signed in (scoped)</td><td>Findings for a project.</td></tr>
+        <tr><td>GET</td><td><code>/findings/:id</code></td><td>Signed in (scoped)</td><td>One finding.</td></tr>
+        <tr><td>POST</td><td><code>/findings</code></td><td>Signed in (scoped)</td><td>Create a finding.</td></tr>
+        <tr><td>PUT</td><td><code>/findings/:id</code></td><td>Signed in (scoped)</td><td>Update a finding.</td></tr>
+        <tr><td>DELETE</td><td><code>/findings/:id</code></td><td>Signed in (scoped)</td><td>Delete a finding.</td></tr>
+        <tr><td>POST</td><td><code>/findings/:id/poc-steps</code></td><td>Signed in (scoped)</td><td>Add a PoC step.</td></tr>
+        <tr><td>PUT</td><td><code>/findings/:id/poc-steps/:stepId</code></td><td>Signed in (scoped)</td><td>Update a PoC step.</td></tr>
+        <tr><td>DELETE</td><td><code>/findings/:id/poc-steps/:stepId</code></td><td>Signed in (scoped)</td><td>Delete a PoC step.</td></tr>
+        <tr><td>POST</td><td><code>/findings/upload-poc-image</code></td><td>Signed in</td><td>Upload a PoC image. Returns its storage path. Heavy route.</td></tr>
+        <tr><td>POST</td><td><code>/findings/nessus/preview</code></td><td>Signed in</td><td>Parse a Nessus export and list findings. Writes nothing. Heavy route.</td></tr>
+        <tr><td>POST</td><td><code>/findings/nessus/import</code></td><td>Signed in</td><td>Import selected plugin IDs into a project. Heavy route.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="vulnerabilities">
+    <h2>Vulnerabilities (catalogue)</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/vulnerabilities</code></td><td>Signed in</td><td>Search and filter. Query: <code>search</code>, <code>severity</code>, <code>category</code>, <code>sortBy</code>, <code>sortOrder</code>.</td></tr>
+        <tr><td>GET</td><td><code>/vulnerabilities/severities</code></td><td>Signed in</td><td>Counts by severity.</td></tr>
+        <tr><td>GET</td><td><code>/vulnerabilities/export</code></td><td>Signed in</td><td>CSV export, optional <code>severity</code>. Heavy route.</td></tr>
+        <tr><td>GET</td><td><code>/vulnerabilities/sample-csv</code></td><td>Signed in</td><td>Sample CSV for bulk upload.</td></tr>
+        <tr><td>GET</td><td><code>/vulnerabilities/pending</code></td><td>Admin, AVP, Team Lead</td><td>Pending requests.</td></tr>
+        <tr><td>GET</td><td><code>/vulnerabilities/change-tracker</code></td><td>Admin</td><td>All catalogue changes. Query: <code>limit</code>, default 100.</td></tr>
+        <tr><td>GET</td><td><code>/vulnerabilities/:id</code></td><td>Signed in</td><td>One entry.</td></tr>
+        <tr><td>GET</td><td><code>/vulnerabilities/:id/history</code></td><td>Signed in</td><td>Change history for an entry.</td></tr>
+        <tr><td>POST</td><td><code>/vulnerabilities</code></td><td>Admin</td><td>Create an approved entry directly.</td></tr>
+        <tr><td>POST</td><td><code>/vulnerabilities/request</code></td><td>Tester, Team Lead, Admin</td><td>Request a new entry. It stays pending until approved.</td></tr>
+        <tr><td>POST</td><td><code>/vulnerabilities/bulk-upload</code></td><td>Admin</td><td>Replace the catalogue from CSV or XLSX. Heavy route.</td></tr>
+        <tr><td>PUT</td><td><code>/vulnerabilities/:id</code></td><td>Admin</td><td>Update an entry directly.</td></tr>
+        <tr><td>DELETE</td><td><code>/vulnerabilities/:id</code></td><td>Admin</td><td>Soft delete.</td></tr>
+        <tr><td>PUT</td><td><code>/vulnerabilities/:id/approve</code></td><td>Admin, AVP, Team Lead</td><td>Approve a pending request.</td></tr>
+        <tr><td>PUT</td><td><code>/vulnerabilities/:id/reject</code></td><td>Admin, AVP, Team Lead</td><td>Reject a pending request.</td></tr>
+        <tr><td>POST</td><td><code>/vulnerabilities/:id/change-request</code></td><td>Tester</td><td>Propose an edit to an approved entry.</td></tr>
+        <tr><td>GET</td><td><code>/vulnerabilities/change-requests/pending</code></td><td>Admin, AVP, Team Lead</td><td>Pending edit requests, scoped to Admin or the requester's Team Lead.</td></tr>
+        <tr><td>PUT</td><td><code>/vulnerabilities/change-requests/:id/approve</code></td><td>Admin, AVP, Team Lead</td><td>Approve an edit request.</td></tr>
+        <tr><td>PUT</td><td><code>/vulnerabilities/change-requests/:id/reject</code></td><td>Admin, AVP, Team Lead</td><td>Reject an edit request.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="reports">
+    <h2>Reports and templates</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/reports/templates</code></td><td>Signed in</td><td>Active templates. Query: <code>category</code>, <code>subType</code>, <code>reportFormat</code>.</td></tr>
+        <tr><td>GET</td><td><code>/reports/templates/all</code></td><td>Admin</td><td>All templates, including inactive.</td></tr>
+        <tr><td>GET</td><td><code>/reports/templates/parameters</code></td><td>Admin</td><td>Parameters a field can map to.</td></tr>
+        <tr><td>GET</td><td><code>/reports/templates/:id/fields</code></td><td>Signed in</td><td>Fields extracted from a template.</td></tr>
+        <tr><td>POST</td><td><code>/reports/templates</code></td><td>Admin</td><td>Upload a template (multipart). Heavy route.</td></tr>
+        <tr><td>POST</td><td><code>/reports/templates/:id/fields</code></td><td>Admin</td><td>Add a field the extractor missed.</td></tr>
+        <tr><td>PUT</td><td><code>/reports/templates/fields/:fieldId</code></td><td>Admin</td><td>Edit a field's name, category, description or parameter mapping.</td></tr>
+        <tr><td>PUT</td><td><code>/reports/templates/:id/activate</code></td><td>Admin</td><td>Activate a template.</td></tr>
+        <tr><td>PUT</td><td><code>/reports/templates/:id/deactivate</code></td><td>Admin</td><td>Deactivate a template.</td></tr>
+        <tr><td>DELETE</td><td><code>/reports/templates/:id</code></td><td>Admin</td><td>Permanently delete an inactive template.</td></tr>
+        <tr><td>POST</td><td><code>/reports/generate</code></td><td>Signed in (scoped)</td><td>Queue a report for a project. Heavy route.</td></tr>
+        <tr><td>GET</td><td><code>/reports/generate/:id/status</code></td><td>Signed in</td><td>Status of a queued or running generation.</td></tr>
+        <tr><td>GET</td><td><code>/reports/download</code></td><td>Public (signed link)</td><td>Download a report. Requires the <code>path</code>, <code>fn</code>, <code>exp</code> and <code>sig</code> query parameters.</td></tr>
+        <tr><td>GET</td><td><code>/reports/preflight/:projectId</code></td><td>Signed in (scoped)</td><td>Missing-data check before generation.</td></tr>
+        <tr><td>GET</td><td><code>/reports/issue-log/:projectId</code></td><td>Signed in (scoped)</td><td>Issue Log CSV. Heavy route.</td></tr>
+        <tr><td>GET</td><td><code>/reports/history/:projectId</code></td><td>Signed in (scoped)</td><td>Generation history.</td></tr>
+        <tr><td>DELETE</td><td><code>/reports/:id</code></td><td>Project owner or Admin</td><td>Delete a generated report.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="dashboard">
+    <h2>Dashboard</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/dashboard/team</code></td><td>Team Lead, AVP, Admin</td><td>Team statistics.</td></tr>
+        <tr><td>GET</td><td><code>/dashboard/admin</code></td><td>Admin, AVP</td><td>Organisation statistics.</td></tr>
+        <tr><td>GET</td><td><code>/dashboard/tl-comparison</code></td><td>Admin, AVP</td><td>Compare Team Leads.</td></tr>
+        <tr><td>GET</td><td><code>/dashboard/activity</code></td><td>Admin, AVP, Team Lead</td><td>Recent activity. Query: <code>limit</code> from 1 to 100.</td></tr>
+        <tr><td>GET</td><td><code>/dashboard/vulnerabilities</code></td><td>Signed in</td><td>Vulnerability trends.</td></tr>
+        <tr><td>GET</td><td><code>/dashboard/engagements</code></td><td>Signed in</td><td>Engagement table. Query: <code>view</code> = <code>team</code> or <code>self</code>.</td></tr>
+        <tr><td>GET</td><td><code>/dashboard/completion-stats</code></td><td>Signed in (org scope: Admin, AVP)</td><td>Completed projects. Query: <code>scope</code> = <code>self</code>, <code>team</code> or <code>org</code>; <code>granularity</code>; <code>tlId</code>.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="notifications">
+    <h2>Notifications</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/notifications</code></td><td>Signed in</td><td>Own notifications. Query: <code>unreadOnly=true</code>.</td></tr>
+        <tr><td>GET</td><td><code>/notifications/count</code></td><td>Signed in</td><td>Unread count.</td></tr>
+        <tr><td>PUT</td><td><code>/notifications/:id/read</code></td><td>Signed in</td><td>Mark one as read.</td></tr>
+        <tr><td>PUT</td><td><code>/notifications/read-all</code></td><td>Signed in</td><td>Mark all as read.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="quiz">
+    <h2>Quiz</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/quiz/today</code></td><td>Signed in</td><td>Today's question.</td></tr>
+        <tr><td>POST</td><td><code>/quiz/today/answer</code></td><td>Signed in</td><td>Answer today's question.</td></tr>
+        <tr><td>GET</td><td><code>/quiz/log</code></td><td>Signed in</td><td>Own answer log. Query: <code>page</code>, <code>pageSize</code>.</td></tr>
+        <tr><td>GET</td><td><code>/quiz/log/:id</code></td><td>Signed in</td><td>One log entry.</td></tr>
+        <tr><td>POST</td><td><code>/quiz/log/:id/answer</code></td><td>Signed in</td><td>Late answer. Recorded and shown, but not scored.</td></tr>
+        <tr><td>GET</td><td><code>/quiz/scorecard</code></td><td>Signed in</td><td>Own points, streaks and badges.</td></tr>
+        <tr><td>GET</td><td><code>/quiz/scorecard/leaderboard</code></td><td>Signed in</td><td>Leaderboard.</td></tr>
+        <tr><td>GET</td><td><code>/quiz/questions</code></td><td>Admin</td><td>All questions.</td></tr>
+        <tr><td>POST</td><td><code>/quiz/questions</code></td><td>Admin</td><td>Create a question.</td></tr>
+        <tr><td>PUT</td><td><code>/quiz/questions/:id</code></td><td>Admin</td><td>Update a question.</td></tr>
+        <tr><td>DELETE</td><td><code>/quiz/questions/:id</code></td><td>Admin</td><td>Delete a question.</td></tr>
+        <tr><td>GET</td><td><code>/quiz/questions/:id/responses</code></td><td>Admin</td><td>Responses to a question.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="retention">
+    <h2>Retention</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/retention/tracker</code></td><td>Signed in (scoped)</td><td>Completed projects with days remaining and scheduled deletion date.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="settings">
+    <h2>Settings</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/settings/public-theme</code></td><td>Public</td><td>Default theme ID for the login page. Exposes only the theme ID.</td></tr>
+        <tr><td>GET</td><td><code>/settings</code></td><td>Signed in</td><td>Effective application settings.</td></tr>
+        <tr><td>PUT</td><td><code>/settings</code></td><td>Admin</td><td>Update settings. Validated on save.</td></tr>
+        <tr><td>GET</td><td><code>/settings/history</code></td><td>Admin</td><td>Settings change history.</td></tr>
+        <tr><td>GET</td><td><code>/settings/system-health</code></td><td>Admin</td><td>Infrastructure health and configuration summary.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="update">
+    <h2>Update</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Method</th><th>Path</th><th>Access</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>GET</td><td><code>/update/status</code></td><td>Signed in</td><td>Version, release notes and update state.</td></tr>
+        <tr><td>POST</td><td><code>/update/check</code></td><td>Signed in</td><td>Force a check for a newer version.</td></tr>
+        <tr><td>POST</td><td><code>/update/schedule</code></td><td>Admin</td><td>Schedule an update for a date and time.</td></tr>
+        <tr><td>DELETE</td><td><code>/update/schedule</code></td><td>Admin</td><td>Cancel a scheduled update.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="note">The update service refuses destructive commands and runs only what the server configuration allows. Its internals were not reviewed for these pages.</div>
+  </section>
+
+</main>
+
+<footer class="site-footer wrap">
+  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>
+</footer>
+
+</body>
+</html>

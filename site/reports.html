@@ -55,13 +55,13 @@
   <section id="generation">
     <h2>Generating a report</h2>
     <ol class="plain">
-      <li><strong>Preflight</strong>: <code>GET /reports/preflight/:projectId</code> lists missing data, such as empty fields or missing profile details, so the user can fix them first.</li>
+      <li><strong>Preflight</strong>: <code>GET /reports/preflight/:projectId</code> reports missing data so the user can fix it before generating.</li>
       <li><strong>Queue</strong>: <code>POST /reports/generate</code> with a project ID and an optional format. The job runs on a BullMQ queue and the call returns a generation ID.</li>
       <li><strong>Poll</strong>: <code>GET /reports/generate/:id/status</code> until the status is Completed or Failed.</li>
       <li><strong>Download</strong>: the completed file is available through a signed link from <code>GET /reports/download</code>. The link carries an expiry time and a signature.</li>
       <li><strong>Version</strong>: a project's report version is <code>1.N</code>. The counter is incremented only when a generation completes. Failed generations do not use up a number, and deleting an old report does not cause a number to be reused.</li>
     </ol>
-    <p>Field values come from the project record, the assigned users' profiles, and the approved findings with their PoC steps. The project's status moves to Completed after generation.</p>
+    <p>Field values come from the project record and the profiles of the users assigned to it. Findings and PoC steps are also used. The README documents that only approved findings are included and that the project status moves to Completed after generation. Those two behaviours were not re-verified in the report service code for these pages.</p>
     <p>History is at <code>GET /reports/history/:projectId</code>. A report is removed with <code>DELETE /reports/:id</code>, which the project owner or an Admin can do.</p>
   </section>
 
@@ -80,7 +80,7 @@
       <li><code>POST /findings/nessus/preview</code> parses a <code>.nessus</code> or <code>.csv</code> export and lists its findings. Nothing is written.</li>
       <li><code>POST /findings/nessus/import</code> imports only the plugin IDs the user selected.</li>
     </ol>
-    <p>Imported records are project-scoped (<code>ProjectVulnerability</code>). They are not added to the shared catalogue and are not visible to other projects. A plugin ID already imported for a project is not imported again.</p>
+    <p>Imported records are project-scoped (<code>ProjectVulnerability</code>). They are not added to the shared catalogue and are not visible to other projects. The schema enforces one record per project, source and plugin ID.</p>
 
     <h3>Nmap</h3>
     <p><code>POST /projects/:id/nmap-import</code> imports an Nmap XML scan into a Network project. Port data is stored on the project.</p>
@@ -94,9 +94,9 @@
   <section id="findings-in-report">
     <h2>Findings and PoC in the report</h2>
     <ul class="plain">
-      <li>Findings are included in a report when their status is Approved. Ordering is by CVSS score override first, then the catalogue score, both descending.</li>
       <li>Each finding can carry a CVSS score and vector override. The override is used in place of the catalogue value.</li>
       <li>PoC steps are numbered. Each step can carry an image, which is embedded in the output.</li>
+      <li>The finding sort order (CVSS override first, then catalogue score, both descending) is documented in the README and in the findings service.</li>
     </ul>
   </section>
 
