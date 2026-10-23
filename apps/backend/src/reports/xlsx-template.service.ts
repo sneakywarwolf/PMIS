@@ -50,6 +50,9 @@ export class XlsxTemplateService {
         } else if (type === 'inlineStr') {
           const is = c.getElementsByTagNameNS(NS, 'is').item(0);
           if (is) scan(this.textNodes(is).map((t) => t.textContent ?? '').join(''));
+        } else {
+          const v = this.strValue(c);
+          if (v) scan(v.textContent ?? '');
         }
       }
     }
@@ -84,11 +87,19 @@ export class XlsxTemplateService {
 
     for (const path of this.sheetPaths(zip)) {
       const xml = await zip.file(path)!.async('text');
-      if (!xml.includes('inlineStr')) continue;
+      if (!xml.includes('inlineStr') && !xml.includes('t="str"')) continue;
       const doc = this.parse(xml);
       let changed = false;
       for (const is of Array.from(doc.getElementsByTagNameNS(NS, 'is'))) {
         if (this.replaceInString(is, subst)) changed = true;
+      }
+      for (const c of Array.from(doc.getElementsByTagNameNS(NS, 'c'))) {
+        const v = this.strValue(c);
+        const old = v?.textContent ?? '';
+        if (v && subst(old) !== old) {
+          v.textContent = subst(old);
+          changed = true;
+        }
       }
       if (changed) zip.file(path, this.serialize(doc));
     }
@@ -164,6 +175,8 @@ export class XlsxTemplateService {
         } else if (type === 'inlineStr') {
           const is = c.getElementsByTagNameNS(NS, 'is').item(0);
           text = is ? this.textNodes(is).map((t) => t.textContent ?? '').join('') : '';
+        } else {
+          text = this.strValue(c)?.textContent ?? '';
         }
         if (!hasStatus(text)) continue;
         c.setAttribute('s', String(styleFor(parseInt(c.getAttribute('s') ?? '0', 10) || 0)));
@@ -181,6 +194,12 @@ export class XlsxTemplateService {
     const zip = await JSZip.loadAsync(xlsx);
     if (!zip.file('xl/workbook.xml')) throw new Error('Not a valid .xlsx workbook (xl/workbook.xml missing)');
     return zip;
+  }
+
+  /** The <v> of a plain string cell (t="str", as many writers emit instead of shared strings); null for formula cells, whose <v> is a cached result. */
+  private strValue(c: Element): Element | null {
+    if (c.getAttribute('t') !== 'str' || c.getElementsByTagNameNS(NS, 'f').length) return null;
+    return c.getElementsByTagNameNS(NS, 'v').item(0);
   }
 
   private sheetPaths(zip: any): string[] {

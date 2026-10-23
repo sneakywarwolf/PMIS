@@ -73,6 +73,31 @@ describe('XlsxTemplateService', () => {
   });
 });
 
+describe('XlsxTemplateService plain string cells (t="str") on later sheets', () => {
+  const svc = new XlsxTemplateService();
+  const book = async () => {
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+    zip.file('xl/workbook.xml', `<workbook xmlns="${M}"><sheets><sheet name="A" sheetId="1"/><sheet name="B" sheetId="2"/><sheet name="C" sheetId="3"/></sheets></workbook>`);
+    const sheet = (cells: string) => `<worksheet xmlns="${M}"><sheetData><row r="1">${cells}</row></sheetData></worksheet>`;
+    zip.file('xl/worksheets/sheet1.xml', sheet('<c r="A1" t="str"><v>Client {Client Name}</v></c>'));
+    zip.file('xl/worksheets/sheet2.xml', sheet('<c r="A1" t="str"><v>Tester {Tester Name}</v></c><c r="B1" t="str"><f>A1&amp;"x"</f><v>{Client Name}x</v></c><c r="C1"><v>7</v></c>'));
+    zip.file('xl/worksheets/sheet3.xml', sheet('<c r="A1" t="str"><v>{Client Name} / {Client Name}</v></c>'));
+    return zip.generateAsync({ type: 'nodebuffer' });
+  };
+
+  it('lists and fills placeholders in t="str" cells on every sheet; formula results and numbers stay untouched', async () => {
+    expect(await svc.extractPlaceholders(await book())).toEqual(['Client Name', 'Tester Name']);
+    const out = await JSZip.loadAsync(await svc.fill(await book(), resolve));
+    expect(await out.file('xl/worksheets/sheet1.xml')!.async('text')).toContain('<v>Client Acme</v>');
+    const s2 = await out.file('xl/worksheets/sheet2.xml')!.async('text');
+    expect(s2).toContain('<v>Tester Asha</v>');
+    expect(s2).toContain('<f>A1&amp;"x"</f><v>{Client Name}x</v>'); // formula cache left for Excel to recalculate
+    expect(s2).toContain('<v>7</v>');
+    expect(await out.file('xl/worksheets/sheet3.xml')!.async('text')).toContain('<v>Acme / Acme</v>');
+  });
+});
+
 describe('XlsxTemplateService {Project Status}', () => {
   const svc = new XlsxTemplateService();
   const STYLES =
