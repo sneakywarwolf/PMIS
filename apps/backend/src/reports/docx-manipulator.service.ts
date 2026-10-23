@@ -273,6 +273,9 @@ export class DocxManipulatorService {
     // Step 1.2: {#VA}...{/VA} / {#PT}...{/PT} blocks, kept or dropped by the project's activity type
     this.applyActivityBlocks(doc, options?.activityType);
 
+    // Step 1.25: a sub-heading must continue its parent heading's list, not restart another one ("2.1")
+    this.alignSubheadingNumbering(doc);
+
     // Step 1.3: {Project Status} / {Compliance Status} text and background colour
     this.applyComplianceStatus(doc, options?.complianceStatus);
 
@@ -369,6 +372,24 @@ export class DocxManipulatorService {
   }
 
   /**
+   * A Heading 2 numbered from a different list (numId) than the Heading 1 above it shows as "<list start>.1"
+   * ("2.1" for the Network template's "Details of VA/PT Findings") instead of continuing the section number.
+   * It joins the parent heading's list; level, style and every other paragraph are untouched.
+   */
+  private alignSubheadingNumbering(doc: Document): void {
+    const W = this.W_NS;
+    let parentNumId: string | null = null;
+    for (const p of Array.from(doc.getElementsByTagNameNS(W, 'p')) as Element[]) {
+      const style = (p.getElementsByTagNameNS(W, 'pStyle')[0] as Element | undefined)?.getAttributeNS(W, 'val');
+      const numPr = p.getElementsByTagNameNS(W, 'numPr')[0] as Element | undefined;
+      const numId = numPr?.getElementsByTagNameNS(W, 'numId')[0] as Element | undefined;
+      if (!numId || !style) continue;
+      if (style === 'Heading1') parentNumId = numId.getAttributeNS(W, 'val');
+      else if (style === 'Heading2' && parentNumId && numId.getAttributeNS(W, 'val') !== parentNumId) numId.setAttributeNS(W, 'w:val', parentNumId);
+    }
+  }
+
+  /**
    * Conditional blocks. A paragraph that is only `{#VA}` / `{#PT}` opens a block, one that is only
    * `{/VA}` / `{/PT}` closes it; everything between (paragraphs, tables, ...) is kept or removed as
    * a unit. VA keeps VA blocks, PT keeps PT blocks, VAPT keeps both; an unset/unknown activity type
@@ -397,19 +418,23 @@ export class DocxManipulatorService {
       return pPr ? (Array.from(pPr.childNodes as any as Node[]).find((c) => c.nodeType === 1 && (c as Element).localName === name) as Element | undefined) : undefined;
     };
     // Things that make a paragraph more than empty space.
-    const CONTENT = ['drawing', 'pict', 'object', 'fldChar', 'fldSimple', 'instrText', 'sym', 'tab', 'sectPr', 'pageBreakBefore'];
-    const isBlank = (n: Node | null) => isPara(n) && !this.getElementText(n).trim() && pageBreaks(n).length === 0 && !has(n, 'br') && !CONTENT.some((c) => has(n, c));
+    const CONTENT = ['drawing', 'pict', 'object', 'fldChar', 'fldSimple', 'instrText', 'sym', 'sectPr', 'pageBreakBefore'];
+    // A tab character is content; a tab stop in <w:tabs> is only paragraph formatting.
+    const hasTab = (el: Element) => (Array.from(el.getElementsByTagNameNS(W, 'tab') as any as Element[])).some((t) => t.parentNode!.nodeName.replace(/^w:/, '') !== 'tabs');
+    const isBlank = (n: Node | null) => isPara(n) && !this.getElementText(n).trim() && pageBreaks(n).length === 0 && !has(n, 'br') && !hasTab(n) && !CONTENT.some((c) => has(n, c));
     const isPageBreakOnly = (n: Node | null) =>
       isPara(n) && !this.getElementText(n).trim() && pageBreaks(n).length > 0 && !['drawing', 'pict', 'object', 'sectPr'].some((c) => has(n, c));
     const prevEl = (n: Node | null) => { let x = n ? n.previousSibling : null; while (x && x.nodeType !== 1) x = x.previousSibling; return x; };
     const nextEl = (n: Node | null) => { let x = n ? n.nextSibling : null; while (x && x.nodeType !== 1) x = x.nextSibling; return x; };
 
-    /** Drop a marker paragraph, but keep an empty paragraph if it also holds a break/section/bookmark. */
+    // A chart/picture can share a paragraph with a marker (the PT risk matrix does); a kept block must not lose it.
+    const DRAWINGS = ['drawing', 'pict', 'object'];
+    /** Drop a marker paragraph, but keep an empty paragraph if it also holds a break/section/bookmark/drawing. */
     const dropMarker = (para: Element) => {
-      const carries = pageBreaks(para).length > 0 || has(para, 'sectPr') || has(para, 'pageBreakBefore') || has(para, 'bookmarkStart') || has(para, 'bookmarkEnd');
+      const carries = pageBreaks(para).length > 0 || has(para, 'sectPr') || has(para, 'pageBreakBefore') || has(para, 'bookmarkStart') || has(para, 'bookmarkEnd') || DRAWINGS.some((c) => has(para, c));
       if (!carries) return para.parentNode!.removeChild(para);
       for (const run of Array.from(para.childNodes as any as Node[]).filter((c) => c.nodeType === 1 && (c as Element).localName === 'r') as Element[]) {
-        if (pageBreaks(run).length > 0) {
+        if (pageBreaks(run).length > 0 || DRAWINGS.some((c) => has(run, c))) {
           Array.from(run.getElementsByTagNameNS(W, 't') as any as Element[]).forEach((t) => t.parentNode!.removeChild(t));
         } else {
           para.removeChild(run);
@@ -442,6 +467,7 @@ export class DocxManipulatorService {
       }
     };
 
+    const edges: (Node | null)[] = []; // what sat just outside each block, to trim the template's padding there afterwards
     for (const open of Array.from(doc.getElementsByTagNameNS(W, 'p')) as Element[]) {
       const m = open.parentNode && marker(open);
       if (!m || m[1] !== '#') continue;
@@ -458,6 +484,7 @@ export class DocxManipulatorService {
         continue;
       }
       const parent = open.parentNode!;
+      edges.push(prevEl(open), nextEl(close));
       if (keep(kind)) {
         dropMarker(open);
         dropMarker(close as Element);
@@ -471,6 +498,16 @@ export class DocxManipulatorService {
       parent.removeChild(close);
       // Only what the removal made adjacent is collapsed; spacing that was already like that in the template stays.
       if ((isBlank(before) && isBlank(after)) || (isPageBreakOnly(before) && isPageBreakOnly(after))) parent.removeChild(after!);
+    }
+
+    // The template pads the gap between blocks with a long run of empty paragraphs; whichever blocks survive, a run
+    // touching a block boundary keeps at most two (ponytail: fixed cap, the template's own spacing for a short gap).
+    for (const edge of edges) {
+      if (!edge || !edge.parentNode || !isBlank(edge)) continue;
+      const run: Node[] = [edge];
+      for (let n = prevEl(edge); isBlank(n); n = prevEl(n)) run.unshift(n!);
+      for (let n = nextEl(edge); isBlank(n); n = nextEl(n)) run.push(n!);
+      run.slice(2).forEach((n) => n.parentNode!.removeChild(n));
     }
   }
 
