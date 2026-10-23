@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reports - PMIS-Project Management for Information Security</title>
+  <meta name="description" content="PMIS report engine: templates, placeholders, generation, scan imports, Issue Log and downloads.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="index.html">PMIS</a>
+    <nav class="nav">
+      <a href="index.html">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="access-control.html">Access control</a>
+      <a href="reports.html" aria-current="page">Reports</a>
+      <a href="api.html">API</a>
+      <a href="deployment.html">Deployment</a>
+    </nav>
+  </div>
+</header>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="crumb">PMIS documentation</p>
+    <h1>Reports</h1>
+    <p class="tagline">How templates are managed, how a report is generated from project data, and how scan results feed into it.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="templates">
+    <h2>Templates</h2>
+    <ul class="plain">
+      <li>Admins upload a template file with a name, a compliance category (<code>VAPT</code>, <code>CERT_IN</code>, <code>PCI</code>, <code>ASV</code>), a sub-type, a format (<code>WORD</code> or <code>EXCEL</code>), and an effective-from date.</li>
+      <li>Uploaded files are stored in MinIO. The original filename is kept and used as the naming pattern for generated reports.</li>
+      <li>Templates are activated and deactivated explicitly (<code>PUT /reports/templates/:id/activate</code> and <code>/deactivate</code>). Only Admins can do this.</li>
+      <li>Inactive templates can be deleted. The route removes the file, its metadata and its field mappings.</li>
+      <li>Each project records the template it uses (<code>templateId</code>).</li>
+    </ul>
+
+    <h3>Placeholders and field mapping</h3>
+    <ul class="plain">
+      <li>Placeholders are highlighted yellow in the template. The engine extracts them as template fields, each with a normalised name and a category (project information, vulnerability, contact, date, other).</li>
+      <li>An Admin can add a field the extractor missed, rename it, change its category or description, and map it to a canonical application parameter. Parameters are listed by <code>GET /reports/templates/parameters</code>.</li>
+      <li>A field with no explicit mapping falls back to automatic matching against the normalised name.</li>
+    </ul>
+    <div class="note">The README states that activating a template deactivates the previous template for the same category and sub-type. That behaviour was not re-verified in the report service code for these pages.</div>
+  </section>
+
+  <section id="generation">
+    <h2>Generating a report</h2>
+    <ol class="plain">
+      <li><strong>Preflight</strong>: <code>GET /reports/preflight/:projectId</code> lists missing data, such as empty fields or missing profile details, so the user can fix them first.</li>
+      <li><strong>Queue</strong>: <code>POST /reports/generate</code> with a project ID and an optional format. The job runs on a BullMQ queue and the call returns a generation ID.</li>
+      <li><strong>Poll</strong>: <code>GET /reports/generate/:id/status</code> until the status is Completed or Failed.</li>
+      <li><strong>Download</strong>: the completed file is available through a signed link from <code>GET /reports/download</code>. The link carries an expiry time and a signature.</li>
+      <li><strong>Version</strong>: a project's report version is <code>1.N</code>. The counter is incremented only when a generation completes. Failed generations do not use up a number, and deleting an old report does not cause a number to be reused.</li>
+    </ol>
+    <p>Field values come from the project record, the assigned users' profiles, and the approved findings with their PoC steps. The project's status moves to Completed after generation.</p>
+    <p>History is at <code>GET /reports/history/:projectId</code>. A report is removed with <code>DELETE /reports/:id</code>, which the project owner or an Admin can do.</p>
+  </section>
+
+  <section id="naming">
+    <h2>File naming and dates</h2>
+    <ul class="plain">
+      <li>The output name follows the naming pattern of the template's original filename, with project values filled in.</li>
+      <li>The <code>{Report Date}</code> parameter uses the Admin setting <code>formatting.reportDateFormat</code>. The default is <code>YYYY-MM-DD</code>.</li>
+    </ul>
+  </section>
+
+  <section id="scan-imports">
+    <h2>Scan imports</h2>
+    <h3>Nessus</h3>
+    <ol class="plain">
+      <li><code>POST /findings/nessus/preview</code> parses a <code>.nessus</code> or <code>.csv</code> export and lists its findings. Nothing is written.</li>
+      <li><code>POST /findings/nessus/import</code> imports only the plugin IDs the user selected.</li>
+    </ol>
+    <p>Imported records are project-scoped (<code>ProjectVulnerability</code>). They are not added to the shared catalogue and are not visible to other projects. A plugin ID already imported for a project is not imported again.</p>
+
+    <h3>Nmap</h3>
+    <p><code>POST /projects/:id/nmap-import</code> imports an Nmap XML scan into a Network project. Port data is stored on the project.</p>
+  </section>
+
+  <section id="issue-log">
+    <h2>Issue Log</h2>
+    <p><code>GET /reports/issue-log/:projectId</code> returns the Issue Log as CSV. Its columns and their order come from the Admin setting <code>issueLog.columns</code>.</p>
+  </section>
+
+  <section id="findings-in-report">
+    <h2>Findings and PoC in the report</h2>
+    <ul class="plain">
+      <li>Findings are included in a report when their status is Approved. Ordering is by CVSS score override first, then the catalogue score, both descending.</li>
+      <li>Each finding can carry a CVSS score and vector override. The override is used in place of the catalogue value.</li>
+      <li>PoC steps are numbered. Each step can carry an image, which is embedded in the output.</li>
+    </ul>
+  </section>
+
+  <section id="limits">
+    <h2>Limits</h2>
+    <ul class="plain">
+      <li>Uploads are capped at 25 MB (see <a href="access-control.html#uploads">Uploads and imports</a>).</li>
+      <li>Report generation, template upload, Nessus, Nmap, PoC image upload, Issue Log and exports share a heavy-route limit of 20 requests per user per minute.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer class="site-footer wrap">
+  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>
+</footer>
+
+</body>
+</html>
