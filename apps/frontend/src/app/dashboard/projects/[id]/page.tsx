@@ -2058,72 +2058,75 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
             />
           </div>
 
-          <div className="border border-gray-700 rounded-lg p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white">POC Steps</h3>
-              <button
-                type="button"
-                onClick={addPocStep}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 text-xs hover:bg-emerald-600/30 transition-all"
-              >
-                <Plus className="w-3 h-3" /> Add Step
-              </button>
-            </div>
+          {/* Scan-imported (VA) findings take their evidence from the Nessus plugin output; steps/PoC are for PT findings. */}
+          {finding?.findingType !== 'VA' && (
+            <div className="border border-gray-700 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-white">POC Steps</h3>
+                <button
+                  type="button"
+                  onClick={addPocStep}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 text-xs hover:bg-emerald-600/30 transition-all"
+                >
+                  <Plus className="w-3 h-3" /> Add Step
+                </button>
+              </div>
 
-            {pocSteps.length === 0 && (
-              <p className="text-xs text-gray-500">No POC steps added yet.</p>
-            )}
+              {pocSteps.length === 0 && (
+                <p className="text-xs text-gray-500">No POC steps added yet.</p>
+              )}
 
-            <div className="space-y-2">
-              {pocSteps.map((step, index) => (
-                <div key={step.id || index} className="flex gap-3 items-start p-3 rounded-lg bg-gray-800/50">
-                  <span className="w-7 h-7 rounded bg-emerald-500/10 text-emerald-400 text-xs flex items-center justify-center font-medium shrink-0 mt-1">
-                    {step.stepNo}
-                  </span>
-                  <div className="flex-1 space-y-2">
-                    <textarea
-                      rows={2}
-                      value={step.description}
-                      onChange={(e) => updatePocStep(index, 'description', e.target.value)}
-                      placeholder="Describe this step..."
-                      className="w-full px-3 py-2 rounded-lg bg-gray-900/50 border border-gray-700 text-sm text-white"
-                    />
-                    <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-1 px-2 py-1 rounded bg-gray-700 text-xs text-gray-300 hover:bg-gray-600 transition-all cursor-pointer">
-                        {uploadingStep === index ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <ImageIcon className="w-3 h-3" />
+              <div className="space-y-2">
+                {pocSteps.map((step, index) => (
+                  <div key={step.id || index} className="flex gap-3 items-start p-3 rounded-lg bg-gray-800/50">
+                    <span className="w-7 h-7 rounded bg-emerald-500/10 text-emerald-400 text-xs flex items-center justify-center font-medium shrink-0 mt-1">
+                      {step.stepNo}
+                    </span>
+                    <div className="flex-1 space-y-2">
+                      <textarea
+                        rows={2}
+                        value={step.description}
+                        onChange={(e) => updatePocStep(index, 'description', e.target.value)}
+                        placeholder="Describe this step..."
+                        className="w-full px-3 py-2 rounded-lg bg-gray-900/50 border border-gray-700 text-sm text-white"
+                      />
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1 px-2 py-1 rounded bg-gray-700 text-xs text-gray-300 hover:bg-gray-600 transition-all cursor-pointer">
+                          {uploadingStep === index ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <ImageIcon className="w-3 h-3" />
+                          )}
+                          {step.imagePath ? 'Replace Screenshot' : 'Upload Screenshot'}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={uploadingStep !== null}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) uploadStepImage(index, file);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                        {step.imagePath && (
+                          <span className="text-xs text-cyan-400">Screenshot attached</span>
                         )}
-                        {step.imagePath ? 'Replace Screenshot' : 'Upload Screenshot'}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          disabled={uploadingStep !== null}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) uploadStepImage(index, file);
-                            e.target.value = '';
-                          }}
-                        />
-                      </label>
-                      {step.imagePath && (
-                        <span className="text-xs text-cyan-400">Screenshot attached</span>
-                      )}
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => removePocStep(index)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all mt-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => removePocStep(index)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all mt-1"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
             <button
