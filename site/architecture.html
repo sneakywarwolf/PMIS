@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture - PMIS-Project Management for Information Security</title>
+  <meta name="description" content="Architecture of PMIS: services, request flow, backend modules, frontend routes and data model.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="index.html">PMIS</a>
+    <nav class="nav">
+      <a href="index.html">Overview</a>
+      <a href="architecture.html" aria-current="page">Architecture</a>
+      <a href="access-control.html">Access control</a>
+      <a href="reports.html">Reports</a>
+      <a href="api.html">API</a>
+      <a href="deployment.html">Deployment</a>
+    </nav>
+  </div>
+</header>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="crumb">PMIS documentation</p>
+    <h1>Architecture</h1>
+    <p class="tagline">Services, how a request moves through them, and how the backend and data are organised.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="topology">
+    <h2>Service topology</h2>
+<pre><code>Browser
+   |
+   |  HTTPS terminated by a reverse proxy (operator-provided)
+   v
+frontend  (Next.js 15, :3000)  ---- /api/* rewrite ----&gt;  backend  (NestJS 10, :4000)
+                                                           |
+                    +----------------------+---------------+-------------+
+                    |                      |                             |
+                    v                      v                             v
+              postgres 16 (:5432)     redis 7 (:6379)               minio (:9000)
+              Prisma ORM              sessions, refresh tokens,     templates, generated
+                                      lockout, rate limits,         reports, PoC images
+                                      BullMQ job queues</code></pre>
+
+    <h3>Services</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Service</th><th>Image or build</th><th>Internal port</th><th>Published in production compose</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><code>frontend</code></td><td>Built from <code>apps/frontend</code>; Node 20 Alpine; non-root user</td><td>3000</td><td>Yes, host port <code>FRONTEND_PORT</code></td><td>Next.js 15 App Router UI. Rewrites <code>/api/*</code> to the backend.</td></tr>
+        <tr><td><code>backend</code></td><td>Built from <code>apps/backend</code>; Node 20 Alpine; non-root user</td><td>4000</td><td>No</td><td>NestJS 10 API. On container start it runs <code>prisma migrate deploy</code>, the seed script, then the server.</td></tr>
+        <tr><td><code>postgres</code></td><td><code>postgres:16.4-alpine</code></td><td>5432</td><td>No</td><td>Primary database, accessed through Prisma.</td></tr>
+        <tr><td><code>redis</code></td><td><code>redis:7.4-alpine</code></td><td>6379</td><td>No</td><td>Refresh-token and session state, login lockout, rate-limit counters, BullMQ queues. Append-only persistence, 256 MB memory cap, <code>noeviction</code> policy.</td></tr>
+        <tr><td><code>minio</code></td><td><code>minio/minio:latest</code> (override with <code>MINIO_IMAGE</code>)</td><td>9000</td><td>No</td><td>S3-compatible storage. Bucket <code>vapt-reports</code> holds templates, generated reports and PoC images.</td></tr>
+      </tbody>
+    </table></div>
+    <p>The backend container health check requests <code>/settings/public-theme</code>. The production compose file defines volumes <code>postgres_data</code>, <code>redis_data</code> and <code>minio_data</code>.</p>
+  </section>
+
+  <section id="request-flow">
+    <h2>Request flow</h2>
+    <ol class="plain">
+      <li>The browser loads the frontend on port 3000.</li>
+      <li>API calls go to <code>/api/&lt;path&gt;</code> on the frontend. The Next.js rewrite forwards them to <code>BACKEND_URL/&lt;path&gt;</code>. The Docker image sets <code>BACKEND_URL</code> to <code>http://backend:4000</code>.</li>
+      <li>The backend runs its global guards in this order: JWT authentication (default deny), rate limiting, then role checks. Routes marked <code>@Public</code> skip authentication.</li>
+      <li>The controller calls a service. Services apply data-level checks such as project access, then use PostgreSQL, Redis or MinIO.</li>
+      <li>Responses carry <code>Cache-Control: no-store</code>. Authentication is in HTTP-only cookies, so the browser sends them automatically.</li>
+    </ol>
+    <p>In the development setup the frontend and backend run with npm on the host. Only infrastructure runs in containers. See <a href="deployment.html">Deployment</a>.</p>
+  </section>
+
+  <section id="backend-modules">
+    <h2>Backend modules</h2>
+    <p>Modules are registered in <code>apps/backend/src/app.module.ts</code>.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Module</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><code>auth</code></td><td>Login, refresh, logout, password change, current user. JWT guards and role decorators.</td></tr>
+        <tr><td><code>users</code></td><td>User CRUD, bulk upload, team hierarchy, profile, forced password reset, deactivation with a 24-hour grace period.</td></tr>
+        <tr><td><code>projects</code></td><td>Project CRUD, search, tester reassignment, deletion, Nmap import into Network projects.</td></tr>
+        <tr><td><code>findings</code></td><td>Findings, PoC steps, PoC image upload, Nessus preview and import.</td></tr>
+        <tr><td><code>vulnerabilities</code></td><td>Vulnerability catalogue, approval workflow, change requests, bulk upload, CSV export, change tracker.</td></tr>
+        <tr><td><code>reports</code></td><td>Template management, field mapping, queued report generation, preflight, Issue Log, history, signed downloads.</td></tr>
+        <tr><td><code>dashboard</code></td><td>Team and admin statistics, vulnerability trends, engagement table, TL comparison, completion stats, activity. Includes a Socket.IO gateway.</td></tr>
+        <tr><td><code>notifications</code></td><td>Per-user notifications, unread count, mark read.</td></tr>
+        <tr><td><code>settings</code></td><td>Application settings stored as one JSON record, change history, system health, public theme.</td></tr>
+        <tr><td><code>quiz</code></td><td>Daily question, answers, late answers, scorecard, leaderboard, question management.</td></tr>
+        <tr><td><code>retention</code></td><td>Retention tracker for completed projects.</td></tr>
+        <tr><td><code>update</code></td><td>Version status, update check, scheduled update and its cancellation.</td></tr>
+        <tr><td><code>audit</code></td><td>Writes entries to <code>audit_logs</code>. No audit read endpoint was found in the controllers.</td></tr>
+        <tr><td><code>easter-egg</code></td><td>Socket.IO gateway for an optional feature. Controlled by the <code>easterEgg</code> settings.</td></tr>
+        <tr><td><code>prisma</code>, <code>redis</code></td><td>Shared database and Redis services.</td></tr>
+        <tr><td><code>common</code></td><td>Shared utilities: rate limiter, CSRF check, upload validation, CSV/XLSX parsing, Nessus and Nmap parsers, CVSS vector handling, project access rules, project purge.</td></tr>
+        <tr><td><code>maintenance/reset-db</code></td><td>Database reset utility behind <code>reset-db.bat</code>.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="frontend-routes">
+    <h2>Frontend routes</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Route</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>/login</code></td><td>Sign in with username or email.</td></tr>
+        <tr><td><code>/dashboard</code></td><td>Role-based dashboard.</td></tr>
+        <tr><td><code>/dashboard/projects</code>, <code>/new</code>, <code>/[id]</code></td><td>Project list, project creation, project detail with findings and PoC steps.</td></tr>
+        <tr><td><code>/dashboard/vulnerabilities</code></td><td>Catalogue search, requests, approvals and change requests.</td></tr>
+        <tr><td><code>/dashboard/reports</code></td><td>Template management and report history.</td></tr>
+        <tr><td><code>/dashboard/users</code></td><td>User management (Admin).</td></tr>
+        <tr><td><code>/dashboard/retention</code></td><td>Retention countdown.</td></tr>
+        <tr><td><code>/dashboard/quiz</code></td><td>Daily quiz, log and scorecard.</td></tr>
+        <tr><td><code>/dashboard/settings</code></td><td>Application settings (Admin).</td></tr>
+        <tr><td><code>/dashboard/profile</code>, <code>/dashboard/about</code></td><td>Own profile and password; about page.</td></tr>
+        <tr><td><code>/unauthorized</code>, not-found page</td><td>Access-denied and 404 pages.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="data-model">
+    <h2>Data model</h2>
+    <p>The schema is <code>apps/backend/prisma/schema.prisma</code>. Main entities:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Entity</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>User</code></td><td>Account, role, team links (<code>assignedTlId</code>, <code>managerId</code>), profile fields, forced-password-change flag, activity and soft-delete fields.</td></tr>
+        <tr><td><code>Project</code></td><td>Engagement with tester and Team Lead, compliance and template settings, report detail fields, and <code>reportVersionCounter</code>.</td></tr>
+        <tr><td><code>ReportTemplate</code>, <code>TemplateField</code></td><td>Uploaded templates (Word or Excel), their effective dates and active flag, and extracted placeholders with optional parameter mapping.</td></tr>
+        <tr><td><code>ReportGeneration</code></td><td>One row per generation: status (Pending, Completed, Failed), field data, file paths.</td></tr>
+        <tr><td><code>Vulnerability</code></td><td>Catalogue entry with severity, CVSS, CVE and CWE, and approval status. Category is Application/API or Network.</td></tr>
+        <tr><td><code>VulnerabilityChangeRequest</code></td><td>Proposed edit to an approved catalogue entry, with before and after data.</td></tr>
+        <tr><td><code>ProjectVulnerability</code></td><td>Project-scoped record created by a scan import. Not visible to other projects.</td></tr>
+        <tr><td><code>Finding</code>, <code>PocStep</code></td><td>Finding on a project, linked to a catalogue or project-scoped record, with ordered PoC steps.</td></tr>
+        <tr><td><code>Notification</code></td><td>In-app notification with read state and optional link.</td></tr>
+        <tr><td><code>AuditLog</code></td><td>Action, actor, target, details, IP address and user agent.</td></tr>
+        <tr><td><code>AppSettings</code></td><td>Single row (id <code>singleton</code>) holding all admin settings as JSON.</td></tr>
+        <tr><td><code>QuizQuestion</code>, <code>QuizAttempt</code>, <code>QuizUserStats</code></td><td>Daily quiz questions, one attempt per user per question, and per-user points, streaks and badges.</td></tr>
+        <tr><td><code>PatternMapScore</code></td><td>Pattern Map game scores. Kept separate from quiz data.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Enumerations</h3>
+    <ul class="plain">
+      <li><strong>Roles</strong>: <code>ADMIN</code>, <code>AVP</code>, <code>TEAM_LEAD</code>, <code>TESTER</code></li>
+      <li><strong>Project status</strong>: <code>NOT_STARTED</code>, <code>IN_PROGRESS</code>, <code>AWAITING_REVIEW</code>, <code>COMPLETED</code></li>
+      <li><strong>Finding status</strong>: <code>DRAFT</code>, <code>SUBMITTED</code>, <code>APPROVED</code>, <code>REJECTED</code></li>
+      <li><strong>Compliance type</strong>: <code>VAPT</code>, <code>CERT_IN</code>, <code>PCI</code>, <code>ASV</code></li>
+      <li><strong>Template sub-type</strong>: <code>WEB</code>, <code>API</code>, <code>MOBILE</code>, <code>THICK_CLIENT</code>, <code>NETWORK</code>, <code>APPLICATION</code></li>
+      <li><strong>Report format</strong>: <code>WORD</code>, <code>EXCEL</code></li>
+    </ul>
+
+    <div class="warn"><strong>Not implemented in the endpoints reviewed:</strong> the <code>User</code> model has TOTP fields (<code>totpSecret</code>, <code>isTotpEnabled</code>), but no TOTP endpoints were found in the auth controller.</div>
+  </section>
+
+</main>
+
+<footer class="site-footer wrap">
+  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>
+</footer>
+
+</body>
+</html>

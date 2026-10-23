@@ -4,192 +4,81 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PMIS-Project Management for Information Security</title>
-  <meta name="description" content="PMIS-Project Management for Information Security: RBAC project management and dynamic DOCX report generation for VAPT teams.">
+  <meta name="description" content="Documentation for PMIS-Project Management for Information Security: RBAC project management and dynamic report generation for VAPT teams.">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header class="hero">
-  <div class="wrap">
-    <h1>PMIS-Project Management for Information Security</h1>
-    <p class="tagline">A web-based RBAC project management and dynamic report generation system for Vulnerability Assessment &amp; Penetration Testing teams.</p>
-    <div class="badges">
-      <a href="https://github.com/sneakywarwolf/PMIS">GitHub repository</a>
-      <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>
-      <a href="https://github.com/sneakywarwolf/PMIS/blob/master/CHANGELOG.md">Changelog (1.0.0)</a>
-    </div>
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="index.html">PMIS</a>
+    <nav class="nav">
+      <a href="index.html" aria-current="page">Overview</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="access-control.html">Access control</a>
+      <a href="reports.html">Reports</a>
+      <a href="api.html">API</a>
+      <a href="deployment.html">Deployment</a>
+    </nav>
   </div>
 </header>
 
-<nav class="toc">
-  <ul class="wrap">
-    <li><a href="#overview">Overview</a></li>
-    <li><a href="#architecture">Architecture</a></li>
-    <li><a href="#roles">Roles</a></li>
-    <li><a href="#reports">Reports</a></li>
-    <li><a href="#security">Security</a></li>
-    <li><a href="#quick-start">Quick start</a></li>
-    <li><a href="#configuration">Configuration</a></li>
-    <li><a href="#docs">Docs</a></li>
-  </ul>
-</nav>
+<header class="hero">
+  <div class="wrap">
+    <h1>PMIS-Project Management for Information Security</h1>
+    <p class="tagline">A web-based RBAC project management and dynamic report generation system for Vulnerability Assessment &amp; Penetration Testing (VAPT) teams.</p>
+    <div class="badges">
+      <a href="https://github.com/sneakywarwolf/PMIS">GitHub repository</a>
+      <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>
+      <a href="https://github.com/sneakywarwolf/PMIS/blob/master/CHANGELOG.md">Changelog 1.0.0</a>
+    </div>
+  </div>
+</header>
 
 <main class="wrap">
 
   <section id="overview">
     <h2>Overview</h2>
-    <p>PMIS tracks VAPT engagements from project creation through findings, proof-of-concept evidence, vulnerability approval, and final DOCX report generation. It is built around role-based access control so that testers, team leads, AVPs, and administrators see only the data their role permits.</p>
-    <p class="note">PMIS is a tool for managing <strong>authorized</strong> security testing. Operators are responsible for lawful use and for protecting the vulnerability and client data they store in it. Software is provided &quot;as is&quot;, without warranty.</p>
-  </section>
+    <p>PMIS tracks VAPT engagements from project setup through scoping, findings, proof-of-concept evidence, vulnerability approval and generated Word or Excel reports. Access is role-based: Admins, AVPs, Team Leads and Testers see the projects and data their role and team allow.</p>
 
-  <section id="architecture">
-    <h2>Architecture</h2>
-    <pre><code>Next.js 15 (Frontend, :3000) ──▶ NestJS 10 API (Backend, :4000) ──▶ PostgreSQL 16 (:5432)
-                                         │
-                          ┌──────────────┴──────────────┐
-                          ▼                             ▼
-                     Redis 7 (:6379)               MinIO / S3 (:9000)
-                 sessions, lockout,            DOCX templates, report
-                 refresh tokens                and POC image storage</code></pre>
+    <h3>Capabilities</h3>
     <ul class="plain">
-      <li>Frontend calls the API through <code>/api/*</code>; the API is never exposed directly in the Docker deployment.</li>
-      <li>Authentication uses HTTP-only JWT cookies (access and refresh tokens).</li>
-      <li>The backend uses Prisma ORM against PostgreSQL.</li>
-      <li>Swagger UI is served at <code>/api/docs</code> in the development setup.</li>
-    </ul>
-
-    <h3>Tech stack</h3>
-    <table>
-      <thead><tr><th>Layer</th><th>Technology</th></tr></thead>
-      <tbody>
-        <tr><td>Frontend</td><td>Next.js 15 (App Router), React 19, TypeScript 5, Tailwind CSS 3, Framer Motion 11, Recharts 2</td></tr>
-        <tr><td>Backend</td><td>NestJS 10, Prisma 5, TypeScript 5</td></tr>
-        <tr><td>Database</td><td>PostgreSQL 16</td></tr>
-        <tr><td>Cache / sessions</td><td>Redis 7</td></tr>
-        <tr><td>Object storage</td><td>MinIO (S3-compatible)</td></tr>
-        <tr><td>Report engine</td><td>docx-templates (custom), JSZip, @xmldom/xmldom</td></tr>
-        <tr><td>Authentication</td><td>Argon2id password hashing, JWT</td></tr>
-      </tbody>
-    </table>
-  </section>
-
-  <section id="roles">
-    <h2>Roles</h2>
-    <div class="card-grid">
-      <div class="card"><h3>Admin</h3><p>Full access, user management, bulk user and vulnerability CSV upload, admin dashboard.</p></div>
-      <div class="card"><h3>AVP</h3><p>Same permissions as Team Lead, plus the admin dashboard with global statistics.</p></div>
-      <div class="card"><h3>Team Lead</h3><p>Creates projects, reviews and reassigns testers, approves vulnerability requests.</p></div>
-      <div class="card"><h3>Tester</h3><p>Works on own projects, edits own DRAFT findings, requests new vulnerabilities.</p></div>
-    </div>
-    <p>Login accepts either username or email. Accounts lock for 15 minutes after 5 failed attempts.</p>
-  </section>
-
-  <section id="reports">
-    <h2>Dynamic report generation</h2>
-    <ul class="plain">
-      <li>Templates are DOCX files with <strong>yellow-highlighted</strong> placeholder fields.</li>
-      <li>Placeholders are matched by normalized name; fields are filled from project data and user profiles.</li>
-      <li>Templates are organized by compliance type (<code>VAPT</code>, <code>CERT_IN</code>, <code>PCI</code>, <code>ASV</code>) and sub-type (<code>WEB</code>, <code>API</code>, <code>MOBILE</code>, <code>THICK_CLIENT</code>).</li>
-      <li>Only one template per category and sub-type can be active at a time.</li>
-      <li>A preflight check validates required project fields, profiles, approved findings, and the active template before generation.</li>
-      <li>Finding POC images are embedded and resized to a maximum width of 5.5 in.</li>
-      <li>Generated reports are stored in MinIO; generation sets the project status to <code>COMPLETED</code>.</li>
-    </ul>
-    <p>Upload limits: template 10 MB, report generation 50 MB.</p>
-  </section>
-
-  <section id="security">
-    <h2>Security features</h2>
-    <div class="card-grid">
-      <div class="card"><h3>Password hashing</h3><p>Argon2id; minimum password length 14 characters.</p></div>
-      <div class="card"><h3>Session tokens</h3><p>HTTP-only cookies with refresh-token rotation; refresh JTIs tracked in Redis.</p></div>
-      <div class="card"><h3>Account lockout</h3><p>5 failed attempts trigger a 15-minute lock via Redis.</p></div>
-      <div class="card"><h3>Access control</h3><p>Global JWT and roles guards with default deny; <code>@Roles()</code> decorator.</p></div>
-      <div class="card"><h3>HTTP hardening</h3><p>Helmet security headers with CSP; CORS restricted to the frontend origin.</p></div>
-      <div class="card"><h3>Input validation</h3><p>class-validator DTOs on API input.</p></div>
-      <div class="card"><h3>Audit logging</h3><p>Logins, CRUD operations, and approvals are recorded with IP and user agent.</p></div>
-    </div>
-    <p>See <a href="https://github.com/sneakywarwolf/PMIS/blob/master/SECURITY.md">SECURITY.md</a> for vulnerability reporting and <a href="https://github.com/sneakywarwolf/PMIS/blob/master/docs/SECURITY-AUDIT.md">docs/SECURITY-AUDIT.md</a> for the audit document.</p>
-  </section>
-
-  <section id="quick-start">
-    <h2>Quick start</h2>
-    <h3>Option A — Docker (recommended)</h3>
-    <p>Requires Docker Desktop (Windows/macOS) or Docker Engine with Compose v2 (Linux), about 4 GB RAM and 3 GB disk.</p>
-<pre><code>git clone https://github.com/sneakywarwolf/PMIS.git
-cd PMIS
-cp .env.example .env          # Windows cmd: copy .env.example .env
-# Replace every CHANGE_ME in .env (e.g. openssl rand -hex 32)
-docker compose up -d
-docker compose logs backend | grep "First login"   # shows the generated admin password</code></pre>
-    <p>Open <code>http://localhost:3000</code>, log in as <code>admin</code>, and set a new password when prompted. First start takes a minute or two while migrations run.</p>
-
-    <h3>Option B — Development setup</h3>
-    <p>Infrastructure runs in Docker (<code>docker-compose.dev.yml</code>); the apps run with npm. Requires Node.js 18+ and Docker.</p>
-<pre><code># Windows
-setup.bat           # first time: installs deps, starts infra, migrates and seeds
-start-dev.bat       # dev servers in visible terminals (start.bat = silent mode)
-stop.bat            # stop servers and containers (keeps data)
-reset-db.bat        # interactive reset utility
-
-# Linux / macOS
-./setup.sh</code></pre>
-    <table>
-      <thead><tr><th>Service (dev)</th><th>URL</th></tr></thead>
-      <tbody>
-        <tr><td>Frontend</td><td><code>http://localhost:3000</code></td></tr>
-        <tr><td>Backend API / Swagger</td><td><code>http://localhost:4000</code> / <code>http://localhost:4000/api/docs</code></td></tr>
-        <tr><td>MinIO console</td><td><code>http://localhost:9001</code></td></tr>
-      </tbody>
-    </table>
-    <p class="note">Development credentials for infrastructure are documented in the repository README and apply to local development only.</p>
-  </section>
-
-  <section id="configuration">
-    <h2>Configuration</h2>
-    <h3>Docker <code>.env</code></h3>
-    <table>
-      <thead><tr><th>Variable</th><th>Required</th><th>Default</th><th>Purpose</th></tr></thead>
-      <tbody>
-        <tr><td><code>POSTGRES_PASSWORD</code></td><td>yes</td><td>—</td><td>Database password</td></tr>
-        <tr><td><code>MINIO_ROOT_PASSWORD</code></td><td>yes</td><td>—</td><td>File-storage password</td></tr>
-        <tr><td><code>JWT_ACCESS_SECRET</code></td><td>yes</td><td>—</td><td>Signs access tokens; backend refuses to start in production if unset</td></tr>
-        <tr><td><code>JWT_REFRESH_SECRET</code></td><td>yes</td><td>—</td><td>Signs refresh tokens</td></tr>
-        <tr><td><code>ADMIN_PASSWORD</code></td><td>no</td><td>random, printed in backend log</td><td>First admin password</td></tr>
-        <tr><td><code>SEED_DEMO</code></td><td>no</td><td><code>false</code></td><td>Load demo data with known, insecure passwords. Never use in production.</td></tr>
-        <tr><td><code>FRONTEND_PORT</code></td><td>no</td><td><code>3000</code></td><td>Host port for the web UI</td></tr>
-        <tr><td><code>FRONTEND_URL</code></td><td>no</td><td><code>http://localhost:3000</code></td><td>Browser-facing URL (CORS)</td></tr>
-        <tr><td><code>COOKIE_SECURE</code></td><td>no</td><td><code>false</code></td><td>Set <code>true</code> when served over HTTPS</td></tr>
-        <tr><td><code>MINIO_ROOT_USER</code></td><td>no</td><td><code>pmisminio</code></td><td>File-storage user</td></tr>
-        <tr><td><code>PMIS_IMAGE_REPO</code> / <code>PMIS_VERSION</code></td><td>no</td><td><code>sneakywarwolf</code> / <code>latest</code></td><td>Docker Hub image source; pin a version in production</td></tr>
-      </tbody>
-    </table>
-    <h3>Operations</h3>
-    <ul class="plain">
-      <li><strong>Back up database:</strong> <code>docker compose exec postgres pg_dump -U pmis pmis &gt; backup.sql</code></li>
-      <li><strong>Back up files:</strong> back up the <code>minio_data</code> volume.</li>
-      <li><strong>Update:</strong> set <code>PMIS_VERSION</code>, then <code>docker compose pull &amp;&amp; docker compose up -d</code>.</li>
-      <li><strong>Data persistence:</strong> data lives in Docker volumes and survives <code>docker compose down</code>, but not <code>down -v</code>.</li>
-      <li><strong>HTTPS:</strong> place a reverse proxy (Caddy, nginx, Traefik) in front of port 3000, then set <code>FRONTEND_URL</code> and <code>COOKIE_SECURE=true</code>.</li>
+      <li><strong>Projects</strong>: client, scope, dates, compliance type, testing environment, and category and sub-type (Web, API, Mobile, Thick Client, Network, Application). Team Leads and Admins can reassign testers. Status moves through Not started, In progress, Awaiting review and Completed.</li>
+      <li><strong>Findings and PoC</strong>: attach catalogue vulnerabilities to a project, record affected instances and authentication type, override CVSS score and vector, and document ordered PoC steps with images (PNG, JPG, GIF, WebP).</li>
+      <li><strong>Vulnerability catalogue</strong>: shared list with search, severity filters, CSV export and an approval workflow for new entries. Testers propose edits to approved entries as change requests.</li>
+      <li><strong>Scan imports</strong>: Nessus (<code>.nessus</code> or <code>.csv</code>) with per-plugin selection, and Nmap XML for Network projects. Imported records belong to the project and are not added to the shared catalogue.</li>
+      <li><strong>Reports</strong>: Admin-uploaded Word or Excel templates with highlighted placeholders, queued generation, a preflight check for missing data, an Issue Log CSV, and signed, expiring download links.</li>
+      <li><strong>Dashboards, notifications and retention</strong>: team and organisation views, an activity feed, in-app notifications, and a retention countdown for completed projects.</li>
+      <li><strong>Engagement features</strong>: a daily security quiz with a leaderboard, and a separate "Pattern Map" game whose scores do not affect quiz points.</li>
+      <li><strong>Administration</strong>: user management with CSV or XLSX bulk upload, admin-configurable settings with change history, system health, scheduled updates and audit logging.</li>
     </ul>
   </section>
 
-  <section id="docs">
-    <h2>Documentation and links</h2>
+  <section id="documentation">
+    <h2>Documentation</h2>
     <div class="card-grid">
-      <div class="card"><h3><a href="https://github.com/sneakywarwolf/PMIS#readme">Full README</a></h3><p>Database schema, API reference, business logic, development guide.</p></div>
-      <div class="card"><h3><a href="https://github.com/sneakywarwolf/PMIS/blob/master/docs/REPORT-ENGINE-SPEC.md">Report engine spec</a></h3><p>docs/REPORT-ENGINE-SPEC.md</p></div>
-      <div class="card"><h3><a href="https://github.com/sneakywarwolf/PMIS/blob/master/docs/SECURITY-AUDIT.md">Security audit</a></h3><p>docs/SECURITY-AUDIT.md</p></div>
-      <div class="card"><h3><a href="https://github.com/sneakywarwolf/PMIS/blob/master/CONTRIBUTING.md">Contributing</a></h3><p>CONTRIBUTING.md</p></div>
-      <div class="card"><h3><a href="https://github.com/sneakywarwolf/PMIS/blob/master/SECURITY.md">Security policy</a></h3><p>SECURITY.md</p></div>
-      <div class="card"><h3><a href="https://github.com/sneakywarwolf/PMIS/issues">Issues</a></h3><p>Bug reports and feature requests.</p></div>
+      <a class="card" href="architecture.html"><h3>Architecture</h3><p>Services, request flow, backend modules, frontend routes and the data model.</p></a>
+      <a class="card" href="access-control.html"><h3>Access control</h3><p>Roles, the permission matrix, authentication, sessions, rate limits and request hardening.</p></a>
+      <a class="card" href="reports.html"><h3>Reports</h3><p>Templates, placeholders, generation, scan imports, Issue Log and downloads.</p></a>
+      <a class="card" href="api.html"><h3>API reference</h3><p>Every backend endpoint with its access rule.</p></a>
+      <a class="card" href="deployment.html"><h3>Deployment</h3><p>Production and development setup, configuration reference, operations and checklist.</p></a>
     </div>
+  </section>
+
+  <section id="status">
+    <h2>Status and scope</h2>
+    <ul class="plain">
+      <li>Version 1.0.0 (see <a href="https://github.com/sneakywarwolf/PMIS/blob/master/CHANGELOG.md">CHANGELOG</a>).</li>
+      <li>These pages describe the code on the <code>master</code> branch. Where older documents or the README differ from the code, these pages follow the code.</li>
+      <li>The design documents in <code>docs/</code> describe planned work. Items there are not described here as implemented unless the code confirms them.</li>
+    </ul>
+    <div class="note">PMIS is a tool for managing <strong>authorized</strong> security testing. It stores client and vulnerability data. Operators are responsible for lawful use and for protecting that data. The software is provided as is, without warranty.</div>
   </section>
 
 </main>
 
-<footer class="wrap">
-  PMIS-Project Management for Information Security is released under the <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>.
+<footer class="site-footer wrap">
+  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>
 </footer>
 
 </body>
