@@ -14,6 +14,7 @@ import { ReportsModule } from './reports/reports.module';
 import { VulnerabilitiesModule } from './vulnerabilities/vulnerabilities.module';
 import { AuditModule } from './audit/audit.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { PresenceModule } from './presence/presence.module';
 import { FindingsModule } from './findings/findings.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SettingsModule } from './settings/settings.module';
@@ -51,6 +52,7 @@ import { RateLimitGuard } from './common/rate-limit.guard';
     VulnerabilitiesModule,
     AuditModule,
     DashboardModule,
+    PresenceModule,
     NotificationsModule,
     SettingsModule,
     QuizModule,
