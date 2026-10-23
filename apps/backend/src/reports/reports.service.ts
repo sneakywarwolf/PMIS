@@ -18,7 +18,7 @@ import { nessusTextForReport, stripNessusBoilerplate } from '../common/nessus-te
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { canAccessProject } from '../common/project-access.util';
 import { assertSafeDocx, safeFileName } from '../common/docx-package.util';
-import { coveredSubTypes, coversSubType, coversAnySubType, parseExtraSubTypes } from './template-subtypes';
+import { coveredSubTypes, coversSubType, coversAnySubType, eligibleForProject, parseExtraSubTypes } from './template-subtypes';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
 
@@ -35,6 +35,12 @@ const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   THICK_CLIENT: 'Thick-Client',
   NETWORK: 'Network',
   APPLICATION: 'Application',
+};
+
+/** The project's status as printed in reports and file names: "Compliant" / "Non-Compliant", empty while In-Progress or unset. */
+const complianceStatusText = (status?: string | null): string => {
+  const key = (status || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  return key === 'compliant' ? 'Compliant' : key === 'non-compliant' ? 'Non-Compliant' : '';
 };
 
 /** The project status (Compliance Status dropdown) that allows a report even with no findings. */
@@ -611,7 +617,7 @@ export class ReportsService {
     let template = reportFormat === ReportFormat.WORD && project.template?.reportFormat !== ReportFormat.EXCEL ? project.template : null;
     if (!template) {
       template = await this.prisma.reportTemplate.findFirst({
-        where: { isActive: true, category: project.category, ...coversSubType(project.subType), reportFormat },
+        where: { isActive: true, category: project.category, ...eligibleForProject(project.category, project.subType), reportFormat },
         orderBy: { effectiveFrom: 'desc' },
         include: { fields: true },
       });
@@ -795,7 +801,7 @@ export class ReportsService {
       const { settings } = await this.settingsService.get();
       const reportDate = formatReportDateByPattern(new Date(), settings.formatting?.reportDateFormat || DEFAULT_REPORT_DATE_FORMAT);
 
-      // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{ReportDate}_Non-Compliant.docx
+      // File naming: the template's own file name as a pattern; older templates without one use {Testing-Type}_{Client}_{App}_{Version}_{ReportDate}_{Status}-Report.docx
       // Computed before content generation so {Report Name} can resolve to the final filename.
       const fileName = this.buildReportFileName(project, reportGeneration.version, template, reportDate);
 
@@ -1056,7 +1062,7 @@ export class ReportsService {
    * Parameters, values from the existing finding parameter registry. Nothing
    * is persisted, so changing the config never alters an Issue Log that was
    * already downloaded.
-   * Filename: Issue-Log_{Compliance Type}_{Sub Type}_{Client Name}-{Application Name}_v0.1_{Report Date}_Non-Compliant.csv
+   * Filename: Issue-Log_{Compliance Type}_{Sub Type}_{Client Name}-{Application Name}_v0.1_{Report Date}_{Compliance Status}.csv
    */
   async generateIssueLog(projectId: string, user: User) {
     const project = await this.loadProjectForReport(projectId, user);
@@ -1101,8 +1107,8 @@ export class ReportsService {
       `${safe(resolveTemplateParameter('project.clientName', project, fmt))}-${safe(resolveTemplateParameter('project.applicationName', project, fmt))}`,
       'v0.1',
       safe(resolveTemplateParameter('report.generationDateIso', project, fmt, undefined, reportDate)),
-      'Non-Compliant',
-    ].join('_');
+      complianceStatusText(project.complianceStatus),
+    ].filter(Boolean).join('_');
 
     return { fileName: `${fileName}.csv`, csv: buildIssueLogCsv(columns, rows) };
   }
@@ -1407,7 +1413,10 @@ export class ReportsService {
       return this.buildLegacyReportFileName(project, version, template, reportDate);
     }
 
+    // {Compliance Status} / {Project Status}: same wording the report body prints (empty while In-Progress).
+    const statusText = complianceStatusText(project.complianceStatus);
     const rules = this.buildMappedFieldRules(template, project, version, reportDate)
+      .concat([{ match: ['compliance_status', 'project_status'], value: statusText }])
       .concat(this.buildFieldRules(project, version, reportDate))
       .concat(this.buildCustomFieldRules(project));
 
@@ -1442,7 +1451,8 @@ export class ReportsService {
     // safe() rather than raw — some report date formats (e.g. DD/MM/YYYY)
     // contain filesystem path separators.
     const date = safe(reportDate ?? new Date().toISOString().split('T')[0]);
-    return `App-Security-Test_${safe(project.clientName)}-${safe(project.name)}_${subTypeLabel}_v${version}_${date}_Non-Compliant.docx`;
+    const status = complianceStatusText(project.complianceStatus);
+    return `${subTypeLabel}_${safe(project.clientName)}_${safe(project.name)}_${version}_${date}_${status ? `${status}-` : ''}Report.docx`;
   }
 
   /**

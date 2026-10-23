@@ -492,4 +492,18 @@ describe('{Project Status} placeholder text and background', () => {
       expect(xml).toContain('plain');
     }
   });
+  it('fills the placeholder in a header/footer and inside a hyperlink / content control', async () => {
+    const zip = await JSZip.loadAsync(await docxWith(
+      `<w:p><w:hyperlink><w:r><w:t>{Compliance </w:t></w:r><w:r><w:t>Status}</w:t></w:r></w:hyperlink></w:p>` +
+      `<w:p><w:sdt><w:sdtContent><w:r><w:t>{Project Status}</w:t></w:r></w:sdtContent></w:sdt></w:p>`));
+    zip.file('word/header1.xml', `<w:hdr xmlns:w="${W}">${para('Status: {Compliance Status}')}</w:hdr>`);
+    zip.file('word/footer2.xml', `<w:ftr xmlns:w="${W}">${para('no placeholder')}</w:ftr>`);
+    const out = await JSZip.loadAsync(await new DocxManipulatorService().generateReport(
+      await zip.generateAsync({ type: 'nodebuffer' }), [], [], [], undefined, undefined, [], [], [], undefined, { complianceStatus: 'Compliant' }));
+    const doc = await out.file('word/document.xml').async('text');
+    expect(doc).not.toMatch(/\{(Compliance|Project)/);
+    expect(doc.match(/Compliant/g)).toHaveLength(2);
+    expect(await out.file('word/header1.xml').async('text')).toContain('Status: Compliant');
+    expect(await out.file('word/footer2.xml').async('text')).toContain('no placeholder');
+  });
 });

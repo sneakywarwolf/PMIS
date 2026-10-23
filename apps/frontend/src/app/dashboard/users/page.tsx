@@ -1,5 +1,6 @@
 'use client';
 
+import { PhoneInput } from '@/components/phone-input';
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
@@ -466,9 +467,7 @@ export default function UsersPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-gray-300 mb-1">Phone</label>
-                  <input type="text" value={newUser.phone}
-                    onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+                  <PhoneInput value={newUser.phone} onChange={(phone) => setNewUser({ ...newUser, phone })} />
                 </div>
                 <div>
                   <label className="block text-sm text-gray-300 mb-1">Designation</label>
@@ -563,9 +562,7 @@ export default function UsersPage() {
                 </div>
                 <div>
                   <label className="block text-sm text-gray-300 mb-1">Phone</label>
-                  <input type="text" value={editingUser.phone || ''}
-                    onChange={(e) => setEditingUser({ ...editingUser, phone: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700" />
+                  <PhoneInput value={editingUser.phone || ''} onChange={(phone) => setEditingUser({ ...editingUser, phone })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">

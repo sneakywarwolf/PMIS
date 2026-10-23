@@ -349,9 +349,23 @@ export class DocxManipulatorService {
     const updatedXml = serializer.serializeToString(doc);
     zip.file('word/document.xml', updatedXml);
 
+    await this.fillHeaderFooterStatus(zip, options?.complianceStatus);
     await this.markFieldsForUpdate(zip);
 
     return zip.generateAsync({ type: 'nodebuffer' });
+  }
+
+  /** {Project Status} / {Compliance Status} in page headers and footers (cover banners etc.), which document.xml does not hold. */
+  private async fillHeaderFooterStatus(zip: any, status?: string | null): Promise<void> {
+    const names = Object.keys(zip.files).filter((n) => /^word\/(header|footer)\d*\.xml$/.test(n));
+    for (const name of names) {
+      const xml: string = await zip.file(name).async('text');
+      if (!/status/i.test(xml.replace(/<[^>]+>/g, ''))) continue;
+      const part = new DOMParser().parseFromString(xml, 'text/xml');
+      this.mergeAllHighlightedRuns(part);
+      this.applyComplianceStatus(part, status);
+      zip.file(name, new XMLSerializer().serializeToString(part));
+    }
   }
 
   /**
@@ -873,11 +887,17 @@ export class DocxManipulatorService {
   /** Direct <w:r> children of a paragraph with each run's text and its [start,end) offset in the paragraph's concatenated text. */
   private getParagraphRunSpans(para: Element): { run: Element; text: string; start: number; end: number }[] {
     const runs: Element[] = [];
-    for (let i = 0; i < para.childNodes.length; i++) {
-      const child = para.childNodes.item(i);
-      const localName = (child as any).localName || (child as Element).tagName;
-      if (localName === 'r' || localName === 'w:r') runs.push(child as Element);
-    }
+    // Runs may sit directly in the paragraph or inside a hyperlink / tracked insertion / smart tag / content control.
+    const WRAPPERS = ['hyperlink', 'ins', 'smartTag', 'sdt', 'sdtContent', 'customXml'];
+    const collect = (parent: Element) => {
+      for (let i = 0; i < parent.childNodes.length; i++) {
+        const child = parent.childNodes.item(i) as Element;
+        const localName = (child as any).localName || child.tagName;
+        if (localName === 'r' || localName === 'w:r') runs.push(child);
+        else if (WRAPPERS.includes(localName)) collect(child);
+      }
+    };
+    collect(para);
     let offset = 0;
     return runs.map((run) => {
       const text = this.getRunText(run);

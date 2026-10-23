@@ -417,6 +417,8 @@ function NotificationBell() {
                     onClick={() => {
                       if (!n.read) markAsRead(n.id);
                       setOpen(false);
+                      // Only in-app paths (e.g. /dashboard/quiz); never an external or protocol-relative URL.
+                      if (n.linkUrl?.startsWith('/') && !n.linkUrl.startsWith('//')) router.push(n.linkUrl);
                     }}
                   >
                     <div className="flex items-start justify-between gap-2">

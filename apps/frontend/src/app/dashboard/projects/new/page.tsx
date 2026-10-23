@@ -190,7 +190,6 @@ export default function NewProjectPage() {
                 <option value="MOBILE">Mobile Application</option>
                 <option value="THICK_CLIENT">Thick Client</option>
                 <option value="NETWORK">Network</option>
-                <option value="APPLICATION">Application</option>
               </select>
             </div>
             {form.subType !== 'NETWORK' && (

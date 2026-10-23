@@ -8,7 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
 import { findingPocReadiness } from '../common/poc-validation.util';
 import { parseNmapScan, NmapPortRecord } from '../common/nmap-parser.util';
-import { coversSubType } from '../reports/template-subtypes';
+import { eligibleForProject } from '../reports/template-subtypes';
 
 /**
  * Derives the legacy single-line {Tools Used} value from the structured
@@ -169,7 +169,7 @@ export class ProjectsService {
         where: {
           isActive: true,
           category: dto.category,
-          ...coversSubType(dto.subType),
+          ...eligibleForProject(dto.category, dto.subType),
           reportFormat: ReportFormat.WORD,
         },
         orderBy: { effectiveFrom: 'desc' },

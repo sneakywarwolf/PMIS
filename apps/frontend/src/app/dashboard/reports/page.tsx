@@ -37,7 +37,11 @@ const categoryLabel = (c: string) => (c === 'CERT_IN' ? 'Cert-In' : c);
 
 // Activity Types a template can be uploaded for, per category (the same two lists the upload form always offered).
 const activityTypesFor = (category: string): string[] =>
-  category === 'CERT_IN' ? ['APPLICATION', 'NETWORK'] : ['WEB', 'API', 'MOBILE', 'THICK_CLIENT', 'NETWORK', 'APPLICATION'];
+  category === 'CERT_IN'
+    ? ['APPLICATION', 'NETWORK']
+    : category === 'PCI' || category === 'VAPT'
+      ? ['WEB', 'API', 'MOBILE', 'THICK_CLIENT', 'NETWORK']
+      : ['WEB', 'API', 'MOBILE', 'THICK_CLIENT', 'NETWORK', 'APPLICATION'];
 
 // Every Activity Type a template serves: its primary one plus any extras.
 const templateSubTypes = (t: any): string[] => [t.subType, ...(t.extraSubTypes ?? [])];
@@ -858,27 +862,36 @@ function TemplateUploader() {
             </div>
             <div>
               <label className="block text-sm text-gray-300 mb-1" id="activity-types-label">Activity Type</label>
-              <div role="group" aria-labelledby="activity-types-label" className="flex flex-wrap gap-1.5">
-                {activityTypesFor(formData.category).map((st) => {
-                  const on = formData.subTypes.includes(st);
-                  return (
-                    <button
-                      key={st}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => setFormData({ ...formData, subTypes: on ? formData.subTypes.filter((x) => x !== st) : [...formData.subTypes, st] })}
-                      className={`px-2.5 py-1.5 rounded-lg text-xs border transition-all ${
-                        on ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30' : 'bg-gray-800/50 text-gray-400 border-gray-700 hover:text-white'
-                      }`}
-                    >
-                      {on && <Check className="inline w-3 h-3 mr-1" />}
+              <details className="group relative">
+                <summary
+                  aria-labelledby="activity-types-label"
+                  className="flex items-center justify-between cursor-pointer list-none px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 text-sm"
+                >
+                  <span className={formData.subTypes.length ? '' : 'text-gray-500'}>
+                    {formData.subTypes.length ? formData.subTypes.map((st) => subTypeLabels[st] || st).join(', ') : 'Select Activity Types'}
+                  </span>
+                  <span className="ml-2 text-gray-400 text-xs transition-transform group-open:rotate-180">▼</span>
+                </summary>
+                <div className="absolute z-20 mt-1 w-full rounded-lg bg-gray-900 border border-gray-700 shadow-lg p-1">
+                  {activityTypesFor(formData.category).map((st) => (
+                    <label key={st} className="flex items-center gap-2 px-2 py-1.5 rounded text-sm text-gray-300 hover:bg-gray-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.subTypes.includes(st)}
+                        onChange={() =>
+                          setFormData({
+                            ...formData,
+                            subTypes: formData.subTypes.includes(st) ? formData.subTypes.filter((x) => x !== st) : [...formData.subTypes, st],
+                          })
+                        }
+                      />
                       {subTypeLabels[st] || st}
-                    </button>
-                  );
-                })}
-              </div>
+                    </label>
+                  ))}
+                </div>
+              </details>
               <p className="mt-1 text-xs text-gray-500">
-                {formData.subTypes.length === 0 ? 'Select at least one.' : `Selected: ${formData.subTypes.map((st) => subTypeLabels[st] || st).join(', ')}`}
+                {formData.subTypes.length === 0 ? 'Select at least one.' : `${formData.subTypes.length} selected`}
               </p>
             </div>
           </div>
