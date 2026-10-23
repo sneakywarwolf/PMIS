@@ -567,7 +567,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
     }
   };
 
-  const inputCls = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
+  const inputCls = 'w-full min-w-0 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
   const labelCls = 'block text-xs text-gray-400 mb-1';
 
   return (
@@ -575,7 +575,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-5xl max-h-[92vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between p-6 border-b border-gray-700 sticky top-0 bg-gray-900 z-10">
           <h2 className="text-lg font-semibold text-white">Edit Project</h2>
@@ -693,11 +693,11 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
           </div>
           <div>
             <label className={labelCls}>Nature / Purpose of the Application</label>
-            <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} />
+            <textarea rows={8} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} />
           </div>
           <div>
             <label className={labelCls}>Testing Limitation</label>
-            <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
+            <textarea rows={8} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} placeholder="Leave empty for N/A" />
             {project?.subType === 'NETWORK' && <NetworkLimitationCaution />}
           </div>
 

@@ -497,7 +497,7 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-          <div>
+          <div className="min-w-0">
             <p className="text-gray-500 text-xs">Start Date<ChangedMark changes={changesFor('startDate')} /></p>
             <p className="text-white font-medium flex items-center gap-1.5">
               {formatDate(project.startDate)}
@@ -570,13 +570,13 @@ export default function ProjectDetailPage() {
         {project.scope && (
           <div className="pt-3 border-t border-gray-700/50">
             <p className="text-gray-500 text-xs mb-1">Scope<ChangedMark changes={changesFor('scope')} /></p>
-            <p className="text-white text-sm whitespace-pre-wrap">{project.scope}</p>
+            <p className="text-white text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{project.scope}</p>
           </div>
         )}
         {project.applicationDetails && (
           <div>
             <p className="text-gray-500 text-xs mb-1">Application Details<ChangedMark changes={changesFor('applicationDetails')} /></p>
-            <p className="text-white text-sm whitespace-pre-wrap">{project.applicationDetails}</p>
+            <p className="text-white text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{project.applicationDetails}</p>
           </div>
         )}
         {project.subType === 'NETWORK' && project.networkScope && project.networkScope.length > 0 && (
@@ -659,13 +659,13 @@ export default function ProjectDetailPage() {
         {project.applicationNature && (
           <div>
             <p className="text-gray-500 text-xs mb-1">Application Nature</p>
-            <p className="text-white text-sm whitespace-pre-wrap">{project.applicationNature}</p>
+            <p className="text-white text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{project.applicationNature}</p>
           </div>
         )}
         {project.testingLimitation && (
           <div>
             <p className="text-gray-500 text-xs mb-1">Testing Limitation</p>
-            <p className="text-white text-sm whitespace-pre-wrap">{project.testingLimitation}</p>
+            <p className="text-white text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{project.testingLimitation}</p>
           </div>
         )}
       </div>
@@ -976,7 +976,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     }
   };
 
-  const inputCls = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
+  const inputCls = 'w-full min-w-0 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
   const labelCls = 'block text-xs text-gray-400 mb-1';
 
   return createPortal(
@@ -984,7 +984,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-5xl max-h-[92vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between p-6 border-b border-gray-700 sticky top-0 bg-gray-900 z-10">
           <h2 className="text-lg font-semibold text-white">Edit Project</h2>
@@ -994,7 +994,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Testing Type (Platform) is fixed at creation and not editable here;
                 Compliance Category leads the form to mirror the creation dialog's
                 field order as closely as an immutable subType allows. */}
@@ -1194,12 +1194,12 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
           {project.subType !== 'NETWORK' && (
             <div>
               <label className={labelCls}>Nature / Purpose of the Application</label>
-              <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} />
+              <textarea rows={8} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} />
             </div>
           )}
           <div>
             <label className={labelCls}>Testing Limitation</label>
-            <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
+            <textarea rows={8} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} placeholder="Leave empty for N/A" />
             {project.subType === 'NETWORK' && <NetworkLimitationCaution />}
           </div>
 
@@ -1325,9 +1325,9 @@ function ChangedMark({ changes }: { changes: ProjectChange[] }) {
 
 function InfoField({ label, value, changes = [] }: { label: string; value: string; changes?: ProjectChange[] }) {
   return (
-    <div>
+    <div className="min-w-0">
       <p className="text-gray-500 text-xs">{label}<ChangedMark changes={changes} /></p>
-      <p className="text-white font-medium">{value}</p>
+      <p className="text-white font-medium break-words [overflow-wrap:anywhere]">{value}</p>
     </div>
   );
 }

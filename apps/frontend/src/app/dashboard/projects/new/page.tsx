@@ -389,12 +389,12 @@ export default function NewProjectPage() {
           {form.subType !== 'NETWORK' && (
             <div>
               <label className={labelCls}>Nature / Purpose of the Application</label>
-              <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} placeholder="What the application is used for..." />
+              <textarea rows={8} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} placeholder="What the application is used for..." />
             </div>
           )}
           <div>
             <label className={labelCls}>Testing Limitation</label>
-            <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
+            <textarea rows={8} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} placeholder="Leave empty for N/A" />
             {form.subType === 'NETWORK' && <NetworkLimitationCaution />}
           </div>
         </motion.section>
