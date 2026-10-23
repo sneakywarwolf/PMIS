@@ -6,7 +6,7 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
 import { DocxManipulatorService, FieldRule, FindingData, PocImage } from './docx-manipulator.service';
-import { XlsxTemplateService } from './xlsx-template.service';
+import { RowSet, XlsxTemplateService } from './xlsx-template.service';
 import { NmapPortRecord } from '../common/nmap-parser.util';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
@@ -14,7 +14,7 @@ import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, Repor
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 import { findingPocReadiness } from '../common/poc-validation.util';
-import { nessusTextForReport, stripNessusBoilerplate } from '../common/nessus-text.util';
+import { LINE_SEP, nessusTextForReport, stripNessusBoilerplate } from '../common/nessus-text.util';
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { canAccessProject } from '../common/project-access.util';
 import { assertSafeDocx, safeFileName } from '../common/docx-package.util';
@@ -770,32 +770,7 @@ export class ReportsService {
           pocSteps.push({ stepNo: step.stepNo, description: step.description, imageKey });
         }
 
-        // Scan-imported (VA) findings only: tidy Nessus' wrapping/spacing in what is printed. Stored data is untouched.
-        const isVa = f.findingType === 'VA';
-        findingsData.push({
-          no: index + 1,
-          title: f.vulnerability.name,
-          severity: f.cvssScoreOverride != null
-            ? this.severityFromScore(f.cvssScoreOverride)
-            : f.vulnerability.severity,
-          cvssScore: effectiveScore,
-          cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
-          description: isVa ? nessusTextForReport(stripNessusBoilerplate(f.vulnerability.description)) : f.vulnerability.description,
-          impact: f.vulnerability.impact,
-          remediation: f.vulnerability.remediation,
-          references: f.vulnerability.references,
-          cveId: f.vulnerability.cveId,
-          cweId: f.vulnerability.cweId,
-          affectedInstances: (f.affectedInstances || []).join('\n'),
-          authenticationType: f.authenticationType,
-          vulnerabilityDependency: f.vulnerabilityDependency,
-          reportStatus: f.reportStatus,
-          classification: f.classification,
-          // Scan-imported (VA) findings only: PT findings never get scan output printed.
-          pocText: f.classification ? nessusTextForReport((f as any).proofOfConcept) || null : null,
-          findingType: f.findingType,
-          pocSteps,
-        });
+        findingsData.push(this.toFindingData(f, index + 1, pocSteps));
       }
 
       const { settings } = await this.settingsService.get();
@@ -1017,6 +992,78 @@ export class ReportsService {
     };
   }
 
+  /** One finding as the report engines read it. VA (scan-imported) text is tidied for print; stored data is untouched. */
+  private toFindingData(f: any, no: number, pocSteps: FindingData['pocSteps']): FindingData {
+    const isVa = f.findingType === 'VA';
+    return {
+      no,
+      title: f.vulnerability.name,
+      severity: f.cvssScoreOverride != null
+        ? this.severityFromScore(f.cvssScoreOverride)
+        : f.vulnerability.severity,
+      cvssScore: f.cvssScoreOverride ?? f.vulnerability.cvssScore,
+      cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
+      description: isVa ? nessusTextForReport(stripNessusBoilerplate(f.vulnerability.description)) : f.vulnerability.description,
+      impact: f.vulnerability.impact,
+      remediation: f.vulnerability.remediation,
+      references: f.vulnerability.references,
+      cveId: f.vulnerability.cveId,
+      cweId: f.vulnerability.cweId,
+      affectedInstances: (f.affectedInstances || []).join('\n'),
+      authenticationType: f.authenticationType,
+      vulnerabilityDependency: f.vulnerabilityDependency,
+      reportStatus: f.reportStatus,
+      classification: f.classification,
+      // Scan-imported (VA) findings only: PT findings never get scan output printed.
+      pocText: f.classification ? nessusTextForReport(f.proofOfConcept) || null : null,
+      findingType: f.findingType,
+      pocSteps,
+    };
+  }
+
+  /**
+   * Rows of an Excel template that repeat per record: scope entries, Port Scan results and findings (VA and PT
+   * kept apart in Network projects, as in Word). Values come from the same sources as the Word report:
+   * the finding-level Application Parameter Registry and the project's saved scope / scan data.
+   */
+  private excelRowSets(template: any, project: any): RowSet[] {
+    const certIn = template.category === TemplateCategory.CERT_IN;
+    const sorted = project.findings
+      .map((f: any) => ({ f, score: f.cvssScoreOverride ?? f.vulnerability.cvssScore ?? 0 }))
+      .sort((a: any, b: any) => (certIn ? severityRank(this.effectiveSeverity(a.f)) - severityRank(this.effectiveSeverity(b.f)) : 0) || b.score - a.score)
+      .map(({ f }: any) => f);
+    const split = project.subType === 'NETWORK';
+    const resolversFor = (list: any[]) =>
+      list.map((f, i) => {
+        const data = this.toFindingData(f, i + 1, []);
+        // Excel cells take real line breaks; Word's line-separator marker becomes one here.
+        return (raw: string) => this.docxManipulator.resolveFindingParameter(this.slugifyFieldName(raw).substring(0, 100), data)?.split(LINE_SEP).join('\n');
+      });
+    const lc = (names: string[]) => names.map((n) => n.toLowerCase());
+    const scope = ((project.networkScope as { ip: string; domainHostname: string; purpose: string }[] | null) || []).map((e) => (raw: string) => {
+      const n = raw.toLowerCase();
+      if (n === 'ip') return e.ip || 'NA';
+      if (n.includes('domain')) return e.domainHostname || 'NA';
+      if (n === 'purpose') return e.purpose || 'NA';
+      return undefined;
+    });
+    const ports = ((project.nmapPorts as NmapPortRecord[] | null) || []).map((r) => (raw: string) => {
+      const n = raw.toLowerCase();
+      if (n.includes('nmap')) return r.ip || 'NA';
+      if (n === 'port') return r.port || 'NA';
+      if (n === 'protocol') return r.protocol || 'NA';
+      if (n === 'service') return r.service || 'NA';
+      if (n === 'status') return r.status || 'NA';
+      return undefined;
+    });
+    return [
+      { claims: (names) => lc(names).includes('ip') && lc(names).includes('purpose'), rows: scope },
+      { claims: (names) => lc(names).includes('port') && lc(names).some((n) => n.includes('nmap')), rows: ports },
+      { claims: (names) => lc(names).some((n) => n.startsWith('va ')), rows: resolversFor(sorted.filter((f: any) => f.findingType === 'VA')) },
+      { claims: (names) => lc(names).includes('vulnerability name'), rows: resolversFor(split ? sorted.filter((f: any) => f.findingType !== 'VA') : sorted) },
+    ];
+  }
+
   private async processExcelGeneration(
     reportGenerationId: string,
     project: any,
@@ -1032,7 +1079,8 @@ export class ReportsService {
     const fileName = this.buildReportFileName(project, version, template, reportDate);
 
     this.logger.log(`Generating Excel report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
-    const buffer = await this.xlsxTemplate.fill(templateBuffer, this.excelResolver(template, project, version, reportDate, fileName), { complianceStatus: project.complianceStatus });
+    const resolver = this.excelResolver(template, project, version, reportDate, fileName);
+    const buffer = await this.xlsxTemplate.fill(templateBuffer, resolver, { complianceStatus: project.complianceStatus, rowSets: this.excelRowSets(template, project) });
 
     const objectName = `reports/${project.id}/${Date.now()}_${fileName}`;
     await this.storage.uploadFile(objectName, buffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
