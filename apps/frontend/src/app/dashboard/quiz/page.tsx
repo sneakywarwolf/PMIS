@@ -1,14 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Check, CheckCircle2, Clock, Flame, X, XCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { useToast } from '@/components/toast-provider';
 import { api } from '@/contexts/auth-context';
-import { GlitchOverlay, RevealScanner, SuspiciousMark, useRareGlitch } from '@/components/easter-egg/quiz-eggs';
-import { correctTip, roast, suspiciousOption, type QuizStats } from '@/lib/easter-egg/quiz';
+import { GlitchOverlay, SuspiciousMark, useRareGlitch } from '@/components/easter-egg/quiz-eggs';
+import { suspiciousOption } from '@/lib/easter-egg/quiz';
+import { RevealedCardView, type RevealCard } from '@/components/quiz-revealed-card';
 import { formatDateTime } from '@/lib/datetime';
 import { QUIZ_HOVER, QuizHeader, QuizSkeleton, Ring, StatusPill, useQuizMotion } from '@/components/quiz-ui';
 
@@ -45,75 +48,6 @@ function isRevealed(q: TodayResponse): q is RevealedQuestion {
   return !!q && 'correctIndex' in q;
 }
 
-/** "View Explanation" button that dodges 3-6 tap/click attempts before becoming clickable — only used when the viewer answered incorrectly. */
-function EvasiveExplanationButton({ onReveal }: { onReveal: () => void }) {
-  const [maxAttempts] = useState(() => 3 + Math.floor(Math.random() * 4)); // 3-6 inclusive
-  const [attempts, setAttempts] = useState(0);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
-  const [lean, setLean] = useState({ x: 0, y: 0 });
-  const arenaRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const done = attempts >= maxAttempts;
-
-  const bounds = () => {
-    const arena = arenaRef.current;
-    const button = buttonRef.current;
-    if (!arena || !button) return null;
-    return { maxX: Math.max(0, arena.clientWidth - button.offsetWidth), maxY: Math.max(0, arena.clientHeight - button.offsetHeight) };
-  };
-
-  // Keep the button inside its arena if the card is resized.
-  useEffect(() => {
-    const clamp = () => {
-      const b = bounds();
-      if (b) setPos((p) => ({ x: Math.min(p.x, b.maxX), y: Math.min(p.y, b.maxY) }));
-    };
-    window.addEventListener('resize', clamp);
-    return () => window.removeEventListener('resize', clamp);
-  }, []);
-
-  const dodge = () => {
-    const b = bounds();
-    if (!b) return;
-    // Land clearly away from the current spot so every escape reads as a jump.
-    const minJump = Math.max(b.maxX, b.maxY) / 3;
-    let next = pos;
-    for (let i = 0; i < 8; i++) {
-      next = { x: Math.random() * b.maxX, y: Math.random() * b.maxY };
-      if (Math.hypot(next.x - pos.x, next.y - pos.y) >= minJump) break;
-    }
-    setPos(next);
-    setLean({ x: 0, y: 0 });
-    setAttempts((a) => a + 1);
-  };
-
-  // Magnetic: lean a few px toward the cursor while hovering.
-  const magnet = (e: React.MouseEvent<HTMLButtonElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    setLean({ x: ((e.clientX - r.left) / r.width - 0.5) * 8, y: ((e.clientY - r.top) / r.height - 0.5) * 8 });
-  };
-
-  return (
-    <div ref={arenaRef} className="relative h-28 sm:h-24">
-      <motion.button
-        ref={buttonRef}
-        onClick={done ? onReveal : dodge}
-        onMouseMove={done ? undefined : magnet}
-        onMouseLeave={() => setLean({ x: 0, y: 0 })}
-        animate={
-          done
-            ? { x: pos.x, y: pos.y, scale: 1, rotate: 0 }
-            : { x: pos.x + lean.x, y: pos.y + lean.y, scale: [1, 1.1, 0.94, 1], rotate: [0, -6, 6, 0] }
-        }
-        transition={{ type: 'spring', stiffness: 320, damping: 22 }}
-        className={`absolute glass px-4 py-2 rounded-lg text-white whitespace-nowrap ${done ? QUIZ_HOVER : ''}`}
-      >
-        View Explanation
-      </motion.button>
-    </div>
-  );
-}
-
 // skewMs = server clock − local clock, so the countdown follows server time.
 function useCountdown(scheduledFor: string, skewMs: number) {
   const [remainingMs, setRemainingMs] = useState(1);
@@ -131,23 +65,31 @@ function useCountdown(scheduledFor: string, skewMs: number) {
 }
 
 export default function QuizPage() {
+  return (
+    <Suspense fallback={<div className="p-6 max-w-2xl mx-auto"><QuizSkeleton /></div>}>
+      <QuizPageInner />
+    </Suspense>
+  );
+}
+
+function QuizPageInner() {
   const { user } = useAuth();
   const showToast = useToast();
-  const [data, setData] = useState<TodayResponse>(null);
+  const [data, setData] = useState<ActiveQuestion | null>(null);
   const [loading, setLoading] = useState(true);
   const [pool, setPool] = useState<ActiveQuestion[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [explanationRevealed, setExplanationRevealed] = useState(false);
+  const [revealedCards, setRevealedCards] = useState<RevealCard[] | null>(null);
+  const revealParam = useSearchParams().get('reveal');
   const [skewMs, setSkewMs] = useState(0);
   const [eggOn, setEggOn] = useState<boolean | null>(null); // null = settings still loading
-  const [scanned, setScanned] = useState(false);
-  const [stats, setStats] = useState<QuizStats | null>(null);
-  const [tip, setTip] = useState<string | null>(null);
 
   const load = async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
+      // The two sections load independently, so a slow or failed reveal list never hides the active questions.
+      api.get('/quiz/revealed').then((r) => setRevealedCards(r.data)).catch(() => setRevealedCards((prev) => prev ?? []));
       const res = await api.get('/quiz/today');
       const serverNow = Date.parse(res.headers?.date);
       if (!Number.isNaN(serverNow)) setSkewMs(serverNow - Date.now());
@@ -160,7 +102,7 @@ export default function QuizPage() {
         setData((prev) => (prev && !isRevealed(prev) ? list.find((q) => q.id === prev.id) : undefined) ?? list[0]);
       } else {
         setPool([]);
-        setData(d);
+        setData(null); // a revealed question belongs to the Recently Revealed section, never to Active
       }
     } finally {
       if (!quiet) setLoading(false);
@@ -178,33 +120,10 @@ export default function QuizPage() {
     setEggOn(!!appSettings?.easterEgg?.enabled);
   }, [appSettings?.easterEgg?.enabled]);
 
-  const revealedId = isRevealed(data) ? data.id : null;
-  const userIsCorrect = isRevealed(data) ? data.userIsCorrect : null;
-  useEffect(() => {
-    setExplanationRevealed(false);
-    setScanned(false);
-    setTip(null);
-  }, [revealedId]);
-
-  const roastLine = useMemo(() => (revealedId && userIsCorrect === false ? roast() : null), [revealedId, userIsCorrect]);
-
-  // Correct answerers get their scorecard, and it decides whether a rare tip is possible.
-  useEffect(() => {
-    if (!revealedId || userIsCorrect !== true) return;
-    api
-      .get('/quiz/scorecard')
-      .then((r) => r.data as QuizStats)
-      .catch(() => null)
-      .then((s) => {
-        setStats(s);
-        setTip(correctTip(s));
-      });
-  }, [revealedId, userIsCorrect]);
-
-  const countdown = useCountdown(!isRevealed(data) && data ? data.scheduledFor : new Date().toISOString(), skewMs);
+  const countdown = useCountdown(data ? data.scheduledFor : new Date().toISOString(), skewMs);
 
   // The reveal is server-driven: once the window closes (by server time), poll until the server says REVEALED.
-  const windowClosed = !!data && !isRevealed(data) && countdown.remainingMs === 0;
+  const windowClosed = !!data && countdown.remainingMs === 0;
   useEffect(() => {
     if (!windowClosed) return;
     const t = setInterval(() => load(true), 15_000);
@@ -212,9 +131,8 @@ export default function QuizPage() {
     return () => clearInterval(t);
   }, [windowClosed]);
 
-  const suspicious = eggOn && data && !isRevealed(data) ? suspiciousOption(data.id, data.options.length) : null;
-  const glitching = useRareGlitch(!!eggOn && !!data && !isRevealed(data));
-  const finishScan = useCallback(() => setScanned(true), []);
+  const suspicious = eggOn && data ? suspiciousOption(data.id, data.options.length) : null;
+  const glitching = useRareGlitch(!!eggOn && !!data);
 
   const m = useQuizMotion();
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -228,8 +146,14 @@ export default function QuizPage() {
     optionRefs.current[next]?.focus();
   };
 
+  // A reveal notification opens /dashboard/quiz?reveal=<id>: bring that exact card into view.
+  useEffect(() => {
+    if (!revealParam || !revealedCards) return;
+    document.getElementById(`reveal-${revealParam}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [revealParam, revealedCards]);
+
   const submit = async () => {
-    if (selected === null || isRevealed(data) || !data) return;
+    if (selected === null || !data) return;
     setSubmitting(true);
     try {
       await api.post('/quiz/today/answer', { questionId: data.id, selectedOption: selected });
@@ -244,8 +168,7 @@ export default function QuizPage() {
 
   if (loading) return <div className="p-6 max-w-2xl mx-auto"><QuizSkeleton /></div>;
 
-  const active = data && !isRevealed(data) ? data : null;
-  const revealed = data && isRevealed(data) ? data : null;
+  const active = data;
   const answered = !!active?.alreadyAnswered;
   const canPick = !!active && !answered && !windowClosed;
 
@@ -253,6 +176,7 @@ export default function QuizPage() {
     <div className="p-4 md:p-6 max-w-2xl mx-auto space-y-5">
       <QuizHeader title="Question of the Day" subtitle="One question a day. Answer before the reveal to earn points and build your streak." />
 
+      <h2 className="text-base font-semibold text-white">Active Questions</h2>
       {pool.length > 1 && (
         <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Open questions">
           {pool.map((q, i) => (
@@ -369,112 +293,35 @@ export default function QuizPage() {
           </motion.div>
         )}
 
-        {revealed && eggOn !== null && (
-          <motion.div
-            key="revealed"
-            initial={{ opacity: 0, y: m.reduce ? 0 : 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={m.t(0.3)}
-            className="glass-card rounded-xl p-5 md:p-6 space-y-5"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <StatusPill status="revealed" />
-              {revealed.userIsCorrect !== null && (
-                <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${revealed.userIsCorrect ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {revealed.userIsCorrect ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                  {revealed.userIsCorrect ? 'You got it right' : 'Not this time'}
-                </span>
-              )}
-            </div>
-
-            <p className="text-lg md:text-xl font-medium text-white leading-snug">{revealed.question}</p>
-
-            {eggOn && !scanned ? (
-              <RevealScanner onDone={finishScan} />
-            ) : (
-              <>
-                {eggOn && revealed.userIsCorrect === true && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3"
-                  >
-                    <p className="font-mono text-sm font-bold tracking-[0.3em] text-emerald-300" style={{ textShadow: '0 0 12px rgba(16,185,129,0.6)' }}>
-                      ACCESS GRANTED
-                    </p>
-                    {tip && <p className="mt-1 text-sm text-emerald-100/90">{tip}</p>}
-                    {stats && (
-                      <p className="mt-2 font-mono text-xs text-emerald-400/70">
-                        {stats.currentStreak} streak · {stats.accuracy}% accuracy · {stats.totalAnswered} answered
-                      </p>
-                    )}
-                  </motion.div>
-                )}
-                {eggOn && roastLine && (
-                  <motion.div
-                    initial={{ x: 0 }}
-                    animate={{ x: [0, -6, 6, -4, 4, 0], boxShadow: ['0 0 0 rgba(239,68,68,0)', '0 0 18px rgba(239,68,68,0.45)', '0 0 0 rgba(239,68,68,0)'] }}
-                    transition={{ duration: 0.6 }}
-                    className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
-                  >
-                    {roastLine}
-                  </motion.div>
-                )}
-
-                <div className="grid gap-2.5" aria-label="Answer options">
-                  {revealed.options.map((opt, i) => {
-                    const correct = i === revealed.correctIndex;
-                    return (
-                      <motion.div
-                        key={i}
-                        initial={{ opacity: 0, y: m.reduce ? 0 : 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ ...m.t(0.25), delay: i * m.stagger }}
-                        className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${
-                          correct ? 'border-emerald-500/40 bg-emerald-500/10 text-white' : 'border-gray-800 bg-white/[0.02] text-gray-500'
-                        }`}
-                      >
-                        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs font-semibold ${correct ? 'border-emerald-400 bg-emerald-500 text-black' : 'border-gray-700'}`}>
-                          {correct ? <Check className="w-4 h-4" /> : LETTERS[i]}
-                        </span>
-                        <span className="flex-1">{opt}</span>
-                        {correct && <span className="text-xs font-medium text-emerald-400">Correct answer</span>}
-                      </motion.div>
-                    );
-                  })}
-                </div>
-
-                {explanationRevealed ? (
-                  <motion.div initial={{ opacity: 0, y: m.reduce ? 0 : 6 }} animate={{ opacity: 1, y: 0 }} transition={m.t(0.25)} className="rounded-lg border border-gray-700 bg-gray-800/40 p-4">
-                    <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Explanation</p>
-                    <p className="text-sm text-gray-200 leading-relaxed">{revealed.explanation}</p>
-                  </motion.div>
-                ) : revealed.userIsCorrect === false ? (
-                  <EvasiveExplanationButton onReveal={() => setExplanationRevealed(true)} />
-                ) : (
-                  <button
-                    onClick={() => setExplanationRevealed(true)}
-                    className={`glass w-fit rounded-lg px-4 py-2 text-sm text-white focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none ${QUIZ_HOVER}`}
-                  >
-                    View Explanation
-                  </button>
-                )}
-
-                <div className="flex items-center gap-4 rounded-xl border border-gray-800 bg-white/[0.02] p-4">
-                  <Ring value={revealed.participants ? revealed.correctCount / revealed.participants : 0} size={56}>
-                    {revealed.participants ? Math.round((revealed.correctCount / revealed.participants) * 100) : 0}%
-                  </Ring>
-                  <div className="grid flex-1 grid-cols-3 gap-2 text-center">
-                    <div><p className="text-lg font-semibold text-white tabular-nums">{revealed.participants}</p><p className="text-xs text-gray-500">Participants</p></div>
-                    <div><p className="text-lg font-semibold text-emerald-400 tabular-nums">{revealed.correctCount}</p><p className="text-xs text-gray-500">Correct</p></div>
-                    <div><p className="text-lg font-semibold text-red-400 tabular-nums">{revealed.incorrectCount}</p><p className="text-xs text-gray-500">Incorrect</p></div>
-                  </div>
-                </div>
-              </>
-            )}
-          </motion.div>
-        )}
       </AnimatePresence>
+
+      <section aria-labelledby="revealed-heading" className="space-y-4 pt-2">
+        <div>
+          <h2 id="revealed-heading" className="text-base font-semibold text-white">Recently Revealed — Answers &amp; Explanations</h2>
+          <p className="text-sm text-gray-400">
+            Each answer stays here for 24 hours after it was revealed. Older ones are in the{' '}
+            <Link href="/dashboard/quiz/log" className="text-emerald-400 hover:underline">Question Log</Link>.
+          </p>
+        </div>
+        {revealParam && revealedCards && !revealedCards.some((c) => c.id === revealParam) && (
+          <div role="status" className="rounded-lg border border-gray-700 bg-gray-800/40 p-3 text-sm text-gray-300">
+            That reveal is older than 24 hours and is no longer shown here. You can still find it in the{' '}
+            <Link href="/dashboard/quiz/log" className="text-emerald-400 hover:underline">Question Log</Link>.
+          </div>
+        )}
+        {revealedCards === null ? (
+          <QuizSkeleton />
+        ) : revealedCards.length === 0 ? (
+          <div className="glass-card rounded-xl p-8 text-center">
+            <p className="text-white font-medium">No answers revealed in the last 24 hours</p>
+            <p className="text-sm text-gray-400 mt-1">Revealed answers and explanations will appear here.</p>
+          </div>
+        ) : (
+          revealedCards.map((c, i) => (
+            <RevealedCardView key={c.id} card={c} latest={i === 0} highlighted={revealParam === c.id} eggOn={!!eggOn} onAnswered={() => load(true)} />
+          ))
+        )}
+      </section>
     </div>
   );
 }

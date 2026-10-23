@@ -156,7 +156,7 @@ export class UpdateService implements OnModuleInit {
     const [state, { releases, changelog, error }] = await Promise.all([this.getState(), this.fetchReleases(force)]);
     const latest = releases.find((r, _, all) => all.every((o) => !isNewer(o.version, r.version)));
     return {
-      appName: process.env.APP_NAME || 'PMIS — VAPT Command Center',
+      appName: process.env.APP_NAME || 'PMIS - Project Management for Information Security',
       version: this.version,
       changelog,
       latest: latest ? { ...latest, available: isNewer(latest.version, this.version) } : null,

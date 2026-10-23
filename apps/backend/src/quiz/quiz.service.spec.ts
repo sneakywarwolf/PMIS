@@ -12,7 +12,7 @@ function makePrismaMock(): any {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       findFirst: jest.fn(),
-      updateMany: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       update: jest.fn(),
       create: jest.fn(),
       delete: jest.fn(),
@@ -83,8 +83,8 @@ describe('QuizService.sweepQuizStatuses', () => {
 
     await service.sweepQuizStatuses();
 
-    expect(prisma.quizQuestion.update).toHaveBeenCalledWith({
-      where: { id: 'q2' },
+    expect(prisma.quizQuestion.updateMany).toHaveBeenCalledWith({
+      where: { id: 'q2', status: 'ACTIVE' },
       data: { status: 'REVEALED', revealedAt: expect.any(Date) },
     });
     expect(prisma.quizAttempt.update).toHaveBeenCalledWith({
@@ -93,8 +93,25 @@ describe('QuizService.sweepQuizStatuses', () => {
     });
     expect(prisma.quizUserStats.upsert).toHaveBeenCalled();
     expect(notifications.notifyAllActiveUsers).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'QUIZ_ANSWER_REVEALED' }),
+      expect.objectContaining({ type: 'QUIZ_ANSWER_REVEALED', relatedId: 'q2', linkUrl: '/dashboard/quiz?reveal=q2' }),
     );
+  });
+
+  it('notifies once per revealed question, each pointing at its own question', async () => {
+    const t = new Date('2026-09-08T00:00:00.000Z');
+    prisma.quizQuestion.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'qa', scheduledFor: t }, { id: 'qb', scheduledFor: t }]);
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+    await service.sweepQuizStatuses();
+    const ids = notifications.notifyAllActiveUsers.mock.calls.map((c: any) => c[0].relatedId);
+    expect(ids).toEqual(['qa', 'qb']);
+  });
+
+  it('a question another run already revealed is neither re-scored nor re-notified', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'q2', scheduledFor: new Date() }]);
+    prisma.quizQuestion.updateMany.mockResolvedValueOnce({ count: 0 });
+    await service.sweepQuizStatuses();
+    expect(prisma.quizAttempt.findMany).not.toHaveBeenCalled();
+    expect(notifications.notifyAllActiveUsers).not.toHaveBeenCalled();
   });
 
   it('does not update or notify when nothing needs to transition', async () => {
@@ -550,5 +567,31 @@ describe('QuizService late answers', () => {
   it('keeps unrevealed questions out of the log', async () => {
     prisma.quizQuestion.findUnique.mockResolvedValue({ ...revealed, status: 'ACTIVE' });
     await expect(service.getLogEntry('q1', 'u1')).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('QuizService.getRecentlyRevealed', () => {
+  it('returns each recent reveal as its own card; answer and explanation only for questions the caller attempted', async () => {
+    prisma = makePrismaMock();
+    const moduleRef = await Test.createTestingModule({
+      providers: [QuizService, { provide: PrismaService, useValue: prisma }, { provide: AuditService, useValue: { log: jest.fn() } }, { provide: NotificationsService, useValue: {} }],
+    }).compile();
+    const service = moduleRef.get(QuizService);
+    const q = (id: string, correctIndex: number, explanation: string, hoursAgo: number) => ({
+      id, question: `Q-${id}`, options: ['a', 'b'], correctIndex, explanation, revealedAt: new Date(Date.now() - hoursAgo * 3_600_000),
+    });
+    prisma.quizQuestion.findMany.mockResolvedValue([q('new', 1, 'why-new', 1), q('old', 0, 'why-old', 20)]);
+    prisma.quizAttempt.findMany.mockImplementation(async ({ where }: any) =>
+      where.userId ? [{ questionId: 'old', selectedOption: 0, isCorrect: true, isLate: true, userId: 'u1' }] : [{ questionId: where.questionId, userId: 'u1', isCorrect: true, isLate: false }],
+    );
+    const cards: any[] = await service.getRecentlyRevealed('u1');
+    expect(cards.map((c) => c.id)).toEqual(['new', 'old']); // newest reveal first
+    expect(cards[0]).toEqual(expect.objectContaining({ question: 'Q-new', myAttempt: null }));
+    expect(cards[0]).not.toHaveProperty('correctIndex');
+    expect(cards[0]).not.toHaveProperty('explanation');
+    expect(cards[1]).toEqual(expect.objectContaining({ id: 'old', correctIndex: 0, explanation: 'why-old', myAttempt: { selectedOption: 0, isCorrect: true, isLate: true } }));
+    const where = prisma.quizQuestion.findMany.mock.calls[0][0].where;
+    expect(where.status).toBe('REVEALED');
+    expect(where.revealedAt.gte).toBeInstanceOf(Date);
   });
 });
