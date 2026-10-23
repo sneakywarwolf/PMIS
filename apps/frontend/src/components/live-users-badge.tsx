@@ -7,7 +7,7 @@ import { api, useAuth } from '@/contexts/auth-context';
 import { formatDateTime } from '@/lib/datetime';
 import { useLiveUserCount } from '@/lib/live-users';
 
-type ActiveUser = { id: string; fullName: string | null; username: string; role: string; teamLead: string | null; lastActiveAt: string };
+type ActiveUser = { id: string; fullName: string | null; username: string; role: string; teamLead: string | null; status: 'ACTIVE' | 'IDLE'; lastActiveAt: string; idleSeconds: number };
 
 const ROLE_LABELS: Record<string, string> = { ADMIN: 'Administrator', AVP: 'AVP', TEAM_LEAD: 'Team Lead', TESTER: 'Tester' };
 // Only these roles may open the list (the server enforces the same rule and the team scope).
@@ -15,11 +15,12 @@ const CAN_VIEW_LIST = ['ADMIN', 'TEAM_LEAD', 'AVP'];
 
 const PILL = 'flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20';
 
-function ago(iso: string, now: number): string {
-  const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ago`;
+/** "12m", "2h 5m": how long ago, from a number of seconds. */
+function span(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
 /** "Live Users: N" beside the System Online pill. Everyone sees the number; only Admin / TL / AVP can open the list. */
@@ -76,7 +77,9 @@ function ActiveUsersList({ onClose }: { onClose: () => void }) {
   const [users, setUsers] = useState<ActiveUser[] | null>(null);
   const [thresholdSeconds, setThresholdSeconds] = useState(300);
   const [error, setError] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  // Seconds since each user's last activity grow between refreshes; this is when the list was fetched.
+  const [fetchedAt, setFetchedAt] = useState(() => Date.now());
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,16 +91,23 @@ function ActiveUsersList({ onClose }: { onClose: () => void }) {
           setUsers(res.data.users);
           setThresholdSeconds(res.data.thresholdSeconds);
           setError(false);
-          setNow(Date.now());
+          setFetchedAt(Date.now());
         })
         .catch(() => !cancelled && setError(true));
     load();
     const t = setInterval(load, 30_000);
+    const clock = setInterval(() => setTick((n) => n + 1), 15_000); // keeps "idle for 7m" moving between refreshes
     return () => {
       cancelled = true;
       clearInterval(t);
+      clearInterval(clock);
     };
   }, []);
+
+  void tick;
+  const elapsed = Math.max(0, Math.round((Date.now() - fetchedAt) / 1000));
+  const active = users?.filter((u) => u.status === 'ACTIVE') ?? [];
+  const idle = users?.filter((u) => u.status === 'IDLE') ?? [];
 
   return (
     <>
@@ -105,8 +115,15 @@ function ActiveUsersList({ onClose }: { onClose: () => void }) {
         <div>
           <Dialog.Title className="text-lg font-medium text-white">Active users</Dialog.Title>
           <p className="mt-0.5 text-xs text-gray-400">
-            Users active in the last {Math.round(thresholdSeconds / 60)} minutes within your access. Refreshes automatically.
+            Signed-in users within your access. Idle means no activity for over {Math.round(thresholdSeconds / 60)} minutes. Refreshes automatically.
           </p>
+          {users && users.length > 0 && (
+            <p className="mt-1 text-xs">
+              <span className="text-emerald-400">{active.length} active</span>
+              <span className="text-gray-600"> · </span>
+              <span className="text-amber-400">{idle.length} idle</span>
+            </p>
+          )}
         </div>
         <Dialog.Close aria-label="Close" onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none">
           <X className="w-4 h-4" />
@@ -118,7 +135,7 @@ function ActiveUsersList({ onClose }: { onClose: () => void }) {
           <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-emerald-400" /></div>
         )}
         {error && users === null && <p className="py-8 text-center text-sm text-red-400">Could not load active users.</p>}
-        {users && users.length === 0 && <p className="py-8 text-center text-sm text-gray-500">No active users right now.</p>}
+        {users && users.length === 0 && <p className="py-8 text-center text-sm text-gray-500">No signed-in users right now.</p>}
         {users && users.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -133,17 +150,27 @@ function ActiveUsersList({ onClose }: { onClose: () => void }) {
               </thead>
               <tbody>
                 {users.map((u) => {
-                  const recent = now - new Date(u.lastActiveAt).getTime() < 90_000;
+                  const isIdle = u.status === 'IDLE';
+                  const secs = u.idleSeconds + elapsed;
                   return (
                     <tr key={u.id} className="border-t border-gray-800 text-gray-200">
                       <td className="py-2 pr-4 break-words [overflow-wrap:anywhere]">{u.fullName || u.username}</td>
                       <td className="py-2 pr-4 text-gray-400 break-words [overflow-wrap:anywhere]">{u.username}</td>
                       <td className="py-2 pr-4 whitespace-nowrap">{ROLE_LABELS[u.role] || u.role}</td>
                       <td className="py-2 pr-4 text-gray-400">{u.teamLead || '—'}</td>
-                      <td className="py-2 whitespace-nowrap" title={formatDateTime(u.lastActiveAt)}>
-                        <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${recent ? 'bg-emerald-400' : 'bg-amber-400'}`} aria-hidden />
-                        <span className={recent ? 'text-emerald-400' : 'text-amber-400'}>{recent ? 'Active' : 'Idle'}</span>
-                        <span className="ml-1.5 text-xs text-gray-500">{ago(u.lastActiveAt, now)}</span>
+                      <td className="py-2 whitespace-nowrap" title={`Last activity ${formatDateTime(u.lastActiveAt)}`}>
+                        <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${isIdle ? 'bg-amber-400' : 'bg-emerald-400'}`} aria-hidden />
+                        {isIdle ? (
+                          <>
+                            <span className="text-amber-400">Idle</span>
+                            <span className="ml-1.5 text-xs text-gray-400">for {span(secs)}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-emerald-400">Active</span>
+                            <span className="ml-1.5 text-xs text-gray-500">{secs < 60 ? 'just now' : `${span(secs)} ago`}</span>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );

@@ -7,7 +7,7 @@ import { ROLES_KEY } from '../auth/decorators/roles.decorator';
 const NOW = 1_800_000_000_000;
 
 /** Redis stub: `seen` is the sorted set; `sessions` maps userId -> sessionId; `alive` are the live session_activity keys. */
-function setup(opts: { seen: Record<string, number>; sessions?: Record<string, string>; alive?: string[]; db?: any[]; minutes?: string }) {
+function setup(opts: { seen: Record<string, number>; sessions?: Record<string, string>; alive?: string[]; db?: any[]; minutes?: string; managedBy?: Record<string, string[]> }) {
   const sessions = opts.sessions ?? Object.fromEntries(Object.keys(opts.seen).map((id) => [id, `s-${id}`]));
   const alive = new Set(opts.alive ?? Object.values(sessions));
   const redis: any = {
@@ -22,7 +22,14 @@ function setup(opts: { seen: Record<string, number>; sessions?: Record<string, s
     }),
   };
   const row = (id: string, over: any = {}) => ({ id, username: id, fullName: id.toUpperCase(), role: UserRole.TESTER, assignedTlId: 'tl1', assignedTl: { fullName: 'Team Lead', username: 'tl1' }, ...over });
-  const prisma: any = { user: { findMany: jest.fn(async ({ where }: any) => (opts.db ?? Object.keys(opts.seen).map((id) => row(id))).filter((u) => where.id.in.includes(u.id))) } };
+  const prisma: any = {
+    user: {
+      findMany: jest.fn(async ({ where }: any) => {
+        if (where.managerId) return (opts.managedBy?.[where.managerId] ?? []).map((id) => ({ id })); // Team Leads reporting to this AVP
+        return (opts.db ?? Object.keys(opts.seen).map((id) => row(id))).filter((u) => where.id.in.includes(u.id));
+      }),
+    },
+  };
   const config: any = { get: jest.fn(() => opts.minutes) };
   return { svc: new PresenceService(redis, prisma, config), redis, prisma };
 }
@@ -45,6 +52,25 @@ describe('PresenceService', () => {
     expect(await setup({ seen }).svc.count()).toBe(1);
     expect(await setup({ seen, minutes: '10' }).svc.count()).toBe(2);
     expect(await setup({ seen, minutes: '1' }).svc.count()).toBe(1); // below the 2-minute floor falls back to the default
+  });
+
+  it('idle users (signed in, no activity past the threshold) are listed as IDLE but never counted', async () => {
+    const { svc } = setup({ seen: { active: NOW - 60_000, idle: NOW - 12 * 60_000 } });
+    expect(await svc.count()).toBe(1);
+    const list = await svc.listFor({ id: 'a', role: UserRole.ADMIN });
+    expect(list.map((u) => [u.id, u.status])).toEqual([['active', 'ACTIVE'], ['idle', 'IDLE']]); // active first
+  });
+
+  it('idle users stay listed for hours while their session lasts, and are dropped after a day', async () => {
+    const { svc, redis } = setup({ seen: { longIdle: NOW - 3 * 60 * 60 * 1000 } });
+    expect((await svc.listFor({ id: 'a', role: UserRole.ADMIN })).map((u) => u.id)).toEqual(['longIdle']);
+    expect(redis.zrangebyscore.mock.calls[0][1]).toBe(NOW - 24 * 60 * 60 * 1000); // nothing older is read
+    expect(redis.zremrangebyscore).toHaveBeenCalledWith('presence:last_seen', '-inf', NOW - 24 * 60 * 60 * 1000);
+  });
+
+  it('an idle user who has logged out or whose session expired is not listed at all', async () => {
+    const { svc } = setup({ seen: { idleIn: NOW - 20 * 60_000, idleOut: NOW - 20 * 60_000 }, sessions: { idleIn: 'a' }, alive: ['a'] });
+    expect((await svc.listFor({ id: 'x', role: UserRole.ADMIN })).map((u) => u.id)).toEqual(['idleIn']);
   });
 
   it('excludes logged-out and expired sessions without any change to login/logout', async () => {
@@ -93,15 +119,27 @@ describe('PresenceService', () => {
     it('Team Lead sees only their own team plus themselves', async () => {
       expect(await ids({ id: 'tl1', role: UserRole.TEAM_LEAD })).toEqual(['tl1', 't1']);
     });
-    it('AVP gets the same team scope the Users page gives them', async () => {
-      expect(await ids({ id: 'avp', role: UserRole.AVP })).toEqual([]); // nobody is assigned to this AVP
+    it('AVP sees themselves, the Team Leads who report to them and every team under those Team Leads, but not other teams', async () => {
+      const full = [
+        { id: 'avp', username: 'avp', fullName: 'AVP', role: UserRole.AVP, assignedTlId: null, assignedTl: null },
+        ...db,
+        { id: 'tl2', username: 'tl2', fullName: 'TL Two', role: UserRole.TEAM_LEAD, assignedTlId: null, assignedTl: null },
+        { id: 'other', username: 'other', fullName: 'Other', role: UserRole.TESTER, assignedTlId: 'tl9', assignedTl: { fullName: 'TL Nine', username: 'tl9' } },
+      ];
+      const all = { ...seen, avp: NOW - 5, tl2: NOW - 6, other: NOW - 7 };
+      const ids = (await setup({ seen: all, db: full, managedBy: { avp: ['tl1', 'tl2'] } }).svc.listFor({ id: 'avp', role: UserRole.AVP })).map((u) => u.id);
+      expect(ids.sort()).toEqual(['avp', 't1', 't2', 'tl1', 'tl2']); // t2 is on tl2; 'admin' and 'other' (tl9's tester) are outside
+    });
+    it('an AVP with no Team Leads under them sees only themselves and anyone assigned to them directly', async () => {
+      const full = [{ id: 'avp', username: 'avp', fullName: 'AVP', role: UserRole.AVP, assignedTlId: null, assignedTl: null }, ...db];
+      expect((await setup({ seen: { ...seen, avp: NOW - 5 }, db: full }).svc.listFor({ id: 'avp', role: UserRole.AVP })).map((u) => u.id)).toEqual(['avp']);
     });
     it('Tester gets nothing even if called directly', async () => {
       expect(await ids({ id: 't1', role: UserRole.TESTER })).toEqual([]);
     });
     it('exposes the team lead name and last activity, and nothing like tokens, sessions or IPs', async () => {
       const [u] = await setup({ seen, db }).svc.listFor({ id: 'admin', role: UserRole.ADMIN });
-      expect(Object.keys(u).sort()).toEqual(['assignedTlId', 'fullName', 'id', 'lastActiveAt', 'role', 'teamLeadName', 'username']);
+      expect(Object.keys(u).sort()).toEqual(['assignedTlId', 'fullName', 'id', 'lastActiveAt', 'role', 'status', 'teamLeadName', 'username']);
     });
   });
 });
@@ -126,9 +164,25 @@ describe('PresenceController', () => {
   it('the list response has only the fields the dialog needs', async () => {
     const presence: any = {
       thresholdMs: 300_000,
-      listFor: jest.fn().mockResolvedValue([{ id: 'u1', fullName: 'A', username: 'a', role: 'TESTER', assignedTlId: 'x', teamLeadName: 'TL', lastActiveAt: new Date(0) }]),
+      listFor: jest.fn().mockResolvedValue([{ id: 'u1', fullName: 'A', username: 'a', role: 'TESTER', assignedTlId: 'x', teamLeadName: 'TL', status: 'IDLE', lastActiveAt: new Date(Date.now() - 90_000) }]),
     };
     const res = await new PresenceController(presence).activeUsers({ id: 'admin', role: UserRole.ADMIN } as any);
-    expect(Object.keys(res.users[0]).sort()).toEqual(['fullName', 'id', 'lastActiveAt', 'role', 'teamLead', 'username']);
+    expect(Object.keys(res.users[0]).sort()).toEqual(['fullName', 'id', 'idleSeconds', 'lastActiveAt', 'role', 'status', 'teamLead', 'username']);
+  });
+});
+
+describe('PresenceController idle details', () => {
+  it('reports status and how long each user has been idle, in whole seconds', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(NOW);
+    const presence: any = {
+      thresholdMs: 300_000,
+      listFor: jest.fn().mockResolvedValue([
+        { id: 'a', fullName: 'A', username: 'a', role: 'TESTER', assignedTlId: null, teamLeadName: null, status: 'ACTIVE', lastActiveAt: new Date(NOW - 20_000) },
+        { id: 'b', fullName: 'B', username: 'b', role: 'TESTER', assignedTlId: null, teamLeadName: null, status: 'IDLE', lastActiveAt: new Date(NOW - 15 * 60_000) },
+      ]),
+    };
+    const res = await new PresenceController(presence).activeUsers({ id: 'admin', role: UserRole.ADMIN } as any);
+    expect(res.users.map((u) => [u.id, u.status, u.idleSeconds])).toEqual([['a', 'ACTIVE', 20], ['b', 'IDLE', 900]]);
+    jest.restoreAllMocks();
   });
 });

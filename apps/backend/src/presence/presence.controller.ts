@@ -24,9 +24,10 @@ export class PresenceController {
 
   @Get('active-users')
   @Roles(UserRole.ADMIN, UserRole.TEAM_LEAD, UserRole.AVP)
-  @ApiOperation({ summary: 'Currently active users within the caller’s scope (Admin, Team Lead, AVP only)' })
+  @ApiOperation({ summary: 'Signed-in users (active and idle) within the caller’s scope (Admin, Team Lead, AVP only)' })
   async activeUsers(@CurrentUser() user: User) {
     const users = await this.presence.listFor(user);
+    const now = Date.now();
     return {
       thresholdSeconds: this.presence.thresholdMs / 1000,
       users: users.map((u) => ({
@@ -35,7 +36,10 @@ export class PresenceController {
         username: u.username,
         role: u.role,
         teamLead: u.teamLeadName,
+        status: u.status,
         lastActiveAt: u.lastActiveAt,
+        // How long they have gone without using the app (whole seconds), so the screen needs no clock of its own.
+        idleSeconds: Math.max(0, Math.round((now - u.lastActiveAt.getTime()) / 1000)),
       })),
     };
   }
