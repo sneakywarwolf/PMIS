@@ -26,14 +26,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-      minio:
+      rustfs:
         condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: "4000"
       DATABASE_URL: postgresql://pmis:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/pmis?schema=public
       REDIS_URL: redis://redis:6379
-      MINIO_ENDPOINT: minio
+      MINIO_ENDPOINT: rustfs
       MINIO_PORT: "9000"
       MINIO_USE_SSL: "false"
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-pmisminio}
@@ -68,22 +68,24 @@ services:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
 
-  minio:
-    image: ${MINIO_IMAGE:-minio/minio:latest}
+  # S3-compatible object storage (reports, templates, PoC images). The backend's MINIO_* settings and the
+  # MINIO_ROOT_* variables keep their names so existing .env files work; they are the S3 access and secret key.
+  rustfs:
+    image: ${RUSTFS_IMAGE:-rustfs/rustfs:1.0.3}
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-pmisminio}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER:-pmisminio}
+      RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
     volumes:
-      - minio_data:/data
-    command: server /data
+      - rustfs_data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 10s
 
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
+  rustfs_data:

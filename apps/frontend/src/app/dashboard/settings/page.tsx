@@ -650,7 +650,7 @@ function SystemTab({ settings, setCategory }: any) {
             </div>
             <div className="p-3 rounded-lg bg-gray-800/30 border border-gray-700">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm text-white">MinIO Storage (Reports &amp; PoCs)</span>
+                <span className="text-sm text-white">Object Storage (Reports &amp; PoCs)</span>
                 <StatusBadge status={health.storage.status} />
               </div>
               <p className="text-xs text-gray-500">{health.storage.endpoint}:{health.storage.port} · bucket "{health.storage.bucket}"</p>
@@ -667,7 +667,7 @@ function SystemTab({ settings, setCategory }: any) {
           <div>
             <label className={labelCls}>Total Storage Quota (MB)</label>
             <input type="number" min={1} value={sys.totalStorageQuotaMb} onChange={(e) => setCategory('system', { totalStorageQuotaMb: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Used against the MinIO bucket storing reports and PoC attachments.</p>
+            <p className={hintCls}>Used against the storage bucket holding reports and PoC attachments.</p>
           </div>
           <div>
             <label className={labelCls}>Total Database Quota (MB)</label>

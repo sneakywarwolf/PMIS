@@ -46,7 +46,7 @@
     <p><code>docker compose up -d</code> starts five containers on a private Docker network:</p>
     <figure class="shot">
       <div class="diagram">
-        <svg viewBox="0 0 760 210" role="img" aria-label="Browser reaches the frontend container; the frontend calls the backend; the backend uses postgres, redis and minio on a private network">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Browser reaches the frontend container; the frontend calls the backend; the backend uses postgres, redis and rustfs on a private network">
           <defs><marker id="ah2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="head"/></marker></defs>
           <rect class="net" x="196" y="10" width="560" height="190" rx="12"/>
           <text class="sub" x="210" y="30">Private Docker network</text>
@@ -55,7 +55,7 @@
           <rect class="box" x="402" y="75" width="130" height="60" rx="8"/><text x="467" y="102" text-anchor="middle">backend</text><text class="sub" x="467" y="120" text-anchor="middle">internal only</text>
           <rect class="box" x="600" y="30" width="140" height="44" rx="8"/><text x="670" y="57" text-anchor="middle">postgres</text>
           <rect class="box" x="600" y="86" width="140" height="44" rx="8"/><text x="670" y="113" text-anchor="middle">redis</text>
-          <rect class="box" x="600" y="142" width="140" height="44" rx="8"/><text x="670" y="169" text-anchor="middle">minio</text>
+          <rect class="box" x="600" y="142" width="140" height="44" rx="8"/><text x="670" y="169" text-anchor="middle">rustfs</text>
           <path class="arrow" d="M146,105 H220" marker-end="url(#ah2)"/><path class="arrow" d="M352,105 H400" marker-end="url(#ah2)"/>
           <path class="arrow" d="M532,95 C566,95 566,52 598,52" marker-end="url(#ah2)"/><path class="arrow" d="M532,108 H598" marker-end="url(#ah2)"/><path class="arrow" d="M532,118 C566,118 566,164 598,164" marker-end="url(#ah2)"/>
         </svg>
@@ -69,10 +69,10 @@
         <tr><td><code>backend</code></td><td>Application server. Applies database migrations on every start.</td><td>No</td></tr>
         <tr><td><code>postgres</code></td><td>Database (PostgreSQL 16)</td><td>No</td></tr>
         <tr><td><code>redis</code></td><td>Sessions, background jobs (Redis 7)</td><td>No</td></tr>
-        <tr><td><code>minio</code></td><td>File storage for templates, reports and screenshots</td><td>No</td></tr>
+        <tr><td><code>rustfs</code></td><td>Object storage (RustFS, S3-compatible) for templates, reports and screenshots</td><td>No</td></tr>
       </tbody>
     </table></div>
-    <p>Data is kept in three Docker volumes: <code>postgres_data</code>, <code>redis_data</code> and <code>minio_data</code>. Docker prefixes them with the project name, for example <code>pmis_minio_data</code> when the folder is named <code>PMIS</code>. Check with <code>docker volume ls</code>.</p>
+    <p>Data is kept in three Docker volumes: <code>postgres_data</code>, <code>redis_data</code> and <code>rustfs_data</code>. Docker prefixes them with the project name, for example <code>pmis_rustfs_data</code> when the folder is named <code>PMIS</code>. Check with <code>docker volume ls</code>.</p>
   </section>
 
   <section id="https">
@@ -117,16 +117,16 @@ server {
       <thead><tr><th>Variable</th><th>Required</th><th>Default</th><th>Purpose</th></tr></thead>
       <tbody>
         <tr><td><code>POSTGRES_PASSWORD</code></td><td>Yes</td><td>none</td><td>Database password. Changing it later requires changing it inside the database too, so set it once.</td></tr>
-        <tr><td><code>MINIO_ROOT_PASSWORD</code></td><td>Yes</td><td>none</td><td>File storage password</td></tr>
+        <tr><td><code>MINIO_ROOT_PASSWORD</code></td><td>Yes</td><td>none</td><td>Secret key of the object storage. The name is kept from earlier versions so existing <code>.env</code> files work.</td></tr>
         <tr><td><code>JWT_ACCESS_SECRET</code></td><td>Yes</td><td>none</td><td>Signs sign-in session tokens</td></tr>
         <tr><td><code>JWT_REFRESH_SECRET</code></td><td>Yes</td><td>none</td><td>Signs session renewals. Must differ from the access secret.</td></tr>
-        <tr><td><code>MINIO_IMAGE</code></td><td>Yes, in practice</td><td><code>minio/minio:latest</code> (no longer available)</td><td>MinIO server image. See <a href="installation.html#github">Installation, step 3b</a>.</td></tr>
+        <tr><td><code>RUSTFS_IMAGE</code></td><td>No</td><td><code>rustfs/rustfs:1.0.3</code></td><td>Object storage image. Pin a version or digest in production.</td></tr>
         <tr><td><code>ADMIN_PASSWORD</code></td><td>No</td><td>empty (random)</td><td>First admin password. Used only when the admin account is created. Remove it from <code>.env</code> afterwards.</td></tr>
         <tr><td><code>SEED_DEMO</code></td><td>No</td><td><code>false</code></td><td>Demo data with public passwords. Never enable on a reachable instance.</td></tr>
         <tr><td><code>FRONTEND_PORT</code></td><td>No</td><td><code>3000</code></td><td>Host port, or <code>address:port</code>, for the web interface</td></tr>
         <tr><td><code>FRONTEND_URL</code></td><td>No</td><td><code>http://localhost:3000</code></td><td>The exact address users open. Requests from other origins are refused.</td></tr>
         <tr><td><code>COOKIE_SECURE</code></td><td>No</td><td><code>false</code></td><td><code>true</code> behind HTTPS</td></tr>
-        <tr><td><code>MINIO_ROOT_USER</code></td><td>No</td><td><code>pmisminio</code></td><td>File storage user name</td></tr>
+        <tr><td><code>MINIO_ROOT_USER</code></td><td>No</td><td><code>pmisminio</code></td><td>Access key of the object storage</td></tr>
         <tr><td><code>PMIS_IMAGE_REPO</code>, <code>PMIS_VERSION</code></td><td>No</td><td><code>sneakywarwolf</code>, <code>latest</code></td><td>Which prebuilt images to use. Pin a version.</td></tr>
       </tbody>
     </table></div>
@@ -148,14 +148,14 @@ server {
   <section id="backup">
     <h2>Backup and restore</h2>
     <p>A complete backup has three parts: the database, the files volume and your <code>.env</code>. Backups contain client vulnerability data. Encrypt them and restrict access.</p>
-    <p>Commands below are for Linux, macOS or Git Bash, run in the <code>PMIS</code> folder. Replace <code>pmis_minio_data</code> with your volume name from <code>docker volume ls</code>.</p>
+    <p>Commands below are for Linux, macOS or Git Bash, run in the <code>PMIS</code> folder. Replace <code>pmis_rustfs_data</code> with your volume name from <code>docker volume ls</code>. For the most consistent file copy, back up while nobody is uploading, or stop the stack first with <code>docker compose stop</code>.</p>
 
     <h3>Back up</h3>
 <pre><code># Database
 docker compose exec -T postgres pg_dump -U pmis pmis &gt; pmis-db-$(date +%F).sql
 
 # Files (templates, reports, screenshots)
-docker run --rm -v pmis_minio_data:/data:ro -v "$PWD":/backup postgres:16.4-alpine \
+docker run --rm -v pmis_rustfs_data:/data:ro -v "$PWD":/backup postgres:16.4-alpine \
   tar czf /backup/pmis-files-$(date +%F).tgz -C /data .
 
 # Configuration (keep with the backup, store securely)
@@ -168,7 +168,7 @@ docker compose up -d postgres
 docker compose ps postgres          # wait until it shows (healthy)
 
 docker compose exec -T postgres psql -q -U pmis -d pmis &lt; pmis-db-YYYY-MM-DD.sql
-docker run --rm -v pmis_minio_data:/data -v "$PWD":/backup postgres:16.4-alpine \
+docker run --rm -v pmis_rustfs_data:/data -v "$PWD":/backup postgres:16.4-alpine \
   tar xzf /backup/pmis-files-YYYY-MM-DD.tgz -C /data
 
 docker compose up -d</code></pre>
@@ -191,6 +191,38 @@ docker compose up -d --build</code></pre></li>
     </ol>
   </section>
 
+  <section id="migrate-minio">
+    <h2>Migrating an existing install from MinIO to RustFS</h2>
+    <p>Earlier versions stored files in MinIO. RustFS cannot read MinIO's on-disk format, so the files have to be copied across over the S3 interface. A new install does not need this.</p>
+    <div class="warn">Take a <a href="#backup">backup</a> first, and keep the old MinIO volume until you have checked the result. The commands are for Linux, macOS or Git Bash, run in the PMIS folder.</div>
+    <ol class="plain">
+      <li>Set the values for your install. <code>PROJECT</code> is the prefix of your storage volume's name: run <code>docker volume ls | grep minio_data</code>, and for <code>pmis_minio_data</code> the project is <code>pmis</code>. <code>OLD_IMAGE</code> is the MinIO image you ran before, the value of your old <code>MINIO_IMAGE</code> setting:
+<pre><code>PROJECT=pmis
+OLD_IMAGE=minio/minio:latest
+KEY=$(grep '^MINIO_ROOT_USER=' .env | cut -d= -f2-); KEY=${KEY:-pmisminio}
+SECRET=$(grep '^MINIO_ROOT_PASSWORD=' .env | cut -d= -f2-)</code></pre></li>
+      <li>Stop the old stack, which keeps its data. Get the new version, then start only the new storage:
+<pre><code>docker compose down
+git pull
+docker compose up -d rustfs</code></pre></li>
+      <li>Start the old MinIO on its old data volume:
+<pre><code>docker run -d --name pmis-old-minio --network "${PROJECT}_default" \
+  -e MINIO_ROOT_USER="$KEY" -e MINIO_ROOT_PASSWORD="$SECRET" \
+  -v "${PROJECT}_minio_data":/data "$OLD_IMAGE" server /data</code></pre></li>
+      <li>Create the bucket on the new storage, copy every file across, and compare. The new storage has no bucket yet, because PMIS creates it only when it first starts. <code>mc diff</code> prints nothing when the two sides match:
+<pre><code>MC="docker run --rm --network ${PROJECT}_default --entrypoint mc -e MC_HOST_old=http://$KEY:$SECRET@pmis-old-minio:9000 -e MC_HOST_new=http://$KEY:$SECRET@rustfs:9000 $OLD_IMAGE"
+$MC mb --ignore-existing new/vapt-reports
+$MC mirror --preserve old/vapt-reports new/vapt-reports
+$MC diff old/vapt-reports new/vapt-reports</code></pre></li>
+      <li>Remove the temporary MinIO container and start PMIS:
+<pre><code>docker rm -f pmis-old-minio
+docker compose up -d</code></pre></li>
+      <li>Open PMIS and check that an existing report downloads and an existing screenshot shows. After a few days of normal use, delete the old data:
+<pre><code>docker volume rm "${PROJECT}_minio_data"</code></pre></li>
+    </ol>
+    <p>The old <code>MINIO_IMAGE</code> line in <code>.env</code> is no longer used and can be removed.</p>
+  </section>
+
   <section id="monitoring">
     <h2>Health and logs</h2>
 <pre><code>docker compose ps                 # status and health of each container
@@ -209,7 +241,7 @@ docker compose logs -f frontend</code></pre>
       <li>Access is limited to your organisation's network or VPN where possible.</li>
       <li><code>SEED_DEMO=false</code>. <code>ADMIN_PASSWORD</code> is removed from <code>.env</code> after the first start.</li>
       <li>The admin password was changed at first sign-in, and each administrator has their own named account.</li>
-      <li><code>PMIS_VERSION</code> and <code>MINIO_IMAGE</code> are pinned to specific versions.</li>
+      <li><code>PMIS_VERSION</code> and <code>RUSTFS_IMAGE</code> are pinned to specific versions.</li>
       <li>The database, cache and storage ports are not published. Never use <code>docker-compose.dev.yml</code> for production.</li>
       <li>Backups are scheduled, encrypted and stored off the server, and a restore has been tested.</li>
       <li>The host operating system, Docker and PMIS are kept up to date.</li>
