@@ -10,7 +10,7 @@ import {
   SeedVulnerability,
 } from './defaults';
 
-/** Object storage (MinIO) as the reset sees it. Swapped for a fake in tests. */
+/** Object storage (RustFS, S3-compatible) as the reset sees it. Swapped for a fake in tests. */
 export interface ResetStorage {
   list(prefix: string): Promise<string[]>;
   remove(keys: string[]): Promise<void>;

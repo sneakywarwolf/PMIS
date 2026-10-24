@@ -2,9 +2,52 @@
 
 > **Correction (2026-10-24):** this is a historical design draft. Where it says placeholders must be yellow-highlighted (sections 3 and 5), that no longer applies: Word placeholders are detected from their literal `{…}` text. The current placeholder reference is the Reports page of the documentation site, checked against the code.
 
-**Status:** Review draft — awaiting owner approval. No code changes have been made.
-**Date:** 2026-08-30
+**Status:** Implemented, and since extended. Sections 1–10 are the original 2026-08-30 draft, kept as the design record; where they conflict with the code, **"Changes since the draft" below wins**.
+**Draft date:** 2026-08-30 · **Status update:** 2026-10-24 (verified by reading `apps/backend/src/reports/` and `apps/backend/src/common/poc-validation.util.ts`; behaviour was not re-run end to end for this update)
 **Basis:** Direct inspection of the 8 DOCX templates (`Report Template/PCI`, `Report Template/VAPT` — Web, API, Mobile, Thick-Client) and the current backend code.
+
+---
+
+## Changes since the draft (as of 2026-10-24)
+
+Source for each item is the file named in brackets, under `apps/backend/src/reports/` unless stated.
+
+### A. Decisions that were reversed or superseded
+
+| Draft | Now |
+|---|---|
+| Decision 4: Document Version is manual, never auto-incremented | **Auto-incremented.** First generation is `1.0`, then `1.1`, `1.2`, … per project, never reset. The counter (`Project.reportVersionCounter`) advances only when a generation completes, so a failed run does not consume a number. `{Document Version}` resolves to this value [`reports.service.ts`, `template-parameters.ts`]. |
+| Decision 6 / §1: DOCX only | **Word for all projects; Excel (`.xlsx`) additionally for Network projects.** Excel is rejected for any other project type. PDF remains removed (`reportPdfPath` is written as `null`) [`reports.service.ts`]. |
+| §2.5: generation runs on request | **Queued.** `POST /reports/generate` creates a `PENDING` `ReportGeneration` and enqueues a BullMQ job (`report-generation` queue); a worker builds and uploads the file. Status is polled via `GET /reports/generate/:id/status`. One in-flight generation per project (a `PENDING` row younger than 10 minutes blocks a new one) [`report-generation.processor.ts`, `reports.service.ts`]. |
+| §2.5 / §2.6: stored file linked on the project | Downloads use **signed links** (`/api/reports/download?path&fn&exp&sig`), valid one hour, checked with a constant-time signature comparison [`reports.service.ts`]. |
+| §2.3: "Only findings with status APPROVED go into the report" | **Not what the code enforces.** The generation gate checks that every finding has Steps and PoC (below); `loadProjectForReport` loads every finding of the project with no status filter, and no approval check was found in `generateReport` or `preflight`. All of a project's findings go into the report. |
+| §6 / §3 / §5: placeholders must be yellow-highlighted | Word placeholders are detected from literal `{…}` text; highlight is no longer required. |
+| §2.1: template pinned to the project at creation | **Selected automatically** from the project's Category and Testing Type at generation. The pinned `templateId` is re-checked each time; if it is no longer active/eligible, the project is re-pointed to the eligible active template. Cert-In `Application` templates act as the umbrella for every non-Network Testing Type; for PCI/VAPT `Application` is not offered [`template-subtypes.ts`, `reports.service.ts`]. |
+| §6.3: activation sets `effectiveTo` on the previous version | Still true, now **atomic**: activation takes a Postgres advisory lock per category + format, deactivates the replaced version and activates the new one in one transaction. Replaced templates referenced by reports are kept; the active template cannot be deleted [`reports.service.ts`]. |
+| §2.6: file name fixed as `App-Security-Test_…_Non-Compliant.docx` | The name is built from a configurable pattern with the same parameter keys; the legacy fallback is `{Type}_{Client}_{Application}_{version}_{date}_{Compliant-|Non-Compliant-}Report.docx`. The date format comes from Admin Settings. The compliance word is empty while the project is In Progress [`reports.service.ts`]. |
+
+### B. Added after the draft
+
+1. **Categories and sub-types.** `TemplateCategory`: PCI, VAPT, **CERT_IN, ASV**. `TemplateSubType`: WEB, API, MOBILE, THICK_CLIENT, **NETWORK, APPLICATION**. A template may cover several Activity Types (`subType` + `extraSubTypes`) [`prisma/schema.prisma`, `template-subtypes.ts`].
+2. **Generation gate and PoC readiness.** Generation is refused when a project has no findings, unless its Compliance Status is `Compliant`; and when any finding lacks Steps or PoC (every step needs text; every step needs an attachment). VA findings imported from Nessus (project-scoped) in Network projects are exempt; PT findings are not. `preflight` reports the same readiness (`Steps Missing` / `PoC Missing` / `Steps & PoC Missing`) [`common/poc-validation.util.ts`, `reports.service.ts`].
+3. **Conditional blocks.** For Network projects, paragraphs `{#VA}…{/VA}` and `{#PT}…{/PT}` are kept or dropped by the project's Network Activity Type; an unmatched opening tag is logged and left as is. Scope and Detail Findings start on a new page in the Network Word report [`docx-manipulator.service.ts`].
+4. **Status placeholders.** `{Project Status}` / `{Compliance Status}` print Compliant / Non-Compliant; the green/red cell background applies only when the placeholder is alone in its cell or paragraph, in both Word and Excel. In Progress prints nothing [`reports.service.ts`, `xlsx-template.service.ts`].
+5. **Client SPOC.** Optional project fields (name, designation, email); placeholders resolve to `N/A` when empty.
+6. **Template parameter mapping.** `CANONICAL_TEMPLATE_PARAMETERS` is the single registry used by the admin mapping UI and by generation (45 keys at this date, including `project.networkActivityType`, `project.totalScopeCount`, `project.quarter`, `project.mobilePlatform`, `project.sha1`, `project.externalInternal`, manager/TL/tester contact keys, and `report.generationDateIso`). Unknown keys resolve to an empty string. A drift test checks the documentation parameter table against the code [`template-parameters.ts`, `docs-parameters.spec.ts`].
+7. **Audit-day split.** `splitAuditDays` divides the inclusive project duration into Planning : Information Gathering : Scanning & Exploitation = 1 : 2 : 4 (half-day steps), with Reporting fixed at 1 day [`template-parameters.ts`].
+8. **Excel reports (Network).** Excel templates are uploaded and activated like Word ones; rows repeat per scope entry, port and finding, and plain-string cells are filled [`xlsx-template.service.ts`].
+9. **Issue Log.** A CSV export of findings (`GET /reports/issue-log/:projectId`) with an admin-configurable column list from a fixed catalog (17 columns, 12 enabled by default; unknown or duplicate keys rejected). Cells starting with `=`, `+`, `-`, `@`, tab or CR are prefixed with `'` to prevent spreadsheet formula execution [`issue-log.ts`].
+10. **Upload hardening.** `.docx` packages are checked by `assertSafeDocx` before parsing or storage; a `.xlsx` sent as a Word template is rejected with a message pointing to the Excel report type. Uploads are stored as inactive drafts with a field diff and dry-run result against the active version [`reports.service.ts`].
+11. **Finding ordering.** Cert-In reports order findings Critical → High → Medium → Low → Info (score as tiebreak); other types order by score [`reports.service.ts`].
+12. **Object storage.** Templates, PoC images and generated files are stored in an S3-compatible bucket, now **RustFS** (previously MinIO). The backend's `MINIO_*` variable names and the `minio` client are unchanged. Existing installs must migrate their files once; see the deployment guide section "Migrating from MinIO to RustFS" [`storage.service.ts`, `docker-compose.yml`].
+
+### C. Still open or unverified
+
+- Whether findings should be restricted to approved ones (see A); today they are not.
+- Project-level screenshots (§3.5): no `ProjectScreenshot` model exists in `schema.prisma`; not implemented.
+- Mobile / Thick-Client template field lists vs. the §3 mapping: not re-checked.
+- `reportPdfPath` columns: still written (as `null`); removal not done.
+- Excel and Word generation were not run against RustFS in an end-to-end report run for this update; only the storage operations were tested.
 
 ---
 
@@ -174,7 +217,7 @@ Nullable `cvssScoreOverride` + `cvssVectorOverride`. Report logic: override if p
 
 ### 4.4 New model `PocStep`
 
-`findingId`, `stepNo` (int, ordered), `description` (text), `imagePath` (MinIO object). CRUD in the finding UI; images embedded at generation.
+`findingId`, `stepNo` (int, ordered), `description` (text), `imagePath` (object-storage key). CRUD in the finding UI; images embedded at generation.
 
 ### 4.5 Optional: `ProjectScreenshot`
 
