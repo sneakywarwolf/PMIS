@@ -42,42 +42,57 @@
     </ol>
 
     <h3>Placeholders you can map</h3>
-    <p>After upload, each detected placeholder can be mapped to one of these values. Unmapped placeholders are matched by name automatically.</p>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Group</th><th>Parameter</th><th>Used for</th></tr></thead>
+    <p>After upload, each detected placeholder can be mapped to one of these values. Unmapped placeholders are matched by name automatically. The suggested placeholder is the parameter's own name: click it to copy, then paste it into your template. <em>Entered in</em> shows where the value comes from.</p>
+    <!-- Screenshot slot: <figure class="shot"><img src="img/mapping-screen.png" alt="Mapping detected placeholders to parameters"><figcaption>Mapping placeholders after upload.</figcaption></figure> -->
+    <!-- Screenshot slot: <figure class="shot"><img src="img/filled-report.png" alt="A generated report page"><figcaption>The same parameters filled in a generated report.</figcaption></figure> -->
+    <div class="filter"><label for="param-filter">Filter parameters</label><input id="param-filter" type="search" placeholder="Type a name, group or field"></div>
+    <div class="table-wrap"><table id="param-table">
+      <thead><tr><th>Group</th><th>Parameter</th><th>Suggested placeholder</th><th>Used for</th><th>Entered in</th></tr></thead>
       <tbody>
-        <tr><td>Project</td><td>Application Name</td><td>The project name: the app, API or product under test.</td></tr>
-        <tr><td></td><td>App Version</td><td>Version of the application being tested.</td></tr>
-        <tr><td></td><td>Application Name &amp; Version</td><td>Name and version on one line, for cover page titles.</td></tr>
-        <tr><td></td><td>Document Version</td><td>Report version. Rises with each generation (1.0, 1.1, 1.2).</td></tr>
-        <tr><td></td><td>Client Name</td><td>Organisation that ordered the test.</td></tr>
-        <tr><td></td><td>Client Name &amp; Location</td><td>Client name and site, joined with a comma.</td></tr>
-        <tr><td></td><td>Start Date, End Date</td><td>Testing window, in the date format set in Settings.</td></tr>
-        <tr><td></td><td>Start &amp; End Date</td><td>Both dates in one sentence: Start Date …, to End Date ….</td></tr>
-        <tr><td></td><td>Scope</td><td>URLs, hosts or modules in scope.</td></tr>
-        <tr><td></td><td>Application Details &amp; Scope</td><td>Build details and scope together, one per line.</td></tr>
-        <tr><td></td><td>Build Details</td><td>Build, release or environment description.</td></tr>
-        <tr><td></td><td>Tools Used</td><td>Tools used during testing.</td></tr>
-        <tr><td></td><td>Testing Environment</td><td>Where testing ran, such as UAT, staging or production.</td></tr>
-        <tr><td></td><td>Testing Type (Black/Grey Box)</td><td>Black box or grey box approach.</td></tr>
-        <tr><td></td><td>Testing Type (Platform)</td><td>Web Application, API, Mobile Application, Thick Client, Network or Application.</td></tr>
-        <tr><td></td><td>Login/Role Types</td><td>User roles or logins used during testing.</td></tr>
-        <tr><td></td><td>Nature/Purpose of Application</td><td>What the application does for the client.</td></tr>
-        <tr><td></td><td>Testing Limitation</td><td>Constraints that limited testing. Prints N/A when empty.</td></tr>
-        <tr><td></td><td>QA Reviewer Name</td><td>Person who reviewed the report. Prints N/A when empty.</td></tr>
-        <tr><td></td><td>Mobile Platform</td><td>Android or iOS, for mobile projects.</td></tr>
-        <tr><td></td><td>SHA-1 Hash</td><td>Hash of the tested build.</td></tr>
-        <tr><td>Network</td><td>Scope Exposure (External/Internal)</td><td>Whether the scope is external or internal.</td></tr>
-        <tr><td></td><td>Network Activity Type (VA/PT/VAPT)</td><td>Which activities the engagement covers.</td></tr>
-        <tr><td></td><td>Total Scope Count</td><td>Number of IPs or hosts in scope.</td></tr>
-        <tr><td></td><td>Quarter</td><td>Reporting quarter, for recurring network assessments.</td></tr>
-        <tr><td>Client contact</td><td>Client SPOC Name, Designation, Email ID</td><td>Client point of contact (CERT-In projects). Prints N/A when empty.</td></tr>
-        <tr><td>People</td><td>Tester Name, Team Lead Name</td><td>Names of the assigned tester and Team Lead.</td></tr>
-        <tr><td></td><td>Manager Name</td><td>The Team Lead's manager (AVP).</td></tr>
-        <tr><td></td><td>Tester, Team Lead, Manager: Designation, Phone, Email</td><td>Contact details for sign-off pages. Prints N/A when a profile field is empty.</td></tr>
-        <tr><td>Report</td><td>Report Generation Date</td><td>Date the report was generated.</td></tr>
-        <tr><td></td><td>Report Date</td><td>Generation date in the format set in Settings.</td></tr>
-        <tr><td></td><td>Report Name</td><td>The final generated file name, for headers and footers.</td></tr>
+        <tr data-key="project.applicationName"><td>Project</td><td>Application Name</td><td><code class="ph">{Application Name}</code></td><td>The project name: the app, API or product under test.</td><td>Project form: Application Name</td></tr>
+        <tr data-key="project.appVersion"><td>Project</td><td>App Version</td><td><code class="ph">{App Version}</code></td><td>Version of the application being tested.</td><td>Project form: App Version</td></tr>
+        <tr data-key="project.appNameVersion"><td>Project</td><td>Application Name &amp; Version (combined)</td><td><code class="ph">{Application Name &amp; Version (combined)}</code></td><td>Name and version on one line, for cover page titles.</td><td>Project form: Application Name, App Version</td></tr>
+        <tr data-key="project.documentVersion"><td>Project</td><td>Document Version</td><td><code class="ph">{Document Version}</code></td><td>Report version. Rises with each generation (1.0, 1.1, 1.2).</td><td>Automatic</td></tr>
+        <tr data-key="project.clientName"><td>Project</td><td>Client Name</td><td><code class="ph">{Client Name}</code></td><td>Organisation that ordered the test.</td><td>Project form: Client Name</td></tr>
+        <tr data-key="project.clientNameLocation"><td>Project</td><td>Client Name &amp; Location (combined)</td><td><code class="ph">{Client Name &amp; Location (combined)}</code></td><td>Client name and site, joined with a comma.</td><td>Project form: Client Name, Location</td></tr>
+        <tr data-key="project.startDate"><td>Project</td><td>Project Start Date</td><td><code class="ph">{Project Start Date}</code></td><td>First day of the testing window, in the date format set in Settings.</td><td>Project form: Start Date</td></tr>
+        <tr data-key="project.endDate"><td>Project</td><td>Project End Date</td><td><code class="ph">{Project End Date}</code></td><td>Last day of the testing window.</td><td>Project form: End Date</td></tr>
+        <tr data-key="project.startEndDateRange"><td>Project</td><td>Start &amp; End Date (combined)</td><td><code class="ph">{Start &amp; End Date (combined)}</code></td><td>Both dates in one sentence: Start Date …, to End Date ….</td><td>Project form: Start Date, End Date</td></tr>
+        <tr data-key="project.scope"><td>Project</td><td>Scope</td><td><code class="ph">{Scope}</code></td><td>URLs, hosts or modules in scope.</td><td>Project form: Scope</td></tr>
+        <tr data-key="project.detailsAndScope"><td>Project</td><td>Application Details &amp; Scope (combined)</td><td><code class="ph">{Application Details &amp; Scope (combined)}</code></td><td>Build details and scope together, one per line.</td><td>Project form: Build Details, Scope</td></tr>
+        <tr data-key="project.applicationDetails"><td>Project</td><td>Build Details</td><td><code class="ph">{Build Details}</code></td><td>Build, release or environment description.</td><td>Project form: Build Details</td></tr>
+        <tr data-key="project.toolsUsed"><td>Project</td><td>Tools Used</td><td><code class="ph">{Tools Used}</code></td><td>Tools used during testing.</td><td>Project form: Tools Used</td></tr>
+        <tr data-key="project.testingEnvironment"><td>Project</td><td>Testing Environment</td><td><code class="ph">{Testing Environment}</code></td><td>Where testing ran, such as UAT, staging or production.</td><td>Project form: Testing Environment</td></tr>
+        <tr data-key="project.testingType"><td>Project</td><td>Testing Type (Black/Grey Box)</td><td><code class="ph">{Testing Type (Black/Grey Box)}</code></td><td>Black box or grey box approach.</td><td>Project form: Approach</td></tr>
+        <tr data-key="project.platformType"><td>Project</td><td>Testing Type (Platform)</td><td><code class="ph">{Testing Type (Platform)}</code></td><td>Web Application, API, Mobile Application, Thick Client, Network or Application.</td><td>Project form: Testing Type (Platform)</td></tr>
+        <tr data-key="project.loginSystemTypes"><td>Project</td><td>Login/Role Types</td><td><code class="ph">{Login/Role Types}</code></td><td>User roles or logins used during testing.</td><td>Project form: Login/System Types</td></tr>
+        <tr data-key="project.applicationNature"><td>Project</td><td>Nature/Purpose of Application</td><td><code class="ph">{Nature/Purpose of Application}</code></td><td>What the application does for the client.</td><td>Project form: Application nature</td></tr>
+        <tr data-key="project.testingLimitation"><td>Project</td><td>Testing Limitation</td><td><code class="ph">{Testing Limitation}</code></td><td>Constraints that limited testing. Prints N/A when empty.</td><td>Project form: Testing Limitation</td></tr>
+        <tr data-key="project.qaReviewerName"><td>Project</td><td>QA Reviewer Name</td><td><code class="ph">{QA Reviewer Name}</code></td><td>Person who reviewed the report. Prints N/A when empty.</td><td>Project form: QA Name</td></tr>
+        <tr data-key="project.mobilePlatform"><td>Project</td><td>Mobile Platform (Android/iOS)</td><td><code class="ph">{Mobile Platform (Android/iOS)}</code></td><td>Android or iOS, for mobile projects.</td><td>Project form: Android/iOS</td></tr>
+        <tr data-key="project.sha1"><td>Project</td><td>SHA-1 Hash</td><td><code class="ph">{SHA-1 Hash}</code></td><td>Hash of the tested build.</td><td>Project form: SHA-1</td></tr>
+        <tr data-key="project.externalInternal"><td>Network</td><td>Scope Exposure (External/Internal)</td><td><code class="ph">{Scope Exposure (External/Internal)}</code></td><td>Whether the scope is external or internal.</td><td>Project form: Exposure</td></tr>
+        <tr data-key="project.networkActivityType"><td>Network</td><td>Network Activity Type (VA/PT/VAPT)</td><td><code class="ph">{Network Activity Type (VA/PT/VAPT)}</code></td><td>Which activities the engagement covers.</td><td>Project form: Activity Type</td></tr>
+        <tr data-key="project.totalScopeCount"><td>Network</td><td>Total Scope Count</td><td><code class="ph">{Total Scope Count}</code></td><td>Number of IPs or hosts in scope.</td><td>Project form: Scope Count</td></tr>
+        <tr data-key="project.quarter"><td>Network</td><td>Quarter</td><td><code class="ph">{Quarter}</code></td><td>Reporting quarter, for recurring network assessments.</td><td>Project form: Quarter/Frequency</td></tr>
+        <tr data-key="project.clientSpocName"><td>Client contact</td><td>Client SPOC Name</td><td><code class="ph">{Client SPOC Name}</code></td><td>Client point of contact (CERT-In projects). Prints N/A when empty.</td><td>Project form: Client SPOC Name</td></tr>
+        <tr data-key="project.clientSpocDesignation"><td>Client contact</td><td>Client SPOC Designation</td><td><code class="ph">{Client SPOC Designation}</code></td><td>The contact's job title. Prints N/A when empty.</td><td>Project form: Client SPOC Designation</td></tr>
+        <tr data-key="project.clientSpocEmail"><td>Client contact</td><td>Client SPOC Email ID</td><td><code class="ph">{Client SPOC Email ID}</code></td><td>The contact's email. Prints N/A when empty.</td><td>Project form: Client SPOC Email ID</td></tr>
+        <tr data-key="project.testerName"><td>People</td><td>Tester Name</td><td><code class="ph">{Tester Name}</code></td><td>Name of the assigned tester.</td><td>Project assignment and Profile</td></tr>
+        <tr data-key="project.teamLeadName"><td>People</td><td>Team Lead Name</td><td><code class="ph">{Team Lead Name}</code></td><td>Name of the assigned Team Lead.</td><td>Project assignment and Profile</td></tr>
+        <tr data-key="manager.fullName"><td>People</td><td>Manager Name</td><td><code class="ph">{Manager Name}</code></td><td>The Team Lead's manager (AVP). Prints N/A when empty.</td><td>User management</td></tr>
+        <tr data-key="manager.designation"><td>People</td><td>Manager Designation</td><td><code class="ph">{Manager Designation}</code></td><td>Manager's job title.</td><td>Profile</td></tr>
+        <tr data-key="manager.phone"><td>People</td><td>Manager Phone</td><td><code class="ph">{Manager Phone}</code></td><td>Manager's phone number.</td><td>Profile</td></tr>
+        <tr data-key="manager.email"><td>People</td><td>Manager Email</td><td><code class="ph">{Manager Email}</code></td><td>Manager's email.</td><td>Profile</td></tr>
+        <tr data-key="teamLead.designation"><td>People</td><td>Team Lead Designation</td><td><code class="ph">{Team Lead Designation}</code></td><td>Team Lead's job title.</td><td>Profile</td></tr>
+        <tr data-key="teamLead.phone"><td>People</td><td>Team Lead Phone</td><td><code class="ph">{Team Lead Phone}</code></td><td>Team Lead's phone number.</td><td>Profile</td></tr>
+        <tr data-key="teamLead.email"><td>People</td><td>Team Lead Email</td><td><code class="ph">{Team Lead Email}</code></td><td>Team Lead's email.</td><td>Profile</td></tr>
+        <tr data-key="tester.designation"><td>People</td><td>Tester Designation</td><td><code class="ph">{Tester Designation}</code></td><td>Tester's job title.</td><td>Profile</td></tr>
+        <tr data-key="tester.phone"><td>People</td><td>Tester Phone</td><td><code class="ph">{Tester Phone}</code></td><td>Tester's phone number.</td><td>Profile</td></tr>
+        <tr data-key="tester.email"><td>People</td><td>Tester Email</td><td><code class="ph">{Tester Email}</code></td><td>Tester's email.</td><td>Profile</td></tr>
+        <tr data-key="report.generationDate"><td>Report</td><td>Report Generation Date</td><td><code class="ph">{Report Generation Date}</code></td><td>Date the report was generated.</td><td>Automatic</td></tr>
+        <tr data-key="report.generationDateIso"><td>Report</td><td>Report Date (format set in Settings)</td><td><code class="ph">{Report Date (format set in Settings)}</code></td><td>Generation date in the format an Admin sets in Settings.</td><td>Automatic</td></tr>
+        <tr data-key="report.name"><td>Report</td><td>Report Name (Generated Filename)</td><td><code class="ph">{Report Name (Generated Filename)}</code></td><td>The final generated file name, for headers and footers.</td><td>Automatic</td></tr>
       </tbody>
     </table></div>
     <p>Two placeholders have special behaviour:</p>

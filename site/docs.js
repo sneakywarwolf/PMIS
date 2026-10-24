@@ -94,4 +94,28 @@
     });
     pre.appendChild(b);
   });
+
+  // Parameter table: filter box and click-to-copy placeholders
+  var filter = document.getElementById('param-filter');
+  var rows = document.querySelectorAll('#param-table tbody tr');
+  if (filter) {
+    filter.addEventListener('input', function () {
+      var q = filter.value.trim().toLowerCase();
+      rows.forEach(function (r) { r.hidden = q !== '' && r.textContent.toLowerCase().indexOf(q) < 0; });
+    });
+  }
+  document.querySelectorAll('code.ph').forEach(function (c) {
+    if (!navigator.clipboard) return;
+    c.tabIndex = 0;
+    c.setAttribute('role', 'button');
+    c.title = 'Click to copy';
+    function copy() {
+      navigator.clipboard.writeText(c.textContent).then(function () {
+        c.classList.add('copied');
+        setTimeout(function () { c.classList.remove('copied'); }, 1200);
+      });
+    }
+    c.addEventListener('click', copy);
+    c.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copy(); } });
+  });
 })();

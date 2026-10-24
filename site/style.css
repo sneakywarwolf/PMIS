@@ -204,6 +204,19 @@ pre code { background: none; padding: 0; font-size: inherit; }
 }
 .copy:hover { color: var(--text); }
 
+.filter { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; }
+.filter label { font-size: 0.9rem; color: var(--muted); }
+.filter input {
+  flex: 1; max-width: 360px; font: inherit; padding: 7px 10px;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+code.ph { cursor: pointer; white-space: nowrap; }
+code.ph:hover { background: var(--accent-soft); }
+code.ph.copied { background: var(--accent); color: var(--accent-ink); }
+#param-table td:nth-child(1) { white-space: nowrap; font-weight: 600; }
+#param-table td:nth-child(4) { min-width: 220px; }
+
 ul.plain, ol.plain { padding-left: 1.3em; }
 ul.plain li, ol.plain li { margin: 6px 0; }
 
