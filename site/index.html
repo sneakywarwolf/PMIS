@@ -8,13 +8,14 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="PMIS documentation">
   <meta name="theme-color" content="#12302a">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header class="site-header">
   <div class="wrap bar">
-    <a class="brand" href="index.html">PMIS</a>
+    <a class="brand" href="index.html"><img src="logo.svg" alt="" width="26" height="26">PMIS</a>
     <nav class="nav">
       <a href="index.html" aria-current="page">Overview</a>
       <a href="installation.html">Installation</a>
@@ -26,8 +27,9 @@
   </div>
 </header>
 
-<header class="hero">
+<header class="hero has-art">
   <div class="wrap">
+    <img class="hero-art" src="hero.svg" alt="" width="300" height="183">
     <h1>PMIS-Project Management for Information Security</h1>
     <p class="tagline">A self-hosted, role-based web application for Vulnerability Assessment &amp; Penetration Testing (VAPT) teams: engagements, findings, evidence, a shared vulnerability library and generated Word or Excel reports in one place.</p>
     <div class="badges">
@@ -43,9 +45,9 @@
   <section id="start-here">
     <h2>Start here</h2>
     <div class="paths">
-      <a href="installation.html"><strong>Install PMIS</strong><span>Get it running with Docker in about ten minutes.</span></a>
-      <a href="user-guide.html"><strong>Use it day to day</strong><span>Projects, findings, evidence and approvals.</span></a>
-      <a href="reports.html"><strong>Build report templates</strong><span>Placeholders, mapping and generating reports.</span></a>
+      <a href="installation.html"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14"/></svg><strong>Install PMIS</strong><span>Get it running with Docker in about ten minutes.</span></a>
+      <a href="user-guide.html"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4zM8 9h8M8 12h5"/></svg><strong>Use it day to day</strong><span>Projects, findings, evidence and approvals.</span></a>
+      <a href="reports.html"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6"/></svg><strong>Build report templates</strong><span>Placeholders, mapping and generating reports.</span></a>
     </div>
     <p>Or jump to the part for your role:</p>
     <div class="roles">
@@ -110,5 +112,6 @@
 
 <script src="docs.js"></script>
 <script src="extras.js"></script>
+<script src="extras2.js"></script>
 </body>
 </html>

@@ -132,6 +132,13 @@
   function load() {
     if (index) return Promise.resolve(index);
     index = [];
+    // Prebuilt by CI; when absent (local preview) fall back to reading each page.
+    return fetch('search-index.json').then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (j) {
+      index = j;
+      return index;
+    }).catch(function () { return crawl(); });
+  }
+  function crawl() {
     return Promise.all(pages.map(function (p) {
       return fetch(p[0]).then(function (r) { return r.text(); }).then(function (html) {
         var doc = new DOMParser().parseFromString(html, 'text/html');

@@ -8,13 +8,14 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="PMIS documentation">
   <meta name="theme-color" content="#12302a">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header class="site-header">
   <div class="wrap bar">
-    <a class="brand" href="index.html">PMIS</a>
+    <a class="brand" href="index.html"><img src="logo.svg" alt="" width="26" height="26">PMIS</a>
     <nav class="nav">
       <a href="index.html">Overview</a>
       <a href="installation.html">Installation</a>
@@ -39,6 +40,24 @@
   <section id="components">
     <h2>What runs</h2>
     <p><code>docker compose up -d</code> starts five containers on a private Docker network:</p>
+    <figure class="shot">
+      <div class="diagram">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Browser reaches the frontend container; the frontend calls the backend; the backend uses postgres, redis and minio on a private network">
+          <defs><marker id="ah2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="head"/></marker></defs>
+          <rect class="net" x="196" y="10" width="560" height="190" rx="12"/>
+          <text class="sub" x="210" y="30">Private Docker network</text>
+          <rect class="box" x="6" y="75" width="140" height="60" rx="8"/><text x="76" y="102" text-anchor="middle">Browser</text><text class="sub" x="76" y="120" text-anchor="middle">HTTPS via proxy</text>
+          <rect class="box lit" x="222" y="75" width="130" height="60" rx="8"/><text x="287" y="102" text-anchor="middle">frontend</text><text class="sub" x="287" y="120" text-anchor="middle">FRONTEND_PORT</text>
+          <rect class="box" x="402" y="75" width="130" height="60" rx="8"/><text x="467" y="102" text-anchor="middle">backend</text><text class="sub" x="467" y="120" text-anchor="middle">internal only</text>
+          <rect class="box" x="600" y="30" width="140" height="44" rx="8"/><text x="670" y="57" text-anchor="middle">postgres</text>
+          <rect class="box" x="600" y="86" width="140" height="44" rx="8"/><text x="670" y="113" text-anchor="middle">redis</text>
+          <rect class="box" x="600" y="142" width="140" height="44" rx="8"/><text x="670" y="169" text-anchor="middle">minio</text>
+          <path class="arrow" d="M146,105 H220" marker-end="url(#ah2)"/><path class="arrow" d="M352,105 H400" marker-end="url(#ah2)"/>
+          <path class="arrow" d="M532,95 C566,95 566,52 598,52" marker-end="url(#ah2)"/><path class="arrow" d="M532,108 H598" marker-end="url(#ah2)"/><path class="arrow" d="M532,118 C566,118 566,164 598,164" marker-end="url(#ah2)"/>
+        </svg>
+      </div>
+      <figcaption>Only the frontend port is published. Everything else stays inside the private network.</figcaption>
+    </figure>
     <div class="table-wrap"><table>
       <thead><tr><th>Container</th><th>Purpose</th><th>Reachable from outside</th></tr></thead>
       <tbody>
@@ -201,5 +220,6 @@ docker compose logs -f frontend</code></pre>
 
 <script src="docs.js"></script>
 <script src="extras.js"></script>
+<script src="extras2.js"></script>
 </body>
 </html>
