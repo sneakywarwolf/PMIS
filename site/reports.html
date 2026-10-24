@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Reports - PMIS-Project Management for Information Security</title>
-  <meta name="description" content="PMIS report engine: templates, placeholders, generation, scan imports, Issue Log and downloads.">
+  <meta name="description" content="PMIS reports: preparing Word and Excel templates, placeholders, uploading and activating templates, generating reports and the Issue Log.">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,11 +14,11 @@
     <a class="brand" href="index.html">PMIS</a>
     <nav class="nav">
       <a href="index.html">Overview</a>
-      <a href="architecture.html">Architecture</a>
-      <a href="access-control.html">Access control</a>
+      <a href="installation.html">Installation</a>
+      <a href="user-guide.html">User guide</a>
       <a href="reports.html" aria-current="page">Reports</a>
-      <a href="api.html">API</a>
-      <a href="deployment.html">Deployment</a>
+      <a href="deployment.html">Production &amp; operations</a>
+      <a href="security.html">Security</a>
     </nav>
   </div>
 </header>
@@ -27,91 +27,91 @@
   <div class="wrap">
     <p class="crumb">PMIS documentation</p>
     <h1>Reports</h1>
-    <p class="tagline">How templates are managed, how a report is generated from project data, and how scan results feed into it.</p>
+    <p class="tagline">Reports are filled from your own Word or Excel templates, using data entered once on the project, the team's profiles and the project's findings.</p>
   </div>
 </header>
 
 <main class="wrap">
 
   <section id="templates">
-    <h2>Templates</h2>
+    <h2>Preparing a template</h2>
+    <ol class="plain">
+      <li>Start from your organisation's report in Word (<code>.docx</code>), or in Excel (<code>.xlsx</code>) for Network projects. The <code>Report Template/</code> folder in the source has eight sample Word templates for PCI and VAPT (Web, API, Mobile, Thick Client).</li>
+      <li>Write each value PMIS should fill in as a placeholder in braces, for example <code>{Client Name}</code>, and <strong>highlight it yellow</strong>. Only highlighted placeholders are detected.</li>
+      <li>Keep each placeholder's text together. Don't rename the placeholders in the findings tables. Keep table header rows intact.</li>
+    </ol>
+
+    <h3>Placeholders you can map</h3>
+    <p>After upload, each detected placeholder can be mapped to one of these values. Unmapped placeholders are matched by name automatically.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Group</th><th>Values</th></tr></thead>
+      <tbody>
+        <tr><td>Project</td><td>Application Name, App Version, Application Name &amp; Version, Document Version, Client Name, Client Name &amp; Location, Start Date, End Date, Start &amp; End Date, Scope, Application Details &amp; Scope, Build Details, Tools Used, Testing Environment, Testing Type (Black/Grey Box), Testing Type (Platform), Login/Role Types, Nature/Purpose of Application, Testing Limitation, QA Reviewer Name, Mobile Platform, SHA-1 Hash</td></tr>
+        <tr><td>Network</td><td>Scope Exposure (External/Internal), Network Activity Type (VA/PT/VAPT), Total Scope Count, Quarter</td></tr>
+        <tr><td>Client contact</td><td>Client SPOC Name, Designation and Email ID (CERT-In projects)</td></tr>
+        <tr><td>People</td><td>Tester, Team Lead and Manager: name, designation, phone, email</td></tr>
+        <tr><td>Report</td><td>Report Generation Date, Report Date (format set in Settings), Report Name (generated filename)</td></tr>
+      </tbody>
+    </table></div>
+    <p>Two placeholders have special behaviour:</p>
     <ul class="plain">
-      <li>Admins upload a template file with a name, a compliance category (<code>VAPT</code>, <code>CERT_IN</code>, <code>PCI</code>, <code>ASV</code>), a sub-type, a format (<code>WORD</code> or <code>EXCEL</code>), and an effective-from date.</li>
-      <li>Uploaded files are stored in MinIO. The original filename is kept and used as the naming pattern for generated reports.</li>
-      <li>Templates are activated and deactivated explicitly (<code>PUT /reports/templates/:id/activate</code> and <code>/deactivate</code>). Only Admins can do this.</li>
-      <li>Inactive templates can be deleted. The route removes the file, its metadata and its field mappings.</li>
-      <li>Each project records the template it uses (<code>templateId</code>).</li>
+      <li><code>{Compliance Status}</code> or <code>{Project Status}</code> prints <em>Compliant</em> or <em>Non-Compliant</em>. When the placeholder is alone in its cell or paragraph, the background is green or red. It stays empty while the project is In-Progress. It also works in headers, footers and the file name.</li>
+      <li>Findings tables (summary and detailed) are filled with one row or block per finding, including PoC steps with their screenshots.</li>
     </ul>
 
-    <h3>Placeholders and field mapping</h3>
-    <ul class="plain">
-      <li>Placeholders are highlighted yellow in the template. The engine extracts them as template fields, each with a normalised name and a category (project information, vulnerability, contact, date, other).</li>
-      <li>An Admin can add a field the extractor missed, rename it, change its category or description, and map it to a canonical application parameter. Parameters are listed by <code>GET /reports/templates/parameters</code>.</li>
-      <li>A field with no explicit mapping falls back to automatic matching against the normalised name.</li>
-    </ul>
-    <div class="note">The README states that activating a template deactivates the previous template for the same category and sub-type. That behaviour was not re-verified in the report service code for these pages.</div>
+    <h3>VA and PT sections (Network)</h3>
+    <p>Wrap content that applies only to vulnerability assessment or only to penetration testing in marker paragraphs. Each marker must be on its own line:</p>
+<pre><code>{#VA}
+ ... VA-only paragraphs and tables ...
+{/VA}
+
+{#PT}
+ ... PT-only paragraphs and tables ...
+{/PT}</code></pre>
+    <p>A VA project keeps the VA blocks, a PT project keeps the PT blocks, and VAPT keeps both. Page and section breaks on marker lines are preserved.</p>
   </section>
 
-  <section id="generation">
+  <section id="upload">
+    <h2>Uploading and activating (Admin)</h2>
+    <ol class="plain">
+      <li>Open <em>Reports</em> and upload the template. Choose a name, the category (VAPT, PCI, CERT-In, ASV), the format (Word or Excel), one or more activity types, and the effective-from date.</li>
+      <li>PCI and VAPT templates cover Web, API, Mobile, Thick Client and Network. CERT-In also offers <em>Application</em>, a single template that serves every non-Network project.</li>
+      <li>Review the detected fields. Add any the detector missed, and map fields to values if the names differ.</li>
+      <li>Activate the template. Projects of the matching category and activity type then use it.</li>
+    </ol>
+    <div class="warn"><strong>Activating replaces the previous template.</strong> When you activate a template, any active template with the same category and format that covers the same activity types is replaced. If the old template covered only those activity types, it is <strong>deleted</strong>: its file and field mappings are removed. Reports already generated are not affected. Keep your own copy of every template file.</div>
+    <p>Inactive templates can be deleted from the same page.</p>
+  </section>
+
+  <section id="generate">
     <h2>Generating a report</h2>
     <ol class="plain">
-      <li><strong>Preflight</strong>: <code>GET /reports/preflight/:projectId</code> reports missing data so the user can fix it before generating.</li>
-      <li><strong>Queue</strong>: <code>POST /reports/generate</code> with a project ID and an optional format. The job runs on a BullMQ queue and the call returns a generation ID.</li>
-      <li><strong>Poll</strong>: <code>GET /reports/generate/:id/status</code> until the status is Completed or Failed.</li>
-      <li><strong>Download</strong>: the completed file is available through a signed link from <code>GET /reports/download</code>. The link carries an expiry time and a signature.</li>
-      <li><strong>Version</strong>: a project's report version is <code>1.N</code>. The counter is incremented only when a generation completes. Failed generations do not use up a number, and deleting an old report does not cause a number to be reused.</li>
+      <li>On the project, run the <strong>preflight check</strong>. It lists missing project details, profile details and findings that are not report-ready.</li>
+      <li>Choose <strong>Generate report</strong> and pick Word, or Excel for Network projects. Generation runs in the background, and the page updates when it finishes.</li>
+      <li><strong>Download</strong> the file. Download links expire after one hour. Reopening the report history gives fresh links.</li>
     </ol>
-    <p>Field values come from the project record and the profiles of the users assigned to it. Findings and PoC steps are also used. The README documents that only approved findings are included and that the project status moves to Completed after generation. Those two behaviours were not re-verified in the report service code for these pages.</p>
-    <p>History is at <code>GET /reports/history/:projectId</code>. A report is removed with <code>DELETE /reports/:id</code>, which the project owner or an Admin can do.</p>
-  </section>
-
-  <section id="naming">
-    <h2>File naming and dates</h2>
+    <p>Generation is blocked until both of these conditions hold:</p>
     <ul class="plain">
-      <li>The output name follows the naming pattern of the template's original filename, with project values filled in.</li>
-      <li>The <code>{Report Date}</code> parameter uses the Admin setting <code>formatting.reportDateFormat</code>. The default is <code>YYYY-MM-DD</code>.</li>
+      <li>The project has at least one finding, or its compliance status is <em>Compliant</em>.</li>
+      <li>Every finding is report-ready: each PoC step has a description and a screenshot. Nessus findings on Network projects are exempt.</li>
     </ul>
-  </section>
-
-  <section id="scan-imports">
-    <h2>Scan imports</h2>
-    <h3>Nessus</h3>
-    <ol class="plain">
-      <li><code>POST /findings/nessus/preview</code> parses a <code>.nessus</code> or <code>.csv</code> export and lists its findings. Nothing is written.</li>
-      <li><code>POST /findings/nessus/import</code> imports only the plugin IDs the user selected.</li>
-    </ol>
-    <p>Imported records are project-scoped (<code>ProjectVulnerability</code>). They are not added to the shared catalogue and are not visible to other projects. The schema enforces one record per project, source and plugin ID.</p>
-
-    <h3>Nmap</h3>
-    <p><code>POST /projects/:id/nmap-import</code> imports an Nmap XML scan into a Network project. Port data is stored on the project.</p>
+    <p>Each completed generation gets the next version number, <code>1.1</code>, <code>1.2</code> and so on. Failed attempts don't use a number. The file is named after the template's file name pattern, with project values filled in. The project status becomes <em>Completed</em>, and its retention countdown starts.</p>
   </section>
 
   <section id="issue-log">
     <h2>Issue Log</h2>
-    <p><code>GET /reports/issue-log/:projectId</code> returns the Issue Log as CSV. Its columns and their order come from the Admin setting <code>issueLog.columns</code>.</p>
+    <p>From the project, export the Issue Log as CSV: one row per finding. An Admin sets which columns appear, and in what order, under <em>Settings</em>.</p>
   </section>
 
-  <section id="findings-in-report">
-    <h2>Findings and PoC in the report</h2>
-    <ul class="plain">
-      <li>Each finding can carry a CVSS score and vector override. The override is used in place of the catalogue value.</li>
-      <li>PoC steps are numbered. Each step can carry an image, which is embedded in the output.</li>
-      <li>The finding sort order (CVSS override first, then catalogue score, both descending) is documented in the README and in the findings service.</li>
-    </ul>
-  </section>
-
-  <section id="limits">
-    <h2>Limits</h2>
-    <ul class="plain">
-      <li>Uploads are capped at 25 MB (see <a href="access-control.html#uploads">Uploads and imports</a>).</li>
-      <li>Report generation, template upload, Nessus, Nmap, PoC image upload, Issue Log and exports share a heavy-route limit of 20 requests per user per minute.</li>
-    </ul>
+  <section id="history">
+    <h2>History and deletion</h2>
+    <p>Every generation is listed in the project's report history with who generated it and when. Admins, and testers on their own projects, can delete a generated report.</p>
   </section>
 
 </main>
 
 <footer class="site-footer wrap">
-  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>
+  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a> &middot; <a href="security.html#reporting">Report a vulnerability</a>
 </footer>
 
 </body>

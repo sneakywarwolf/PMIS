@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>User guide - PMIS-Project Management for Information Security</title>
+  <meta name="description" content="How to use PMIS: roles, projects, findings and evidence, network projects and scan imports, the vulnerability library, dashboards and quiz.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="index.html">PMIS</a>
+    <nav class="nav">
+      <a href="index.html">Overview</a>
+      <a href="installation.html">Installation</a>
+      <a href="user-guide.html" aria-current="page">User guide</a>
+      <a href="reports.html">Reports</a>
+      <a href="deployment.html">Production &amp; operations</a>
+      <a href="security.html">Security</a>
+    </nav>
+  </div>
+</header>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="crumb">PMIS documentation</p>
+    <h1>User guide</h1>
+    <p class="tagline">Day-to-day use of PMIS for testers, Team Leads, AVPs and Admins.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="roles">
+    <h2>Roles and what they can do</h2>
+    <p>Every user has one role. Testers belong to a Team Lead, and Team Leads report to a manager (an AVP). This hierarchy decides which projects each person sees.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Area</th><th>Admin</th><th>AVP</th><th>Team Lead</th><th>Tester</th></tr></thead>
+      <tbody>
+        <tr><td>See projects</td><td>All</td><td>Own and own team's</td><td>Own and own team's</td><td>Own</td></tr>
+        <tr><td>Create and edit projects</td><td>Yes</td><td>Within scope</td><td>Within scope</td><td>Own</td></tr>
+        <tr><td>Reassign a project to another tester</td><td>Yes</td><td>Own team</td><td>Own team</td><td>No</td></tr>
+        <tr><td>Delete a project</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+        <tr><td>Add and edit findings</td><td>Yes</td><td>Within scope</td><td>Within scope</td><td>Own findings on own projects</td></tr>
+        <tr><td>Change a finding's status</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+        <tr><td>Generate and download reports</td><td>Yes</td><td>Within scope</td><td>Within scope</td><td>Own projects</td></tr>
+        <tr><td>Delete a generated report</td><td>Yes</td><td>No</td><td>No</td><td>Own projects</td></tr>
+        <tr><td>Manage report templates</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+        <tr><td>Browse and export the vulnerability library</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Request a new library entry</td><td>Yes</td><td>No</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Propose an edit to a library entry</td><td>No</td><td>No</td><td>No</td><td>Yes</td></tr>
+        <tr><td>Approve or reject library requests and edits</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+        <tr><td>Edit, delete or bulk upload the library directly</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+        <tr><td>Manage users</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+        <tr><td>Team dashboard and activity feed</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+        <tr><td>Organisation dashboard and Team Lead comparison</td><td>Yes</td><td>Yes</td><td>No</td><td>No</td></tr>
+        <tr><td>Live users</td><td>Everyone</td><td>Own Team Leads and their teams</td><td>Own testers</td><td>No</td></tr>
+        <tr><td>Settings and software updates</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+        <tr><td>Quiz: play and view leaderboards</td><td>Yes</td><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+        <tr><td>Quiz: manage questions</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
+      </tbody>
+    </table></div>
+    <p>"Within scope" means projects the user leads, or projects whose tester belongs to the user's team. Permissions are enforced by the server, not just hidden in the interface.</p>
+  </section>
+
+  <section id="projects">
+    <h2>Projects</h2>
+    <ol class="plain">
+      <li>Open <em>Projects</em> and choose <em>New project</em>.</li>
+      <li>Choose the compliance category (VAPT, PCI, CERT-In or ASV) and the testing type: Web, API, Mobile, Thick Client or Network.</li>
+      <li>Fill in client, scope, dates, testing environment and the report details. These are entered once and reused in every report. Client SPOC fields appear for CERT-In projects.</li>
+    </ol>
+    <ul class="plain">
+      <li><strong>Status</strong> updates automatically: <em>Not started</em> when created, <em>In progress</em> when the first finding is added, and <em>Completed</em> when a report is generated.</li>
+      <li><strong>Compliance status</strong> (Compliant, Non-Compliant, In-Progress) is set by you and printed in reports.</li>
+      <li><strong>Completed projects stay editable</strong> by authorized users. Every field change is recorded, and Team Leads, AVPs and Admins can see the change history on the project page.</li>
+      <li>Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search projects you can open.</li>
+    </ul>
+  </section>
+
+  <section id="findings">
+    <h2>Findings and evidence</h2>
+    <ol class="plain">
+      <li>On a project, add a finding by choosing a vulnerability from the library, so the standard wording is reused.</li>
+      <li>Add the project-specific details: affected URLs or hosts, authentication type, dependencies and notes.</li>
+      <li>If the library's CVSS score does not fit, set an override score and vector for this finding.</li>
+      <li>Add numbered proof-of-concept steps. Each step has a description and a screenshot (PNG, JPG, GIF or WebP).</li>
+    </ol>
+    <div class="note"><strong>Report readiness:</strong> a finding is ready for a report only when it has at least one step, every step has a description, and every step has a screenshot. The finding list shows which findings still need work. Nessus findings on Network projects are exempt, because their evidence comes from the scan output.</div>
+  </section>
+
+  <section id="network">
+    <h2>Network projects and scan imports</h2>
+    <p>Network projects support vulnerability assessment (VA) and penetration testing (PT) activities, and three kinds of import:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Import</th><th>Accepted files</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Network scope</td><td><code>.txt</code>, <code>.csv</code>, <code>.xlsx</code></td><td>The list of in-scope hosts. The import button shows the supported formats and column headers.</td></tr>
+        <tr><td>Nessus</td><td><code>.nessus</code>, <code>.csv</code></td><td>A preview of the scan's findings. You choose which plugins to import as VA findings. Re-importing a plugin adds its new hosts to the existing finding.</td></tr>
+        <tr><td>Nmap</td><td><code>.xml</code>, <code>.txt</code>, <code>.nmap</code></td><td>Open ports recorded on the project for the report's port tables.</td></tr>
+      </tbody>
+    </table></div>
+    <ul class="plain">
+      <li>Nessus findings belong to that project only. They are not added to the shared vulnerability library.</li>
+      <li>All VA findings imported into a project can be deleted together with <em>Delete All VA Findings</em>.</li>
+    </ul>
+  </section>
+
+  <section id="library">
+    <h2>Vulnerability library</h2>
+    <ul class="plain">
+      <li><strong>Everyone</strong> can search, filter by severity and export the library as CSV.</li>
+      <li><strong>New entries</strong>: Testers and Team Leads submit a request. It stays pending until an Admin, AVP or Team Lead approves it. The requester is notified of the decision.</li>
+      <li><strong>Edits</strong>: Testers propose changes to an existing entry. The original stays unchanged until the request is approved.</li>
+      <li><strong>Admins</strong> can add, edit or remove entries directly. They can also bulk upload a CSV or XLSX file in one of two modes: <em>Replace</em> swaps the whole library; <em>Merge</em> adds to it and asks which version to keep when names clash. Download the sample file from the page for the exact column format.</li>
+    </ul>
+  </section>
+
+  <section id="dashboards">
+    <h2>Dashboards, notifications and live users</h2>
+    <ul class="plain">
+      <li><strong>Dashboard</strong>: Testers see their own work, Team Leads their team, and AVPs and Admins the whole organisation.</li>
+      <li><strong>Notifications</strong>: the bell shows library decisions, new users, assignments and quiz reveals. Selecting a notification opens the related page.</li>
+      <li><strong>Live users</strong>: the count next to <em>System Online</em>. Admins, AVPs and Team Leads can open a list of active and idle users within their scope.</li>
+    </ul>
+  </section>
+
+  <section id="retention">
+    <h2>Retention</h2>
+    <p>PMIS deletes old data automatically, once an hour, under two Admin-configurable policies in <em>Settings</em>:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>What</th><th>Deleted after (default)</th><th>Counted from</th></tr></thead>
+      <tbody>
+        <tr><td>Completed projects, with their findings and files</td><td>365 days</td><td>Report generation</td></tr>
+        <tr><td>PoC screenshots</td><td>90 days</td><td>When the PoC step was created, whatever the project's status</td></tr>
+      </tbody>
+    </table></div>
+    <p>The <em>Retention</em> page shows when each completed project is due for deletion. Download the reports you need before that date.</p>
+    <div class="warn">After its screenshot is removed, a finding is no longer report-ready, so the project cannot generate a new report until screenshots are re-added. Generate reports within the screenshot retention period, or have an Admin adjust it.</div>
+  </section>
+
+  <section id="quiz">
+    <h2>Quiz</h2>
+    <ul class="plain">
+      <li>Admins schedule security quiz questions. Each question can be answered for 24 hours after it goes live.</li>
+      <li>After the reveal you see the answer and explanation for questions you attempted. Late answers are recorded but not scored.</li>
+      <li>The scorecard shows your points, streaks and badges. Leaderboards rank players and teams, and Team Leads can rename their team.</li>
+    </ul>
+  </section>
+
+  <section id="admin">
+    <h2>Admin tasks</h2>
+    <ul class="plain">
+      <li><strong>Users</strong>: create, edit, bulk upload (CSV or XLSX), reset passwords and reactivate accounts. Reset users must set a new password at next sign-in.</li>
+      <li><strong>Deleting a user</strong> deactivates the account immediately. Reactivating within 24 hours restores it with its data. After 24 hours, the data and files of projects the user owns are purged permanently.</li>
+      <li><strong>Templates</strong>: see <a href="reports.html#templates">Reports</a>.</li>
+      <li><strong>Settings</strong>: application name and branding, session timeout, password policy, retention periods, Issue Log columns, date formats. Every change is recorded in the settings history.</li>
+      <li><strong>Updates</strong>: the <em>About</em> page shows the running version and newer releases. On a Docker installation, update by following <a href="deployment.html#upgrade">Upgrading</a>.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer class="site-footer wrap">
+  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a> &middot; <a href="security.html#reporting">Report a vulnerability</a>
+</footer>
+
+</body>
+</html>

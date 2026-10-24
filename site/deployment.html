@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Deployment - PMIS-Project Management for Information Security</title>
-  <meta name="description" content="Deploying PMIS: production Docker stack, development setup, configuration reference, operations and checklist.">
+  <title>Production &amp; operations - PMIS-Project Management for Information Security</title>
+  <meta name="description" content="Running PMIS in production: HTTPS with a reverse proxy, configuration reference, backup and restore, upgrades and the production checklist.">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,11 +14,11 @@
     <a class="brand" href="index.html">PMIS</a>
     <nav class="nav">
       <a href="index.html">Overview</a>
-      <a href="architecture.html">Architecture</a>
-      <a href="access-control.html">Access control</a>
+      <a href="installation.html">Installation</a>
+      <a href="user-guide.html">User guide</a>
       <a href="reports.html">Reports</a>
-      <a href="api.html">API</a>
-      <a href="deployment.html" aria-current="page">Deployment</a>
+      <a href="deployment.html" aria-current="page">Production &amp; operations</a>
+      <a href="security.html">Security</a>
     </nav>
   </div>
 </header>
@@ -26,132 +26,174 @@
 <header class="hero">
   <div class="wrap">
     <p class="crumb">PMIS documentation</p>
-    <h1>Deployment</h1>
-    <p class="tagline">Production Docker stack, local development setup, every configuration variable, and operations.</p>
+    <h1>Production &amp; operations</h1>
+    <p class="tagline">Run PMIS for a team: HTTPS, configuration, backups, upgrades and a checklist to complete before go-live.</p>
   </div>
 </header>
 
 <main class="wrap">
 
-  <section id="production">
-    <h2>Production with Docker Compose</h2>
-    <p>Uses <code>docker-compose.yml</code>. Only the frontend port is published. The backend, PostgreSQL, Redis and MinIO stay on the internal Compose network.</p>
+  <section id="components">
+    <h2>What runs</h2>
+    <p><code>docker compose up -d</code> starts five containers on a private Docker network:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Container</th><th>Purpose</th><th>Reachable from outside</th></tr></thead>
+      <tbody>
+        <tr><td><code>frontend</code></td><td>Web interface. Forwards API calls to the backend internally.</td><td>Yes, on <code>FRONTEND_PORT</code></td></tr>
+        <tr><td><code>backend</code></td><td>Application server. Applies database migrations on every start.</td><td>No</td></tr>
+        <tr><td><code>postgres</code></td><td>Database (PostgreSQL 16)</td><td>No</td></tr>
+        <tr><td><code>redis</code></td><td>Sessions, background jobs (Redis 7)</td><td>No</td></tr>
+        <tr><td><code>minio</code></td><td>File storage for templates, reports and screenshots</td><td>No</td></tr>
+      </tbody>
+    </table></div>
+    <p>Data is kept in three Docker volumes: <code>postgres_data</code>, <code>redis_data</code> and <code>minio_data</code>. Docker prefixes them with the project name, for example <code>pmis_minio_data</code> when the folder is named <code>PMIS</code>. Check with <code>docker volume ls</code>.</p>
+  </section>
+
+  <section id="https">
+    <h2>HTTPS with a reverse proxy</h2>
+    <p>PMIS serves plain HTTP. Put a reverse proxy in front that terminates TLS.</p>
     <ol class="plain">
-      <li>Copy the template and fill in the secrets:
-<pre><code>cp .env.example .env</code></pre>
-        Replace every <code>CHANGE_ME</code> value: <code>POSTGRES_PASSWORD</code>, <code>MINIO_ROOT_PASSWORD</code>, <code>JWT_ACCESS_SECRET</code>, <code>JWT_REFRESH_SECRET</code>. Generate each with <code>openssl rand -hex 32</code>. Do not commit <code>.env</code>.</li>
-      <li>Start the stack:
-<pre><code>docker compose up -d</code></pre></li>
-      <li>Get the first admin password. If <code>ADMIN_PASSWORD</code> is empty, the seed generates one and prints it once when the admin account is created:
-<pre><code>docker compose logs backend | grep "First login"</code></pre>
-        The admin must change the password at first sign-in.</li>
-      <li>Open <code>http://localhost:3000</code>, or the port set by <code>FRONTEND_PORT</code>.</li>
+      <li>Bind the web interface to the local machine only, so it can't be reached around the proxy. In <code>.env</code>:
+<pre><code>FRONTEND_PORT=127.0.0.1:3000</code></pre></li>
+      <li>Set the public address and secure cookies in <code>.env</code>:
+<pre><code>FRONTEND_URL=https://pmis.example.org
+COOKIE_SECURE=true</code></pre></li>
+      <li>Configure the proxy. Example for nginx:
+<pre><code>map $http_upgrade $connection_upgrade { default upgrade; '' close; }
+
+server {
+    listen 443 ssl;
+    server_name pmis.example.org;
+    ssl_certificate     /etc/ssl/pmis/fullchain.pem;
+    ssl_certificate_key /etc/ssl/pmis/privkey.pem;
+
+    client_max_body_size 25m;   # PMIS accepts uploads up to 25 MB
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;   # replace, don't append
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+}</code></pre>
+        The proxy must <strong>set</strong> <code>X-Forwarded-For</code> to the real client address, replacing any value the client sent, as above. Redirect port 80 to 443.</li>
+      <li>Apply the changes: <code>docker compose up -d</code>.</li>
     </ol>
-    <p>The backend container runs <code>prisma migrate deploy</code>, then the seed, then starts the server. These steps run on every container start. The seed creates the <code>admin</code> account only if it is missing, imports the catalogue from <code>vulnerabilities.json</code> and skips names already present.</p>
   </section>
 
   <section id="config">
     <h2>Configuration reference</h2>
-    <h3>Variables set in <code>.env</code></h3>
-    <p>These are read by <code>docker-compose.yml</code> when it substitutes values, and the ones marked as passed on are given to the containers.</p>
+    <p>All settings are in <code>.env</code>. Apply changes with <code>docker compose up -d</code>.</p>
     <div class="table-wrap"><table>
-      <thead><tr><th>Variable</th><th>Required</th><th>Default</th><th>Effect</th></tr></thead>
+      <thead><tr><th>Variable</th><th>Required</th><th>Default</th><th>Purpose</th></tr></thead>
       <tbody>
-        <tr><td><code>POSTGRES_PASSWORD</code></td><td>Yes</td><td>none</td><td>Database password. Compose refuses to start without it.</td></tr>
-        <tr><td><code>MINIO_ROOT_PASSWORD</code></td><td>Yes</td><td>none</td><td>MinIO root password, also used by the backend.</td></tr>
-        <tr><td><code>JWT_ACCESS_SECRET</code></td><td>Yes</td><td>none</td><td>Signs access tokens. The backend refuses to start in production if it is unset or starts with <code>CHANGE_ME</code>.</td></tr>
-        <tr><td><code>JWT_REFRESH_SECRET</code></td><td>Yes</td><td>none</td><td>Signs refresh tokens. Same startup check. Should differ from the access secret.</td></tr>
-        <tr><td><code>ADMIN_PASSWORD</code></td><td>No</td><td>empty (random)</td><td>Password for the first <code>admin</code> account. If empty, a random one is printed in the backend log.</td></tr>
-        <tr><td><code>SEED_DEMO</code></td><td>No</td><td><code>false</code></td><td>Adds demo users with publicly known passwords and sample projects. For trying PMIS out only.</td></tr>
-        <tr><td><code>FRONTEND_PORT</code></td><td>No</td><td><code>3000</code></td><td>Host port for the web UI.</td></tr>
-        <tr><td><code>FRONTEND_URL</code></td><td>No</td><td><code>http://localhost:3000</code></td><td>Exact browser origin. Used for CORS, the cross-site write check and the CSP <code>connect-src</code>.</td></tr>
-        <tr><td><code>COOKIE_SECURE</code></td><td>No</td><td><code>false</code></td><td>Set <code>true</code> when served over HTTPS. Marks cookies Secure and enables HSTS.</td></tr>
-        <tr><td><code>MINIO_ROOT_USER</code></td><td>No</td><td><code>pmisminio</code></td><td>MinIO user name.</td></tr>
-        <tr><td><code>PMIS_IMAGE_REPO</code></td><td>No</td><td><code>sneakywarwolf</code></td><td>Docker Hub namespace for the <code>pmis-frontend</code> and <code>pmis-backend</code> images.</td></tr>
-        <tr><td><code>PMIS_VERSION</code></td><td>No</td><td><code>latest</code></td><td>Image tag. Pin a specific version in production.</td></tr>
-        <tr><td><code>MINIO_IMAGE</code></td><td>No</td><td><code>minio/minio:latest</code></td><td>MinIO image. Pin it in production.</td></tr>
+        <tr><td><code>POSTGRES_PASSWORD</code></td><td>Yes</td><td>none</td><td>Database password. Changing it later requires changing it inside the database too, so set it once.</td></tr>
+        <tr><td><code>MINIO_ROOT_PASSWORD</code></td><td>Yes</td><td>none</td><td>File storage password</td></tr>
+        <tr><td><code>JWT_ACCESS_SECRET</code></td><td>Yes</td><td>none</td><td>Signs sign-in session tokens</td></tr>
+        <tr><td><code>JWT_REFRESH_SECRET</code></td><td>Yes</td><td>none</td><td>Signs session renewals. Must differ from the access secret.</td></tr>
+        <tr><td><code>MINIO_IMAGE</code></td><td>Yes, in practice</td><td><code>minio/minio:latest</code> (no longer available)</td><td>MinIO server image. See <a href="installation.html#step-3">Installation, step 3b</a>.</td></tr>
+        <tr><td><code>ADMIN_PASSWORD</code></td><td>No</td><td>empty (random)</td><td>First admin password. Used only when the admin account is created. Remove it from <code>.env</code> afterwards.</td></tr>
+        <tr><td><code>SEED_DEMO</code></td><td>No</td><td><code>false</code></td><td>Demo data with public passwords. Never enable on a reachable instance.</td></tr>
+        <tr><td><code>FRONTEND_PORT</code></td><td>No</td><td><code>3000</code></td><td>Host port, or <code>address:port</code>, for the web interface</td></tr>
+        <tr><td><code>FRONTEND_URL</code></td><td>No</td><td><code>http://localhost:3000</code></td><td>The exact address users open. Requests from other origins are refused.</td></tr>
+        <tr><td><code>COOKIE_SECURE</code></td><td>No</td><td><code>false</code></td><td><code>true</code> behind HTTPS</td></tr>
+        <tr><td><code>MINIO_ROOT_USER</code></td><td>No</td><td><code>pmisminio</code></td><td>File storage user name</td></tr>
+        <tr><td><code>PMIS_IMAGE_REPO</code>, <code>PMIS_VERSION</code></td><td>No</td><td><code>sneakywarwolf</code>, <code>latest</code></td><td>Which prebuilt images to use. Pin a version.</td></tr>
       </tbody>
     </table></div>
 
-    <h3>Backend settings not passed to the container</h3>
-    <div class="warn">The backend service in <code>docker-compose.yml</code> receives a fixed list of environment variables. The variables below are read by the backend code but are not in that list. Setting them in <code>.env</code> has no effect on the production stack unless the backend <code>environment:</code> block is extended.
-      <ul class="plain">
-        <li><code>RATE_LIMIT_PER_MIN</code> (default 300)</li>
-        <li><code>AUTH_RATE_LIMIT_PER_MIN</code> (default 30)</li>
-        <li><code>HEAVY_RATE_LIMIT_PER_MIN</code> (default 20)</li>
-        <li><code>MAX_LOGIN_ATTEMPTS</code> (default 5)</li>
-        <li><code>ENABLE_SWAGGER</code> (set to <code>1</code> to expose Swagger in production)</li>
-        <li><code>NEST_DEBUG_LOGS</code> (set to <code>1</code> for verbose request logs)</li>
-      </ul>
-    </div>
+    <h3>Sign-in protection settings</h3>
+    <p>The backend container receives only the variables listed above. To change sign-in lockout or request-rate limits, create <code>docker-compose.override.yml</code> next to <code>docker-compose.yml</code>. Compose reads it automatically.</p>
+<pre><code>services:
+  backend:
+    environment:
+      MAX_LOGIN_ATTEMPTS: "5"         # failed sign-ins before a temporary lock
+      RATE_LIMIT_PER_MIN: "300"       # requests per minute per signed-in user
+      AUTH_RATE_LIMIT_PER_MIN: "30"   # sign-in requests per minute per address</code></pre>
+    <p>The values shown are the defaults. Lower them for stricter protection.</p>
 
-    <h3>Application settings (Admin UI)</h3>
-    <p>Settings such as session timeout, password policy, retention periods, storage quotas, the issue-log columns and the easter-egg toggle are stored in the database. Change them in the Settings page or with <code>PUT /settings</code>. Defaults are in <code>apps/backend/src/settings/settings.defaults.ts</code>. Some settings are persisted and returned by the API but are not enforced at every code path that could use them. The defaults file says so in its header comment.</p>
+    <h3>In-application settings</h3>
+    <p>Session timeout (default 15 minutes), password policy, retention periods, branding and report formats are changed by an Admin under <em>Settings</em>. They are stored in the database and recorded in the settings history.</p>
   </section>
 
-  <section id="dev">
-    <h2>Development setup</h2>
-    <p>Infrastructure runs in containers and the two apps run with npm on the host. Requires Node.js 18 or later and Docker.</p>
-    <ul class="plain">
-      <li><strong>Infrastructure</strong>: <code>docker-compose.dev.yml</code> publishes PostgreSQL (5432), Redis (6379) and MinIO (9000 API, 9001 console) on localhost. It uses fixed local-only credentials that are written in the file. Do not expose these ports to a network.</li>
-      <li><strong>Environment</strong>: <code>.env.dev.example</code> is the development template. Setup scripts copy it to <code>apps/backend/.env</code>.</li>
-      <li><strong>Scripts</strong>: <code>setup.sh</code> (Linux and macOS) and <code>setup.bat</code> (Windows) start infrastructure, install dependencies, run migrations and the seed, and start both apps. <code>start-dev.bat</code> starts with visible terminals. <code>start.bat</code> starts silently. <code>stop.bat</code> stops everything and keeps data. <code>reset-db.bat</code> is an interactive reset utility.</li>
-    </ul>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Service</th><th>URL</th></tr></thead>
-      <tbody>
-        <tr><td>Frontend</td><td><code>http://localhost:3000</code></td></tr>
-        <tr><td>Backend API</td><td><code>http://localhost:4000</code></td></tr>
-        <tr><td>Swagger</td><td><code>http://localhost:4000/api/docs</code></td></tr>
-        <tr><td>MinIO console</td><td><code>http://localhost:9001</code></td></tr>
-      </tbody>
-    </table></div>
-    <div class="warn"><strong>Admin password in development:</strong> <code>setup.sh</code> prints a fixed login hint when it finishes. The seed does not set that password unless <code>ADMIN_PASSWORD</code> is provided, and <code>.env.dev.example</code> does not provide it. Take the password from the backend log instead, or set <code>ADMIN_PASSWORD</code> before the first seed.</div>
+  <section id="backup">
+    <h2>Backup and restore</h2>
+    <p>A complete backup has three parts: the database, the files volume and your <code>.env</code>. Backups contain client vulnerability data. Encrypt them and restrict access.</p>
+    <p>Commands below are for Linux, macOS or Git Bash, run in the <code>PMIS</code> folder. Replace <code>pmis_minio_data</code> with your volume name from <code>docker volume ls</code>.</p>
+
+    <h3>Back up</h3>
+<pre><code># Database
+docker compose exec -T postgres pg_dump -U pmis pmis &gt; pmis-db-$(date +%F).sql
+
+# Files (templates, reports, screenshots)
+docker run --rm -v pmis_minio_data:/data:ro -v "$PWD":/backup postgres:16.4-alpine \
+  tar czf /backup/pmis-files-$(date +%F).tgz -C /data .
+
+# Configuration (keep with the backup, store securely)
+cp .env pmis-env-$(date +%F).bak</code></pre>
+
+    <h3>Restore</h3>
+    <div class="warn">Restoring replaces all current data. <code>docker compose down -v</code> permanently deletes the current database and files. Back up first if you are unsure.</div>
+<pre><code>docker compose down -v
+docker compose up -d postgres
+docker compose ps postgres          # wait until it shows (healthy)
+
+docker compose exec -T postgres psql -q -U pmis -d pmis &lt; pmis-db-YYYY-MM-DD.sql
+docker run --rm -v pmis_minio_data:/data -v "$PWD":/backup postgres:16.4-alpine \
+  tar xzf /backup/pmis-files-YYYY-MM-DD.tgz -C /data
+
+docker compose up -d</code></pre>
+    <p>Use the same <code>.env</code> that was in place when the backup was taken.</p>
   </section>
 
-  <section id="operations">
-    <h2>Operations</h2>
-    <ul class="plain">
-      <li><strong>Logs</strong>: <code>docker compose logs -f backend</code></li>
-      <li><strong>Stop and start</strong>: <code>docker compose stop</code> and <code>docker compose start</code>. Data is kept.</li>
-      <li><strong>Remove containers</strong>: <code>docker compose down</code> keeps the named volumes. <code>docker compose down -v</code> deletes them, including the database.</li>
-      <li><strong>Database backup</strong>: <code>docker compose exec postgres pg_dump -U pmis pmis &gt; backup.sql</code></li>
-      <li><strong>File backup</strong>: back up the <code>minio_data</code> volume. It holds templates, generated reports and PoC images.</li>
-      <li><strong>Update</strong>: set <code>PMIS_VERSION</code> in <code>.env</code>, then run <code>docker compose pull &amp;&amp; docker compose up -d</code>.</li>
-      <li><strong>Volumes</strong>: <code>postgres_data</code>, <code>redis_data</code>, <code>minio_data</code>.</li>
-    </ul>
-  </section>
-
-  <section id="https">
-    <h2>HTTPS and reverse proxy</h2>
+  <section id="upgrade">
+    <h2>Upgrading</h2>
     <ol class="plain">
-      <li>Put a reverse proxy (Caddy, nginx or Traefik) in front of the frontend port. It terminates TLS.</li>
-      <li>Set <code>FRONTEND_URL</code> to the exact public origin, for example <code>https://pmis.example.org</code>.</li>
-      <li>Set <code>COOKIE_SECURE=true</code>.</li>
-      <li>Configure the proxy to overwrite the <code>X-Forwarded-For</code> header. The backend trusts this header from private addresses for per-IP rate limits. Without a proxy that overwrites it, clients can spoof it.</li>
+      <li><a href="#backup">Back up</a>.</li>
+      <li>Get the new version:
+<pre><code># Prebuilt images: set PMIS_VERSION in .env to the new release, then
+docker compose pull
+docker compose up -d
+
+# Built from source:
+git pull
+docker compose up -d --build</code></pre></li>
+      <li>Database migrations run automatically when the backend starts. Watch with <code>docker compose logs -f backend</code> until it reports healthy in <code>docker compose ps</code>.</li>
     </ol>
+  </section>
+
+  <section id="monitoring">
+    <h2>Health and logs</h2>
+<pre><code>docker compose ps                 # status and health of each container
+docker compose logs -f backend    # application log
+docker compose logs -f frontend</code></pre>
+    <p>Admins can also see infrastructure health under <em>Settings</em>.</p>
   </section>
 
   <section id="checklist">
     <h2>Production checklist</h2>
     <ul class="plain">
-      <li>Four required secrets set, with two different JWT secrets of at least 32 characters.</li>
-      <li><code>NODE_ENV=production</code> (set by the Compose file).</li>
-      <li>HTTPS in front of the stack. <code>FRONTEND_URL</code> is the exact origin. <code>COOKIE_SECURE=true</code>.</li>
-      <li>The proxy overwrites <code>X-Forwarded-For</code>.</li>
-      <li><code>SEED_DEMO=false</code>.</li>
-      <li><code>ENABLE_SWAGGER</code> unset, unless you need Swagger in production. Note that Compose does not pass it through (see above).</li>
-      <li><code>PMIS_VERSION</code> and <code>MINIO_IMAGE</code> pinned to specific versions.</li>
-      <li>PostgreSQL, Redis and MinIO ports not published. The shipped Compose file already does this.</li>
-      <li>The first admin password recorded, and the password changed at first sign-in.</li>
+      <li>The four secrets in <code>.env</code> are unique random values, and <code>.env</code> is readable only by the operator (<code>chmod 600 .env</code>).</li>
+      <li>PMIS is served over HTTPS. <code>FRONTEND_URL</code> is the exact public address. <code>COOKIE_SECURE=true</code>.</li>
+      <li>The web port is bound to <code>127.0.0.1</code>, or firewalled so that only the proxy can reach it.</li>
+      <li>The reverse proxy replaces <code>X-Forwarded-For</code> with the client address.</li>
+      <li>Access is limited to your organisation's network or VPN where possible.</li>
+      <li><code>SEED_DEMO=false</code>. <code>ADMIN_PASSWORD</code> is removed from <code>.env</code> after the first start.</li>
+      <li>The admin password was changed at first sign-in, and each administrator has their own named account.</li>
+      <li><code>PMIS_VERSION</code> and <code>MINIO_IMAGE</code> are pinned to specific versions.</li>
+      <li>The database, cache and storage ports are not published. Never use <code>docker-compose.dev.yml</code> for production.</li>
+      <li>Backups are scheduled, encrypted and stored off the server, and a restore has been tested.</li>
+      <li>The host operating system, Docker and PMIS are kept up to date.</li>
     </ul>
-    <div class="note">Images are pulled from Docker Hub by default (<code>PMIS_IMAGE_REPO</code>). The Compose file also defines a build context for each app. Verify which images you run.</div>
   </section>
 
 </main>
 
 <footer class="site-footer wrap">
-  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>
+  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a> &middot; <a href="security.html#reporting">Report a vulnerability</a>
 </footer>
 
 </body>

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PMIS-Project Management for Information Security</title>
-  <meta name="description" content="Documentation for PMIS-Project Management for Information Security: RBAC project management and dynamic report generation for VAPT teams.">
+  <meta name="description" content="PMIS-Project Management for Information Security: role-based project management and report generation for VAPT teams.">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,11 +14,11 @@
     <a class="brand" href="index.html">PMIS</a>
     <nav class="nav">
       <a href="index.html" aria-current="page">Overview</a>
-      <a href="architecture.html">Architecture</a>
-      <a href="access-control.html">Access control</a>
+      <a href="installation.html">Installation</a>
+      <a href="user-guide.html">User guide</a>
       <a href="reports.html">Reports</a>
-      <a href="api.html">API</a>
-      <a href="deployment.html">Deployment</a>
+      <a href="deployment.html">Production &amp; operations</a>
+      <a href="security.html">Security</a>
     </nav>
   </div>
 </header>
@@ -26,59 +26,66 @@
 <header class="hero">
   <div class="wrap">
     <h1>PMIS-Project Management for Information Security</h1>
-    <p class="tagline">A web-based RBAC project management and dynamic report generation system for Vulnerability Assessment &amp; Penetration Testing (VAPT) teams.</p>
+    <p class="tagline">A self-hosted, role-based web application for Vulnerability Assessment &amp; Penetration Testing (VAPT) teams: engagements, findings, evidence, a shared vulnerability library and generated Word or Excel reports in one place.</p>
     <div class="badges">
-      <a href="https://github.com/sneakywarwolf/PMIS">GitHub repository</a>
+      <a href="installation.html">Install PMIS</a>
+      <a href="https://github.com/sneakywarwolf/PMIS">Source on GitHub</a>
       <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>
-      <a href="https://github.com/sneakywarwolf/PMIS/blob/master/CHANGELOG.md">Changelog 1.0.0</a>
     </div>
   </div>
 </header>
 
 <main class="wrap">
 
-  <section id="overview">
-    <h2>Overview</h2>
-    <p>PMIS tracks VAPT engagements from project setup through scoping, findings, proof-of-concept evidence, vulnerability approval and generated Word or Excel reports. Access is role-based: Admins, AVPs, Team Leads and Testers see the projects and data their role and team allow.</p>
-
-    <h3>Capabilities</h3>
-    <ul class="plain">
-      <li><strong>Projects</strong>: client, scope, dates, compliance type, testing environment, and category and sub-type (Web, API, Mobile, Thick Client, Network, Application). Team Leads and Admins can reassign testers. Status moves through Not started, In progress, Awaiting review and Completed.</li>
-      <li><strong>Findings and PoC</strong>: attach catalogue vulnerabilities to a project, record affected instances and authentication type, override CVSS score and vector, and document ordered PoC steps with images (PNG, JPG, GIF, WebP).</li>
-      <li><strong>Vulnerability catalogue</strong>: shared list with search, severity filters, CSV export and an approval workflow for new entries. Testers propose edits to approved entries as change requests.</li>
-      <li><strong>Scan imports</strong>: Nessus (<code>.nessus</code> or <code>.csv</code>) with per-plugin selection, and Nmap XML for Network projects. Imported records belong to the project and are not added to the shared catalogue.</li>
-      <li><strong>Reports</strong>: Admin-uploaded Word or Excel templates with highlighted placeholders, queued generation, a preflight check for missing data, an Issue Log CSV, and signed, expiring download links.</li>
-      <li><strong>Dashboards, notifications and retention</strong>: team and organisation views, an activity feed, in-app notifications, and a retention countdown for completed projects.</li>
-      <li><strong>Engagement features</strong>: a daily security quiz with a leaderboard, and a separate "Pattern Map" game whose scores do not affect quiz points.</li>
-      <li><strong>Administration</strong>: user management with CSV or XLSX bulk upload, admin-configurable settings with change history, system health, scheduled updates and audit logging.</li>
-    </ul>
-  </section>
-
-  <section id="documentation">
-    <h2>Documentation</h2>
+  <section id="what">
+    <h2>What PMIS does</h2>
     <div class="card-grid">
-      <a class="card" href="architecture.html"><h3>Architecture</h3><p>Services, request flow, backend modules, frontend routes and the data model.</p></a>
-      <a class="card" href="access-control.html"><h3>Access control</h3><p>Roles, the permission matrix, authentication, sessions, rate limits and request hardening.</p></a>
-      <a class="card" href="reports.html"><h3>Reports</h3><p>Templates, placeholders, generation, scan imports, Issue Log and downloads.</p></a>
-      <a class="card" href="api.html"><h3>API reference</h3><p>Every backend endpoint with its access rule.</p></a>
-      <a class="card" href="deployment.html"><h3>Deployment</h3><p>Production and development setup, configuration reference, operations and checklist.</p></a>
+      <div class="card"><h3>Engagements</h3><p>Projects for Web, API, Mobile, Thick Client and Network assessments under VAPT, PCI, CERT-In or ASV, each with a tester and a Team Lead.</p></div>
+      <div class="card"><h3>Findings and evidence</h3><p>Findings drawn from a shared vulnerability library, with affected assets, CVSS overrides and numbered proof-of-concept steps with screenshots.</p></div>
+      <div class="card"><h3>Scan imports</h3><p>Nessus results, Nmap port scans and network scope lists imported straight into Network projects.</p></div>
+      <div class="card"><h3>Vulnerability library</h3><p>One curated library with an approval workflow, so finding wording stays consistent across reports.</p></div>
+      <div class="card"><h3>Report generation</h3><p>Word and Excel reports filled from your own templates, plus an Issue Log export.</p></div>
+      <div class="card"><h3>Team oversight</h3><p>Dashboards, notifications, live-user view, project change history and a retention tracker.</p></div>
     </div>
   </section>
 
+  <section id="roles">
+    <h2>Who uses it</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Role</th><th>Typical responsibilities</th></tr></thead>
+      <tbody>
+        <tr><td>Admin</td><td>Users, report templates, vulnerability library, application settings.</td></tr>
+        <tr><td>AVP</td><td>Oversight across teams, approvals, organisation dashboards.</td></tr>
+        <tr><td>Team Lead</td><td>Runs a team of testers, reviews their projects and findings, approves library requests.</td></tr>
+        <tr><td>Tester</td><td>Runs engagements, records findings and evidence, generates reports for own projects.</td></tr>
+      </tbody>
+    </table></div>
+    <p>The <a href="user-guide.html">user guide</a> describes what each role can do.</p>
+  </section>
+
+  <section id="start">
+    <h2>Getting started</h2>
+    <ol class="plain">
+      <li><a href="installation.html">Install PMIS</a> with Docker Compose.</li>
+      <li>Sign in as <code>admin</code>, set a new password, create your users and upload your report templates.</li>
+      <li>Before anyone else uses it, put it behind HTTPS and work through the <a href="deployment.html#checklist">production checklist</a>.</li>
+    </ol>
+  </section>
+
   <section id="status">
-    <h2>Status and scope</h2>
+    <h2>Versions</h2>
     <ul class="plain">
-      <li>Version 1.0.0 (see <a href="https://github.com/sneakywarwolf/PMIS/blob/master/CHANGELOG.md">CHANGELOG</a>).</li>
-      <li>These pages describe the code on the <code>master</code> branch. Where older documents or the README differ from the code, these pages follow the code.</li>
-      <li>The design documents in <code>docs/</code> describe planned work. Items there are not described here as implemented unless the code confirms them.</li>
+      <li>This documentation describes the current source code.</li>
+      <li>The prebuilt 1.0.0 images on Docker Hub predate security improvements in the current code. <a href="installation.html#step-4">Build from source</a> until a newer release is published.</li>
+      <li>Changes are listed in the <a href="https://github.com/sneakywarwolf/PMIS/blob/master/CHANGELOG.md">changelog</a>.</li>
     </ul>
-    <div class="note">PMIS is a tool for managing <strong>authorized</strong> security testing. It stores client and vulnerability data. Operators are responsible for lawful use and for protecting that data. The software is provided as is, without warranty.</div>
+    <div class="note">PMIS is for <strong>authorized</strong> security testing only. It stores sensitive client and vulnerability data. You are responsible for lawful use and for protecting that data. The software is provided as is, without warranty.</div>
   </section>
 
 </main>
 
 <footer class="site-footer wrap">
-  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a>
+  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a> &middot; <a href="security.html#reporting">Report a vulnerability</a>
 </footer>
 
 </body>

@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Installation - PMIS-Project Management for Information Security</title>
+  <meta name="description" content="Step-by-step installation of PMIS with Docker Compose, first sign-in, initial setup and troubleshooting.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="index.html">PMIS</a>
+    <nav class="nav">
+      <a href="index.html">Overview</a>
+      <a href="installation.html" aria-current="page">Installation</a>
+      <a href="user-guide.html">User guide</a>
+      <a href="reports.html">Reports</a>
+      <a href="deployment.html">Production &amp; operations</a>
+      <a href="security.html">Security</a>
+    </nav>
+  </div>
+</header>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="crumb">PMIS documentation</p>
+    <h1>Installation</h1>
+    <p class="tagline">Install PMIS with Docker Compose on Linux, macOS or Windows. Follow the steps in order.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="step-1">
+    <h2>Step 1: Check prerequisites</h2>
+    <ul class="plain">
+      <li><strong>Docker with Compose v2.</strong> Docker Desktop on Windows or macOS; Docker Engine with the Compose plugin on Linux. Check with <code>docker compose version</code>.</li>
+      <li><strong>Git</strong>, to download the source.</li>
+      <li><strong>OpenSSL</strong>, to generate secrets. It is included on Linux and macOS, and in Git Bash on Windows. A PowerShell alternative is given in step 3.</li>
+      <li><strong>A free port</strong> for the web interface. The default is 3000.</li>
+      <li><strong>Internet access</strong> during installation, to download container images and, if you build from source, npm packages.</li>
+    </ul>
+    <p>Only the web interface port is published on the host. The database, cache, file storage and API stay inside the Docker network.</p>
+  </section>
+
+  <section id="step-2">
+    <h2>Step 2: Download PMIS</h2>
+<pre><code>git clone https://github.com/sneakywarwolf/PMIS.git
+cd PMIS</code></pre>
+    <p>Run every later command from this <code>PMIS</code> folder.</p>
+  </section>
+
+  <section id="step-3">
+    <h2>Step 3: Create the configuration file</h2>
+    <p>Copy the template:</p>
+<pre><code># Linux, macOS, Git Bash
+cp .env.example .env
+
+# Windows Command Prompt
+copy .env.example .env</code></pre>
+
+    <h3>3a. Set the four required secrets</h3>
+    <p>Open <code>.env</code> and replace each <code>CHANGE_ME</code> with its own long random value: <code>POSTGRES_PASSWORD</code>, <code>MINIO_ROOT_PASSWORD</code>, <code>JWT_ACCESS_SECRET</code>, <code>JWT_REFRESH_SECRET</code>. Use a different value for each.</p>
+    <p>On Linux, macOS or Git Bash, this fills all four automatically:</p>
+<pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
+  sed -i.bak "s|^$k=CHANGE_ME|$k=$(openssl rand -hex 32)|" .env
+done
+rm -f .env.bak
+grep '=CHANGE_ME' .env || echo "All secrets set"</code></pre>
+    <p>To generate a single value by hand:</p>
+<pre><code># OpenSSL
+openssl rand -hex 32
+
+# PowerShell
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | ForEach-Object { $_.ToString('x2') })</code></pre>
+    <div class="warn">Keep <code>.env</code> private and never commit it. If a value contains a <code>$</code> character, write it as <code>$$</code>. Hex values never contain <code>$</code>.</div>
+
+    <h3>3b. Choose a MinIO image (required)</h3>
+    <p>PMIS stores templates, reports and screenshots in MinIO. The default image, <code>minio/minio:latest</code>, is <strong>no longer available on Docker Hub</strong>, so a fresh install fails with <code>pull access denied for minio/minio</code> unless you set another image.</p>
+    <p>Add a <code>MINIO_IMAGE</code> line to <code>.env</code> naming a MinIO server image from a publisher you trust. The image must include the <code>mc</code> client, because the start-up health check uses it. For example:</p>
+<pre><code>MINIO_IMAGE=chainguard/minio:latest</code></pre>
+    <div class="note">The PMIS stack has been tested to start and pass its health checks with <code>chainguard/minio:latest</code> and with <code>pgsty/minio:latest</code>. Both are third-party builds of MinIO. Review the publisher, and pin a specific version or digest in production.</div>
+
+    <h3>3c. Optional settings</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Setting</th><th>When to change it</th></tr></thead>
+      <tbody>
+        <tr><td><code>ADMIN_PASSWORD</code></td><td>Set it to choose the first admin password yourself. If you leave it empty, a random password is generated (see step 6).</td></tr>
+        <tr><td><code>FRONTEND_PORT</code>, <code>FRONTEND_URL</code></td><td>If port 3000 is taken, or users will reach PMIS at a different address. <code>FRONTEND_URL</code> must be exactly the address users type in the browser.</td></tr>
+        <tr><td><code>COOKIE_SECURE</code></td><td>Leave <code>false</code> for <code>http://localhost</code>. Set <code>true</code> only once PMIS is served over HTTPS (see <a href="deployment.html#https">Production</a>).</td></tr>
+        <tr><td><code>SEED_DEMO</code></td><td>Leave <code>false</code>. <code>true</code> creates demo accounts whose passwords are public. Use it only on a private test machine.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="step-4">
+    <h2>Step 4: Build and start PMIS</h2>
+
+    <h3>Recommended: build from source</h3>
+    <p>Builds the web and API images from the folder you cloned and starts everything. The first build downloads npm packages and takes several minutes.</p>
+<pre><code>docker compose up -d --build</code></pre>
+
+    <h3>Alternative: prebuilt images</h3>
+    <div class="warn">The only prebuilt release on Docker Hub, version 1.0.0, predates security improvements in the current code. Do not use it. Build from source until a newer release is listed on the <a href="https://github.com/sneakywarwolf/PMIS/releases">releases page</a>.</div>
+    <p>When a newer release is available, set its version in <code>.env</code>, then pull and start:</p>
+<pre><code>PMIS_VERSION=&lt;release version&gt;
+
+docker compose pull
+docker compose up -d</code></pre>
+    <div class="note">If an image is missing locally, <code>docker compose up -d</code> builds it from source automatically. <code>docker compose pull</code> downloads the prebuilt images instead.</div>
+  </section>
+
+  <section id="step-5">
+    <h2>Step 5: Wait until all services are healthy</h2>
+<pre><code>docker compose ps</code></pre>
+    <p>Wait until <code>backend</code>, <code>frontend</code>, <code>postgres</code> and <code>minio</code> show <code>(healthy)</code>, and <code>redis</code> shows <code>Up</code>. On the first start the backend creates the database tables and loads the vulnerability library before it reports healthy.</p>
+  </section>
+
+  <section id="step-6">
+    <h2>Step 6: Sign in for the first time</h2>
+    <ol class="plain">
+      <li>Get the admin password. If you did not set <code>ADMIN_PASSWORD</code>, it was generated and printed once in the log:
+<pre><code># Linux, macOS, Git Bash
+docker compose logs backend | grep "First login"
+
+# Windows PowerShell
+docker compose logs backend | Select-String "First login"</code></pre>
+        The line appears only on the start that created the admin account. Store the password safely.</li>
+      <li>Open <code>http://localhost:3000</code>, or your <code>FRONTEND_URL</code>.</li>
+      <li>Sign in with username <code>admin</code> and that password.</li>
+      <li>Set a new password when prompted. The default policy needs at least 14 characters, including an uppercase letter, a number and a symbol.</li>
+    </ol>
+  </section>
+
+  <section id="step-7">
+    <h2>Step 7: Set up the application</h2>
+    <ol class="plain">
+      <li><strong>Your profile</strong>: open <em>Profile</em> and fill in your full name, phone and designation. Reports use these details.</li>
+      <li><strong>Users</strong>: open <em>Users</em> and create AVPs, Team Leads and Testers. Assign each tester to a Team Lead and each Team Lead to a manager. To add many users at once, download the sample file on the same page and upload it as CSV or XLSX. New users must change their password at first sign-in.</li>
+      <li><strong>Report templates</strong>: open <em>Reports</em>, upload your templates and activate them. Sample Word templates for PCI and VAPT (Web, API, Mobile, Thick Client) are in the <code>Report Template/</code> folder of the source. They are not loaded automatically. See <a href="reports.html#templates">Reports</a>.</li>
+      <li><strong>Vulnerability library</strong>: the library is preloaded on first start. Admins can extend it or replace it by bulk upload under <em>Vulnerabilities</em>.</li>
+      <li><strong>Settings</strong>: review <em>Settings</em> for session timeout, password policy, retention periods and branding.</li>
+    </ol>
+    <p>Before other people use PMIS, complete the <a href="deployment.html#checklist">production checklist</a>.</p>
+  </section>
+
+  <section id="troubleshooting">
+    <h2>Troubleshooting</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
+      <tbody>
+        <tr><td><code>pull access denied for minio/minio</code></td><td><code>MINIO_IMAGE</code> is not set. See step 3b.</td></tr>
+        <tr><td><code>set POSTGRES_PASSWORD in .env</code> (or another secret name)</td><td><code>.env</code> is missing or a required value is empty. See step 3a.</td></tr>
+        <tr><td><code>backend</code> keeps restarting</td><td>Run <code>docker compose logs backend</code>. The most common cause is a JWT secret still set to <code>CHANGE_ME</code>.</td></tr>
+        <tr><td><code>minio</code> never becomes healthy</td><td>The chosen MinIO image has no <code>mc</code> client. Choose another image (step 3b).</td></tr>
+        <tr><td>Port 3000 already in use</td><td>Set <code>FRONTEND_PORT</code> (for example <code>3001</code>) and the matching <code>FRONTEND_URL</code>, then run <code>docker compose up -d</code>.</td></tr>
+        <tr><td>No <code>First login</code> line in the log</td><td>The admin account already existed, or <code>ADMIN_PASSWORD</code> was set. Use that password.</td></tr>
+        <tr><td>Sign-in works on HTTPS but not on <code>http://</code></td><td><code>COOKIE_SECURE=true</code> requires HTTPS. Set it to <code>false</code> for plain HTTP on localhost.</td></tr>
+        <tr><td>"Account is temporarily locked"</td><td>Too many failed sign-ins. Wait 15 minutes and try again.</td></tr>
+        <tr><td>A user forgot their password</td><td>An Admin resets it under <em>Users</em>. The user then sets a new one at next sign-in.</td></tr>
+        <tr><td>Source build fails while downloading packages</td><td>Docker builds need internet access to the npm registry and to <code>cdn.sheetjs.com</code>. Behind a corporate proxy, configure Docker's proxy settings for builds.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="stop">
+    <h2>Stopping and removing</h2>
+<pre><code>docker compose stop        # stop, keep everything
+docker compose start       # start again
+docker compose down        # remove containers, keep data volumes</code></pre>
+    <div class="warn"><code>docker compose down -v</code> also deletes the data volumes, including the database and all uploaded files. This cannot be undone. Take a <a href="deployment.html#backup">backup</a> first.</div>
+  </section>
+
+  <section id="development">
+    <h2>Development setup (contributors)</h2>
+    <p>For changing PMIS itself, not for running it for a team. The database, cache and storage run in Docker. The API and web interface run on the host with npm.</p>
+    <ul class="plain">
+      <li>Prerequisites: Docker, Git and Node.js 20 (the version the production images use).</li>
+      <li>First-time setup: <code>./setup.sh</code> on Linux or macOS, <code>setup.bat</code> on Windows. The scripts start the infrastructure from <code>docker-compose.dev.yml</code>, install dependencies, create the database and start both apps. The admin password is printed by the seed step in the same terminal.</li>
+      <li>Windows helpers: <code>start-dev.bat</code>, <code>start.bat</code>, <code>stop.bat</code>, and <code>reset-db.bat</code> to reset development data.</li>
+      <li>Web interface at <code>http://localhost:3000</code>, API at <code>http://localhost:4000</code>.</li>
+    </ul>
+    <div class="warn">The development setup uses fixed, local-only credentials and publishes the database, cache and storage ports on your machine. Never use it for real data or expose it to a network.</div>
+  </section>
+
+</main>
+
+<footer class="site-footer wrap">
+  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a> &middot; <a href="security.html#reporting">Report a vulnerability</a>
+</footer>
+
+</body>
+</html>
