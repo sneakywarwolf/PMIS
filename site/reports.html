@@ -69,6 +69,7 @@
  ... PT-only paragraphs and tables ...
 {/PT}</code></pre>
     <p>A VA project keeps the VA blocks, a PT project keeps the PT blocks, and VAPT keeps both. Page and section breaks on marker lines are preserved.</p>
+    <p>In Excel Network reports, rows for Scope IP, VA Details, PT Details and Port Scan Result repeat once per record, and <code>{VA Output}</code> holds each finding's Nessus plugin output. In Word Network reports, the Scope and Detail Findings headings start on a new page.</p>
   </section>
 
   <section id="upload">
@@ -88,6 +89,7 @@
     <ol class="plain">
       <li>On the project, run the <strong>preflight check</strong>. It lists missing project details, profile details and findings that are not report-ready.</li>
       <li>Choose <strong>Generate report</strong> and pick Word, or Excel for Network projects. Generation runs in the background, and the page updates when it finishes.</li>
+      <li>The template is never picked by hand. A project uses the active Word template for its category and Testing Type (newest effective date wins), and is re-pointed automatically if that template is replaced. If none matches, generation names the missing template.</li>
       <li><strong>Download</strong> the file. Download links expire after one hour. Reopening the report history gives fresh links.</li>
     </ol>
     <p>Generation is blocked until both of these conditions hold:</p>

@@ -177,7 +177,7 @@ docker compose down        # remove containers, keep data volumes</code></pre>
     <h2>Development setup (contributors)</h2>
     <p>For changing PMIS itself, not for running it for a team. The database, cache and storage run in Docker. The API and web interface run on the host with npm.</p>
     <ul class="plain">
-      <li>Prerequisites: Docker, Git and Node.js 20 (the version the production images use).</li>
+      <li>Prerequisites: Docker, Git and Node.js 22 (the version the production images use).</li>
       <li>First-time setup: <code>./setup.sh</code> on Linux or macOS, <code>setup.bat</code> on Windows. The scripts start the infrastructure from <code>docker-compose.dev.yml</code>, install dependencies, create the database and start both apps. The admin password is printed by the seed step in the same terminal.</li>
       <li>Windows helpers: <code>start-dev.bat</code>, <code>start.bat</code>, <code>stop.bat</code>, and <code>reset-db.bat</code> to reset development data.</li>
       <li>Web interface at <code>http://localhost:3000</code>, API at <code>http://localhost:4000</code>.</li>
