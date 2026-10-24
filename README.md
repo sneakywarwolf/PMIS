@@ -33,7 +33,7 @@ docker compose logs backend | grep "First login"
 
 Open http://localhost:3000, sign in as `admin` with that password, and set a new one when prompted. There is no fixed default password. Before other people use PMIS, put it behind HTTPS and complete the [production checklist](https://sneakywarwolf.github.io/PMIS/deployment.html#checklist).
 
-**Prebuilt images:** the only published release on Docker Hub, 1.0.0, predates security improvements in the current code. Build from source, as above, until a newer release is published.
+**Prebuilt images:** instead of building, you can pull `sneakywarwolf/pmis-backend` and `sneakywarwolf/pmis-frontend` from Docker Hub: set `PMIS_VERSION` in `.env`, then run `docker compose pull` and `docker compose up -d --no-build` (see [Installation, step 4](https://sneakywarwolf.github.io/PMIS/installation.html#step-4)). Docker Hub currently has only `1.0.0` and `latest`, which predate security improvements in the current code, so build from source, as above, until a newer release is published.
 
 ## Repository layout
 

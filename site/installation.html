@@ -117,14 +117,21 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
     <p>Builds the web and API images from the folder you cloned and starts everything. The first build downloads npm packages and takes several minutes.</p>
 <pre><code>docker compose up -d --build</code></pre>
 
-    <h3>Alternative: prebuilt images</h3>
-    <div class="warn">The only prebuilt release on Docker Hub, version 1.0.0, predates security improvements in the current code. Do not use it. Build from source until a newer release is listed on the <a href="https://github.com/sneakywarwolf/PMIS/releases">releases page</a>.</div>
-    <p>When a newer release is available, set its version in <code>.env</code>, then pull and start:</p>
-<pre><code>PMIS_VERSION=&lt;release version&gt;
-
-docker compose pull
-docker compose up -d</code></pre>
-    <div class="note">If an image is missing locally, <code>docker compose up -d</code> builds it from source automatically. <code>docker compose pull</code> downloads the prebuilt images instead.</div>
+    <h3>Alternative: pull prebuilt images from Docker Hub</h3>
+    <p>This skips the build, so it starts faster and needs no npm download. You still need the cloned folder from step 2, because it holds <code>docker-compose.yml</code> and <code>.env.example</code>. Steps 3 and 5 onward are the same.</p>
+    <div class="warn">Docker Hub currently has only <code>1.0.0</code> and <code>latest</code> for <code>sneakywarwolf/pmis-backend</code> and <code>sneakywarwolf/pmis-frontend</code>, both pushed on 2026-10-08. They predate later fixes in the source, including the dependency and Node 22 updates. For anything beyond a trial, build from source until a newer version appears on the <a href="https://github.com/sneakywarwolf/PMIS/releases">releases page</a>.</div>
+    <ol class="plain">
+      <li>Choose the version in <code>.env</code>. Pin a number rather than <code>latest</code>, so a later push cannot change what you run:
+<pre><code>PMIS_VERSION=1.0.0</code></pre>
+      <code>PMIS_IMAGE_REPO</code> defaults to <code>sneakywarwolf</code>. Change it only if you host the images in your own registry.</li>
+      <li>Pull every image, including PostgreSQL, Redis and MinIO:
+<pre><code>docker compose pull</code></pre></li>
+      <li>Start without building. <code>--no-build</code> makes Docker stop with an error if an image is missing, instead of quietly building from source:
+<pre><code>docker compose up -d --no-build</code></pre></li>
+      <li>Continue with <a href="#step-5">step 5</a>.</li>
+    </ol>
+    <p>The images are published for <code>amd64</code> and <code>arm64</code>. To update later, change <code>PMIS_VERSION</code>, then run <code>docker compose pull</code> and <code>docker compose up -d --no-build</code> again. Data stays in the Docker volumes.</p>
+    <div class="note">Without <code>--no-build</code>, <code>docker compose up -d</code> builds from source whenever an image is missing locally.</div>
   </section>
 
   <section id="step-5">
