@@ -130,12 +130,15 @@ p, li { max-width: 74ch; }
 
 /* Content */
 main { padding-top: 8px; padding-bottom: 24px; }
-main section { padding: 32px 0; border-bottom: 1px solid var(--border); }
+main section { padding: 28px 0; border-bottom: 1px solid var(--border); }
+/* The section padding already separates sections; heading and last-child margins must not stack on top of it. */
+main section > h2:first-child { margin-top: 0; }
+main section > :last-child { margin-bottom: 0; }
 main section:last-of-type { border-bottom: none; }
 
 main.has-toc { display: block; }
 @media (min-width: 1060px) {
-  main.has-toc { max-width: 1180px; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 40px; align-items: start; }
+  main.has-toc { max-width: 1180px; display: grid; grid-template-columns: 210px minmax(0, 1fr); column-gap: 40px; row-gap: 0; align-items: start; }
   main.has-toc > .toc { grid-column: 1; grid-row: 1 / span 20; position: sticky; top: 76px; padding-top: 32px; }
   main.has-toc > section { grid-column: 2; }
 }

@@ -4,7 +4,7 @@ A self-hosted, role-based web application for Vulnerability Assessment & Penetra
 
 **Documentation: https://sneakywarwolf.github.io/PMIS/**
 
-> PMIS is for **authorized** security testing only. It stores sensitive client and vulnerability data; operators are responsible for lawful use and for protecting that data.
+> PMIS is for **Authorized Security Vendors and Service Providers only**. It stores sensitive client and vulnerability data; you are responsible for lawful use and for protecting that data. The software is provided as is, without warranty.
 
 ## Quick start (Docker)
 
@@ -47,7 +47,13 @@ Open http://localhost:3000, sign in as `admin` with that password, and set a new
 | `docs/` | Design and review documents |
 | `site/` | Source of the documentation website |
 
+## Reports and templates
+
+Reports are filled from your own Word templates (and Excel templates for Network projects). A project's template is chosen automatically from its compliance category and Testing Type. The documentation lists every supported placeholder, how names are matched, and the tables and rows that repeat: [Reports](https://sneakywarwolf.github.io/PMIS/reports.html). Word placeholders are detected from their literal `{…}` text, so no highlighting is needed.
+
 ## Links
+
+- [Documentation site](https://sneakywarwolf.github.io/PMIS/) (source in `site/`; update it together with any user-visible change)
 
 - [Security policy](SECURITY.md): report vulnerabilities privately, not in public issues
 - [Contributing](CONTRIBUTING.md)

@@ -41,7 +41,7 @@
     <h2>Preparing a template</h2>
     <ol class="plain">
       <li>Start from your organisation's report in Word (<code>.docx</code>), or in Excel (<code>.xlsx</code>) for Network projects. The <code>Report Template/</code> folder in the source has eight sample Word templates for PCI and VAPT (Web, API, Mobile, Thick Client).</li>
-      <li>Write each value PMIS should fill in as a placeholder in braces, for example <code>{Client Name}</code>, and <strong>highlight it yellow</strong>. Only highlighted placeholders are detected.</li>
+      <li>Write each value PMIS should fill in as a placeholder in braces, for example <code>{Client Name}</code>. Word templates are scanned for the literal <code>{…}</code> text, so no highlighting is needed. The one exception is the Tester, Team Lead and Manager contact table, where PMIS writes into the highlighted run of each cell: keep the highlight your template already has there.</li>
       <li>Keep each placeholder's text together. Don't rename the placeholders in the findings tables. Keep table header rows intact.</li>
     </ol>
 
@@ -62,68 +62,153 @@
       <figcaption>The report flow. Admins do the first three steps once per template; testers repeat the last two for each project.</figcaption>
     </figure>
 
-    <h3>Placeholders you can map</h3>
-    <p>After upload, each detected placeholder can be mapped to one of these values. Unmapped placeholders are matched by name automatically. The suggested placeholder is the parameter's own name: click it to copy, then paste it into your template. <em>Entered in</em> shows where the value comes from.</p>
-    <!-- Screenshot slot: <figure class="shot"><img src="img/mapping-screen.png" alt="Mapping detected placeholders to parameters"><figcaption>Mapping placeholders after upload.</figcaption></figure> -->
-    <!-- Screenshot slot: <figure class="shot"><img src="img/filled-report.png" alt="A generated report page"><figcaption>The same parameters filled in a generated report.</figcaption></figure> -->
-    <div class="filter"><label for="param-filter">Filter parameters</label><input id="param-filter" type="search" placeholder="Type a name, group or field"></div>
-    <div class="table-wrap"><table id="param-table">
-      <thead><tr><th>Group</th><th>Parameter</th><th>Suggested placeholder</th><th>Used for</th><th>Entered in</th></tr></thead>
+    <h3>How placeholder names are matched</h3>
+    <ul class="plain">
+      <li>A name is lower-cased and every run of punctuation or spaces becomes one underscore, so <code>{Client Name}</code>, <code>{client-name}</code> and <code>{CLIENT_NAME}</code> are the same name.</li>
+      <li>Project and people placeholders match when the name <em>contains</em> a built-in name below. The first matching rule wins, and an Admin mapping is tried before any built-in rule. For example <code>{Project Start Date}</code> matches Start Date.</li>
+      <li>Finding placeholders must match a listed name exactly (after the normalising above).</li>
+      <li>A placeholder nothing matches stays in the report as literal text. Generation is not blocked.</li>
+    </ul>
+    <h3>Names recognised without mapping</h3>
+    <p>Click a placeholder to copy it. Where several names are listed, any one of them works.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Placeholder</th><th>Value</th><th>Source</th></tr></thead>
       <tbody>
-        <tr data-key="project.applicationName"><td>Project</td><td>Application Name</td><td><code class="ph">{Application Name}</code></td><td>The project name: the app, API or product under test.</td><td>Project form: Application Name</td></tr>
-        <tr data-key="project.appVersion"><td>Project</td><td>App Version</td><td><code class="ph">{App Version}</code></td><td>Version of the application being tested.</td><td>Project form: App Version</td></tr>
-        <tr data-key="project.appNameVersion"><td>Project</td><td>Application Name &amp; Version (combined)</td><td><code class="ph">{Application Name &amp; Version (combined)}</code></td><td>Name and version on one line, for cover page titles.</td><td>Project form: Application Name, App Version</td></tr>
-        <tr data-key="project.documentVersion"><td>Project</td><td>Document Version</td><td><code class="ph">{Document Version}</code></td><td>Report version. Rises with each generation (1.0, 1.1, 1.2).</td><td>Automatic</td></tr>
-        <tr data-key="project.clientName"><td>Project</td><td>Client Name</td><td><code class="ph">{Client Name}</code></td><td>Organisation that ordered the test.</td><td>Project form: Client Name</td></tr>
-        <tr data-key="project.clientNameLocation"><td>Project</td><td>Client Name &amp; Location (combined)</td><td><code class="ph">{Client Name &amp; Location (combined)}</code></td><td>Client name and site, joined with a comma.</td><td>Project form: Client Name, Location</td></tr>
-        <tr data-key="project.startDate"><td>Project</td><td>Project Start Date</td><td><code class="ph">{Project Start Date}</code></td><td>First day of the testing window, in the date format set in Settings.</td><td>Project form: Start Date</td></tr>
-        <tr data-key="project.endDate"><td>Project</td><td>Project End Date</td><td><code class="ph">{Project End Date}</code></td><td>Last day of the testing window.</td><td>Project form: End Date</td></tr>
-        <tr data-key="project.startEndDateRange"><td>Project</td><td>Start &amp; End Date (combined)</td><td><code class="ph">{Start &amp; End Date (combined)}</code></td><td>Both dates in one sentence: Start Date …, to End Date ….</td><td>Project form: Start Date, End Date</td></tr>
-        <tr data-key="project.scope"><td>Project</td><td>Scope</td><td><code class="ph">{Scope}</code></td><td>URLs, hosts or modules in scope.</td><td>Project form: Scope</td></tr>
-        <tr data-key="project.detailsAndScope"><td>Project</td><td>Application Details &amp; Scope (combined)</td><td><code class="ph">{Application Details &amp; Scope (combined)}</code></td><td>Build details and scope together, one per line.</td><td>Project form: Build Details, Scope</td></tr>
-        <tr data-key="project.applicationDetails"><td>Project</td><td>Build Details</td><td><code class="ph">{Build Details}</code></td><td>Build, release or environment description.</td><td>Project form: Build Details</td></tr>
-        <tr data-key="project.toolsUsed"><td>Project</td><td>Tools Used</td><td><code class="ph">{Tools Used}</code></td><td>Tools used during testing.</td><td>Project form: Tools Used</td></tr>
-        <tr data-key="project.testingEnvironment"><td>Project</td><td>Testing Environment</td><td><code class="ph">{Testing Environment}</code></td><td>Where testing ran, such as UAT, staging or production.</td><td>Project form: Testing Environment</td></tr>
-        <tr data-key="project.testingType"><td>Project</td><td>Testing Type (Black/Grey Box)</td><td><code class="ph">{Testing Type (Black/Grey Box)}</code></td><td>Black box or grey box approach.</td><td>Project form: Approach</td></tr>
-        <tr data-key="project.platformType"><td>Project</td><td>Testing Type (Platform)</td><td><code class="ph">{Testing Type (Platform)}</code></td><td>Web Application, API, Mobile Application, Thick Client, Network or Application.</td><td>Project form: Testing Type (Platform)</td></tr>
-        <tr data-key="project.loginSystemTypes"><td>Project</td><td>Login/Role Types</td><td><code class="ph">{Login/Role Types}</code></td><td>User roles or logins used during testing.</td><td>Project form: Login/System Types</td></tr>
-        <tr data-key="project.applicationNature"><td>Project</td><td>Nature/Purpose of Application</td><td><code class="ph">{Nature/Purpose of Application}</code></td><td>What the application does for the client.</td><td>Project form: Application nature</td></tr>
-        <tr data-key="project.testingLimitation"><td>Project</td><td>Testing Limitation</td><td><code class="ph">{Testing Limitation}</code></td><td>Constraints that limited testing. Prints N/A when empty.</td><td>Project form: Testing Limitation</td></tr>
-        <tr data-key="project.qaReviewerName"><td>Project</td><td>QA Reviewer Name</td><td><code class="ph">{QA Reviewer Name}</code></td><td>Person who reviewed the report. Prints N/A when empty.</td><td>Project form: QA Name</td></tr>
-        <tr data-key="project.mobilePlatform"><td>Project</td><td>Mobile Platform (Android/iOS)</td><td><code class="ph">{Mobile Platform (Android/iOS)}</code></td><td>Android or iOS, for mobile projects.</td><td>Project form: Android/iOS</td></tr>
-        <tr data-key="project.sha1"><td>Project</td><td>SHA-1 Hash</td><td><code class="ph">{SHA-1 Hash}</code></td><td>Hash of the tested build.</td><td>Project form: SHA-1</td></tr>
-        <tr data-key="project.externalInternal"><td>Network</td><td>Scope Exposure (External/Internal)</td><td><code class="ph">{Scope Exposure (External/Internal)}</code></td><td>Whether the scope is external or internal.</td><td>Project form: Exposure</td></tr>
-        <tr data-key="project.networkActivityType"><td>Network</td><td>Network Activity Type (VA/PT/VAPT)</td><td><code class="ph">{Network Activity Type (VA/PT/VAPT)}</code></td><td>Which activities the engagement covers.</td><td>Project form: Activity Type</td></tr>
-        <tr data-key="project.totalScopeCount"><td>Network</td><td>Total Scope Count</td><td><code class="ph">{Total Scope Count}</code></td><td>Number of IPs or hosts in scope.</td><td>Project form: Scope Count</td></tr>
-        <tr data-key="project.quarter"><td>Network</td><td>Quarter</td><td><code class="ph">{Quarter}</code></td><td>Reporting quarter, for recurring network assessments.</td><td>Project form: Quarter/Frequency</td></tr>
-        <tr data-key="project.clientSpocName"><td>Client contact</td><td>Client SPOC Name</td><td><code class="ph">{Client SPOC Name}</code></td><td>Client point of contact (CERT-In projects). Prints N/A when empty.</td><td>Project form: Client SPOC Name</td></tr>
-        <tr data-key="project.clientSpocDesignation"><td>Client contact</td><td>Client SPOC Designation</td><td><code class="ph">{Client SPOC Designation}</code></td><td>The contact's job title. Prints N/A when empty.</td><td>Project form: Client SPOC Designation</td></tr>
-        <tr data-key="project.clientSpocEmail"><td>Client contact</td><td>Client SPOC Email ID</td><td><code class="ph">{Client SPOC Email ID}</code></td><td>The contact's email. Prints N/A when empty.</td><td>Project form: Client SPOC Email ID</td></tr>
-        <tr data-key="project.testerName"><td>People</td><td>Tester Name</td><td><code class="ph">{Tester Name}</code></td><td>Name of the assigned tester.</td><td>Project assignment and Profile</td></tr>
-        <tr data-key="project.teamLeadName"><td>People</td><td>Team Lead Name</td><td><code class="ph">{Team Lead Name}</code></td><td>Name of the assigned Team Lead.</td><td>Project assignment and Profile</td></tr>
-        <tr data-key="manager.fullName"><td>People</td><td>Manager Name</td><td><code class="ph">{Manager Name}</code></td><td>The Team Lead's manager (AVP). Prints N/A when empty.</td><td>User management</td></tr>
-        <tr data-key="manager.designation"><td>People</td><td>Manager Designation</td><td><code class="ph">{Manager Designation}</code></td><td>Manager's job title.</td><td>Profile</td></tr>
-        <tr data-key="manager.phone"><td>People</td><td>Manager Phone</td><td><code class="ph">{Manager Phone}</code></td><td>Manager's phone number.</td><td>Profile</td></tr>
-        <tr data-key="manager.email"><td>People</td><td>Manager Email</td><td><code class="ph">{Manager Email}</code></td><td>Manager's email.</td><td>Profile</td></tr>
-        <tr data-key="teamLead.designation"><td>People</td><td>Team Lead Designation</td><td><code class="ph">{Team Lead Designation}</code></td><td>Team Lead's job title.</td><td>Profile</td></tr>
-        <tr data-key="teamLead.phone"><td>People</td><td>Team Lead Phone</td><td><code class="ph">{Team Lead Phone}</code></td><td>Team Lead's phone number.</td><td>Profile</td></tr>
-        <tr data-key="teamLead.email"><td>People</td><td>Team Lead Email</td><td><code class="ph">{Team Lead Email}</code></td><td>Team Lead's email.</td><td>Profile</td></tr>
-        <tr data-key="tester.designation"><td>People</td><td>Tester Designation</td><td><code class="ph">{Tester Designation}</code></td><td>Tester's job title.</td><td>Profile</td></tr>
-        <tr data-key="tester.phone"><td>People</td><td>Tester Phone</td><td><code class="ph">{Tester Phone}</code></td><td>Tester's phone number.</td><td>Profile</td></tr>
-        <tr data-key="tester.email"><td>People</td><td>Tester Email</td><td><code class="ph">{Tester Email}</code></td><td>Tester's email.</td><td>Profile</td></tr>
-        <tr data-key="report.generationDate"><td>Report</td><td>Report Generation Date</td><td><code class="ph">{Report Generation Date}</code></td><td>Date the report was generated.</td><td>Automatic</td></tr>
-        <tr data-key="report.generationDateIso"><td>Report</td><td>Report Date (format set in Settings)</td><td><code class="ph">{Report Date (format set in Settings)}</code></td><td>Generation date in the format an Admin sets in Settings.</td><td>Automatic</td></tr>
-        <tr data-key="report.name"><td>Report</td><td>Report Name (Generated Filename)</td><td><code class="ph">{Report Name (Generated Filename)}</code></td><td>The final generated file name, for headers and footers.</td><td>Automatic</td></tr>
+        <tr><td><code class="ph">{Start Date}</code> <code class="ph">{End Date}</code></td><td>Project start and end dates, in the report date format set in Settings. Both in one text run give &ldquo;Start Date …, to End Date …&rdquo;.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{QA Reviewer Name}</code></td><td>QA reviewer. Prints N/A when empty.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Tester Name}</code> <code class="ph">{Team Lead Name}</code></td><td>Assigned tester and Team Lead. Empty if unassigned.</td><td>Project</td></tr>
+        <tr><td><code class="ph">{Manager}</code></td><td>The Team Lead&rsquo;s manager. Prints N/A when empty.</td><td>User management</td></tr>
+        <tr><td><code class="ph">{Manager Designation}</code> <code class="ph">{Manager Phone}</code> <code class="ph">{Manager Email}</code></td><td>Manager contact details. N/A when empty.</td><td>Profile</td></tr>
+        <tr><td><code class="ph">{Team Lead Designation}</code> <code class="ph">{Team Lead Phone}</code> <code class="ph">{Team Lead Email}</code></td><td>Team Lead contact details. N/A when empty.</td><td>Profile</td></tr>
+        <tr><td><code class="ph">{Tester Designation}</code> <code class="ph">{Tester Phone}</code> <code class="ph">{Tester Email}</code></td><td>Tester contact details. N/A when empty.</td><td>Profile</td></tr>
+        <tr><td><code class="ph">{Application Name}</code></td><td>Project name. Falls back to the text &ldquo;Application Name&rdquo; (&ldquo;API Name&rdquo; for API projects) when empty.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{App Version}</code></td><td>Application version.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Document Version}</code> <code class="ph">{Version Ex}</code></td><td>The report&rsquo;s own version: 1.0, 1.1, 1.2 and so on, rising with each generation.</td><td>Automatic</td></tr>
+        <tr><td><code class="ph">{Client SPOC Name}</code> <code class="ph">{Client SPOC Designation}</code> <code class="ph">{Client SPOC Email}</code></td><td>Client contact. N/A when empty.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Client Name}</code></td><td>Client organisation.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Client Name &amp; Location}</code></td><td>Client name and location, joined with a comma.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Location}</code></td><td>Client location.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Month DD, YYYY}</code></td><td>Date the report was generated.</td><td>Automatic</td></tr>
+        <tr><td><code class="ph">{Report Date}</code></td><td>Generation date in the format set in Settings.</td><td>Automatic</td></tr>
+        <tr><td><code class="ph">{Tools Used}</code> <code class="ph">{Tools Name}</code></td><td>Tools Used text.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Details &amp; Scope}</code></td><td>Build details and scope together, one per line.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Scope}</code></td><td>Scope text.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Total Scope Count}</code></td><td>Number of network scope entries.</td><td>Project form (Network)</td></tr>
+        <tr><td><code class="ph">{Testing Environment}</code> <code class="ph">{Staging/UAT}</code></td><td>Testing Environment.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Testing Approach}</code> <code class="ph">{Black Box}</code> <code class="ph">{Grey Box}</code></td><td>Black box or grey box approach.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Login Role Types}</code></td><td>Types of Login System.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Nature or Purpose}</code></td><td>Nature / Purpose of the Application.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Testing Limitation}</code></td><td>Testing Limitation. N/A when empty.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Build Details}</code></td><td>Application / Build Details.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Android/iOS}</code></td><td>Mobile platform.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{SHA-1}</code> <code class="ph">{SHA1}</code></td><td>SHA-1 hash of the tested build.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{External/Internal}</code></td><td>Scope Exposure.</td><td>Project form (Network)</td></tr>
+        <tr><td><code class="ph">{VAPT}</code></td><td>Network Activity Type (VA, PT or VAPT). Any name containing &ldquo;VAPT&rdquo; matches.</td><td>Project form (Network)</td></tr>
+        <tr><td><code class="ph">{Quarter}</code></td><td>Quarter/Frequency.</td><td>Project form (Network)</td></tr>
+        <tr><td><code class="ph">{Number of Days}</code></td><td>Repeats once per audit phase, in document order: Planning, Information Gathering, Scanning &amp; Exploitation, Reporting. The project&rsquo;s days are split 1 : 2 : 4 in half-day steps and Reporting is always 1 day. Empty if the dates are missing.</td><td>Calculated from the dates</td></tr>
+        <tr><td><code class="ph">{Testing Type}</code> <code class="ph">{Platform Type}</code></td><td>The platform: Web Application, API, Mobile Application, Thick Client, Network or Application.</td><td>Project form</td></tr>
       </tbody>
     </table></div>
-    <p>Two placeholders have special behaviour:</p>
-    <ul class="plain">
-      <li><code>{Compliance Status}</code> or <code>{Project Status}</code> prints <em>Compliant</em> or <em>Non-Compliant</em>. When the placeholder is alone in its cell or paragraph, the background is green or red. It stays empty while the project is In-Progress. It also works in headers, footers and the file name.</li>
-      <li>Findings tables (summary and detailed) are filled with one row or block per finding, including PoC steps with their screenshots.</li>
-    </ul>
-
-    <h3>VA and PT sections (Network)</h3>
-    <p>Wrap content that applies only to vulnerability assessment or only to penetration testing in marker paragraphs. Each marker must be on its own line:</p>
+    <div class="note"><code>{Testing Type}</code> alone prints the platform (Web Application, API, &hellip;). Use <code>{Testing Approach}</code> for Black or Grey Box, or name the placeholder with &ldquo;Black Box&rdquo;/&ldquo;Grey Box&rdquo; in it. Values in a project&rsquo;s custom fields are matched by the field&rsquo;s key, after the rules above.</div>
+    <h3>Parameters you can map (Admin)</h3>
+    <p>After upload, an Admin can map each detected placeholder to one of these parameters. A mapping wins over the built-in names. If the mapped parameter has no value for a project, the mapping is skipped and the built-in names are tried; if none match, the placeholder stays as literal text.</p>
+    <!-- Screenshot slot: <figure class="shot"><img src="img/mapping-screen.png" alt="Mapping detected placeholders to parameters"><figcaption>Mapping placeholders after upload.</figcaption></figure> -->
+    <div class="filter"><label for="param-filter">Filter parameters</label><input id="param-filter" type="search" placeholder="Type a name, group or field"></div>
+    <div class="table-wrap"><table id="param-table">
+      <thead><tr><th>Group</th><th>Parameter</th><th>Used for</th><th>Entered in</th></tr></thead>
+      <tbody>
+        <tr data-key="project.applicationName"><td>Project</td><td>Application Name</td><td>The project name: the app, API or product under test.</td><td>Project form: Application Name</td></tr>
+        <tr data-key="project.appVersion"><td>Project</td><td>App Version</td><td>Version of the application being tested.</td><td>Project form: App Version</td></tr>
+        <tr data-key="project.appNameVersion"><td>Project</td><td>Application Name &amp; Version (combined)</td><td>Name and version on one line, for cover page titles.</td><td>Project form: Application Name, App Version</td></tr>
+        <tr data-key="project.documentVersion"><td>Project</td><td>Document Version</td><td>Report version. Rises with each generation (1.0, 1.1, 1.2).</td><td>Automatic</td></tr>
+        <tr data-key="project.clientName"><td>Project</td><td>Client Name</td><td>Organisation that ordered the test.</td><td>Project form: Client Name</td></tr>
+        <tr data-key="project.clientNameLocation"><td>Project</td><td>Client Name &amp; Location (combined)</td><td>Client name and site, joined with a comma.</td><td>Project form: Client Name, Location</td></tr>
+        <tr data-key="project.startDate"><td>Project</td><td>Project Start Date</td><td>First day of the testing window, in the date format set in Settings.</td><td>Project form: Start Date</td></tr>
+        <tr data-key="project.endDate"><td>Project</td><td>Project End Date</td><td>Last day of the testing window.</td><td>Project form: End Date</td></tr>
+        <tr data-key="project.startEndDateRange"><td>Project</td><td>Start &amp; End Date (combined)</td><td>Both dates in one sentence: Start Date …, to End Date ….</td><td>Project form: Start Date, End Date</td></tr>
+        <tr data-key="project.scope"><td>Project</td><td>Scope</td><td>URLs, hosts or modules in scope.</td><td>Project form: Scope</td></tr>
+        <tr data-key="project.detailsAndScope"><td>Project</td><td>Application Details &amp; Scope (combined)</td><td>Build details and scope together, one per line.</td><td>Project form: Build Details, Scope</td></tr>
+        <tr data-key="project.applicationDetails"><td>Project</td><td>Build Details</td><td>Build, release or environment description.</td><td>Project form: Build Details</td></tr>
+        <tr data-key="project.toolsUsed"><td>Project</td><td>Tools Used</td><td>Tools used during testing.</td><td>Project form: Tools Used</td></tr>
+        <tr data-key="project.testingEnvironment"><td>Project</td><td>Testing Environment</td><td>Where testing ran, such as UAT, staging or production.</td><td>Project form: Testing Environment</td></tr>
+        <tr data-key="project.testingType"><td>Project</td><td>Testing Type (Black/Grey Box)</td><td>Black box or grey box approach.</td><td>Project form: Approach</td></tr>
+        <tr data-key="project.platformType"><td>Project</td><td>Testing Type (Platform)</td><td>Web Application, API, Mobile Application, Thick Client, Network or Application.</td><td>Project form: Testing Type (Platform)</td></tr>
+        <tr data-key="project.loginSystemTypes"><td>Project</td><td>Login/Role Types</td><td>User roles or logins used during testing.</td><td>Project form: Login/System Types</td></tr>
+        <tr data-key="project.applicationNature"><td>Project</td><td>Nature/Purpose of Application</td><td>What the application does for the client.</td><td>Project form: Application nature</td></tr>
+        <tr data-key="project.testingLimitation"><td>Project</td><td>Testing Limitation</td><td>Constraints that limited testing. Prints N/A when empty.</td><td>Project form: Testing Limitation</td></tr>
+        <tr data-key="project.qaReviewerName"><td>Project</td><td>QA Reviewer Name</td><td>Person who reviewed the report. Prints N/A when empty.</td><td>Project form: QA Name</td></tr>
+        <tr data-key="project.mobilePlatform"><td>Project</td><td>Mobile Platform (Android/iOS)</td><td>Android or iOS, for mobile projects.</td><td>Project form: Android/iOS</td></tr>
+        <tr data-key="project.sha1"><td>Project</td><td>SHA-1 Hash</td><td>Hash of the tested build.</td><td>Project form: SHA-1</td></tr>
+        <tr data-key="project.externalInternal"><td>Network</td><td>Scope Exposure (External/Internal)</td><td>Whether the scope is external or internal.</td><td>Project form: Exposure</td></tr>
+        <tr data-key="project.networkActivityType"><td>Network</td><td>Network Activity Type (VA/PT/VAPT)</td><td>Which activities the engagement covers.</td><td>Project form: Activity Type</td></tr>
+        <tr data-key="project.totalScopeCount"><td>Network</td><td>Total Scope Count</td><td>Number of IPs or hosts in scope.</td><td>Project form: Scope Count</td></tr>
+        <tr data-key="project.quarter"><td>Network</td><td>Quarter</td><td>Reporting quarter, for recurring network assessments.</td><td>Project form: Quarter/Frequency</td></tr>
+        <tr data-key="project.clientSpocName"><td>Client contact</td><td>Client SPOC Name</td><td>Client point of contact (CERT-In projects). Prints N/A when empty.</td><td>Project form: Client SPOC Name</td></tr>
+        <tr data-key="project.clientSpocDesignation"><td>Client contact</td><td>Client SPOC Designation</td><td>The contact's job title. Prints N/A when empty.</td><td>Project form: Client SPOC Designation</td></tr>
+        <tr data-key="project.clientSpocEmail"><td>Client contact</td><td>Client SPOC Email ID</td><td>The contact's email. Prints N/A when empty.</td><td>Project form: Client SPOC Email ID</td></tr>
+        <tr data-key="project.testerName"><td>People</td><td>Tester Name</td><td>Name of the assigned tester.</td><td>Project assignment and Profile</td></tr>
+        <tr data-key="project.teamLeadName"><td>People</td><td>Team Lead Name</td><td>Name of the assigned Team Lead.</td><td>Project assignment and Profile</td></tr>
+        <tr data-key="manager.fullName"><td>People</td><td>Manager Name</td><td>The Team Lead's manager (AVP). Prints N/A when empty.</td><td>User management</td></tr>
+        <tr data-key="manager.designation"><td>People</td><td>Manager Designation</td><td>Manager's job title.</td><td>Profile</td></tr>
+        <tr data-key="manager.phone"><td>People</td><td>Manager Phone</td><td>Manager's phone number.</td><td>Profile</td></tr>
+        <tr data-key="manager.email"><td>People</td><td>Manager Email</td><td>Manager's email.</td><td>Profile</td></tr>
+        <tr data-key="teamLead.designation"><td>People</td><td>Team Lead Designation</td><td>Team Lead's job title.</td><td>Profile</td></tr>
+        <tr data-key="teamLead.phone"><td>People</td><td>Team Lead Phone</td><td>Team Lead's phone number.</td><td>Profile</td></tr>
+        <tr data-key="teamLead.email"><td>People</td><td>Team Lead Email</td><td>Team Lead's email.</td><td>Profile</td></tr>
+        <tr data-key="tester.designation"><td>People</td><td>Tester Designation</td><td>Tester's job title.</td><td>Profile</td></tr>
+        <tr data-key="tester.phone"><td>People</td><td>Tester Phone</td><td>Tester's phone number.</td><td>Profile</td></tr>
+        <tr data-key="tester.email"><td>People</td><td>Tester Email</td><td>Tester's email.</td><td>Profile</td></tr>
+        <tr data-key="report.generationDate"><td>Report</td><td>Report Generation Date</td><td>Date the report was generated.</td><td>Automatic</td></tr>
+        <tr data-key="report.generationDateIso"><td>Report</td><td>Report Date (format set in Settings)</td><td>Generation date in the format an Admin sets in Settings.</td><td>Automatic</td></tr>
+        <tr data-key="report.name"><td>Report</td><td>Report Name (Generated Filename)</td><td>The generated file name. Empty while the file name itself is being built.</td><td>Automatic</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Finding placeholders</h3>
+    <p>Used inside the findings tables of a Word template and the finding rows of an Excel template. Each takes its value from the finding and its library entry.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Placeholder</th><th>Value</th><th>When empty</th></tr></thead>
+      <tbody>
+        <tr><td><code class="ph">{S No}</code> <code class="ph">{Finding No}</code> <code class="ph">{SNo}</code></td><td>Finding number, such as &ldquo;1.&rdquo;</td><td>Always set</td></tr>
+        <tr><td><code class="ph">{Finding Title}</code> <code class="ph">{Vulnerability Name}</code></td><td>Vulnerability name.</td><td>Always set</td></tr>
+        <tr><td><code class="ph">{Severity}</code></td><td>Severity, from the CVSS override if one is set.</td><td>Always set</td></tr>
+        <tr><td><code class="ph">{CVSS Score}</code> <code class="ph">{Score Value}</code></td><td>CVSS score.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{CVSS Vector}</code></td><td>CVSS vector.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{CVSS}</code></td><td>Score and vector together, &ldquo;score | vector&rdquo;.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{CVE/CWE}</code></td><td>CVE and CWE IDs joined with &ldquo; / &rdquo;.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{CVE ID}</code> <code class="ph">{CVE}</code></td><td>CVE ID.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{CWE ID}</code> <code class="ph">{CWE}</code></td><td>CWE ID.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{Description}</code> <code class="ph">{Vulnerability Description}</code></td><td>Description.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{Impact}</code> <code class="ph">{Vulnerability Impact}</code></td><td>Impact.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{Remediation}</code> <code class="ph">{Vulnerability Remediation}</code></td><td>Remediation.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{Reference}</code> <code class="ph">{References}</code> <code class="ph">{Reference Link}</code> <code class="ph">{Vulnerability References}</code></td><td>References.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{Affected}</code> <code class="ph">{Affected URL}</code> <code class="ph">{Affected Instances}</code></td><td>Affected URLs or hosts, one per line.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{Authentication}</code> <code class="ph">{Authentication Type}</code></td><td>Authentication type.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{Vulnerability Dependency}</code></td><td>Vulnerability dependency note.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{Status}</code> <code class="ph">{Report Status}</code></td><td>Report status of the finding.</td><td>Open</td></tr>
+        <tr><td><code class="ph">{VA Vulnerability Name}</code> <code class="ph">{VA Severity}</code> &hellip;</td><td>A <code>VA </code> prefix on any name above gives the same value, but only for scan-imported (VA) findings.</td><td>Left empty for non-VA findings</td></tr>
+        <tr><td><code class="ph">{VA Output}</code></td><td>The finding&rsquo;s Nessus plugin output.</td><td>Empty</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Tables and rows that repeat</h3>
+    <p>PMIS finds these by their content, not by position, and does nothing if the template has no such table.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Format</th><th>Table or row set</th><th>How it is found</th><th>What is filled</th></tr></thead>
+      <tbody>
+        <tr><td>Word</td><td>Network scope table</td><td>A table whose text contains <code>{IP}</code> and <code>{Purpose}</code> (and <code>{Domain&amp;Hostname}</code>).</td><td>One row per scope entry.</td></tr>
+        <tr><td>Word</td><td>Tools used table</td><td>A table containing <code>{Tool Name}</code> and <code>{Tool Version}</code>.</td><td>One row per tool in the project&rsquo;s tools table.</td></tr>
+        <tr><td>Word</td><td>Nmap port table</td><td>A table whose text contains &ldquo;nmap&rdquo; and <code>{Port}</code>, plus <code>{Protocol}</code>, <code>{Service}</code>, <code>{Status}</code>.</td><td>One row per imported Nmap record.</td></tr>
+        <tr><td>Word</td><td>Findings tables</td><td>Summary table (<code>{Vulnerability Name}</code> or <code>{Finding Title}</code> with CVE/CWE or score) and detailed table (the same plus description or remediation).</td><td>One row or block per finding; PoC steps and screenshots go in the detailed table&rsquo;s PoC row.</td></tr>
+        <tr><td>Word</td><td>Contact table</td><td>Rows named Tester, Team Lead and Manager.</td><td>Written into the highlighted run of each cell.</td></tr>
+        <tr><td>Excel</td><td>Scope rows</td><td>A row containing placeholders named IP and Purpose (and optionally Domain).</td><td>Row repeats per scope entry; empty values print NA.</td></tr>
+        <tr><td>Excel</td><td>Port scan rows</td><td>A row with a Port placeholder and one whose name contains &ldquo;nmap&rdquo;, plus Protocol, Service, Status.</td><td>Row repeats per Nmap record; empty values print NA.</td></tr>
+        <tr><td>Excel</td><td>VA rows</td><td>A row containing any placeholder that starts with <code>VA </code>.</td><td>Row repeats per VA finding.</td></tr>
+        <tr><td>Excel</td><td>Finding rows</td><td>A row containing <code>{Vulnerability Name}</code>.</td><td>Row repeats per finding. In Network projects it takes PT findings only, because VA findings use the VA rows.</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Compliance status</h3>
+    <p><code>{Compliance Status}</code> or <code>{Project Status}</code> (any spacing or underscore form) prints <em>Compliant</em> or <em>Non-Compliant</em> in both Word and Excel. When it is alone in its cell or paragraph, the background is green or red. It stays empty while the project is In-Progress. In Word it also works in headers, footers and the file name.</p>
+    <h3>VA and PT sections (Word, Network)</h3>
+    <p>Wrap content that applies only to vulnerability assessment or only to penetration testing in marker paragraphs. These are control markers, not parameters: they are never listed as fields. Each marker must be the only text in its paragraph, in any letter case:</p>
 <pre><code>{#VA}
  ... VA-only paragraphs and tables ...
 {/VA}
@@ -131,8 +216,13 @@
 {#PT}
  ... PT-only paragraphs and tables ...
 {/PT}</code></pre>
-    <p>A VA project keeps the VA blocks, a PT project keeps the PT blocks, and VAPT keeps both. Page and section breaks on marker lines are preserved.</p>
-    <p>In Excel Network reports, rows for Scope IP, VA Details, PT Details and Port Scan Result repeat once per record, and <code>{VA Output}</code> holds each finding's Nessus plugin output. In Word Network reports, the Scope and Detail Findings headings start on a new page.</p>
+    <p>A VA project keeps the VA blocks, a PT project keeps the PT blocks, and VAPT keeps both. If the activity type is not set, both are kept. Page and section breaks on marker lines are preserved. Excel templates do not use markers: their rows repeat as described above. In Word Network reports, the Scope and Detail Findings headings start on a new page.</p>
+    <h3>Not supported</h3>
+    <ul class="plain">
+      <li>Excel text in drawings, headers, footers and comments is not scanned for placeholders.</li>
+      <li>Excel reports are only available for Network projects.</li>
+      <li>A placeholder not covered on this page is left as literal text. Ask an Admin to map it, or rename it to a listed name.</li>
+    </ul>
   </section>
 
   <section id="upload">
@@ -143,7 +233,7 @@
       <li>Review the detected fields. Add any the detector missed, and map fields to values if the names differ.</li>
       <li>Activate the template. Projects of the matching category and activity type then use it.</li>
     </ol>
-    <div class="warn"><strong>Activating replaces the previous template.</strong> When you activate a template, any active template with the same category and format that covers the same activity types is replaced. If the old template covered only those activity types, it is <strong>deleted</strong>: its file and field mappings are removed. Reports already generated are not affected. Keep your own copy of every template file.</div>
+    <div class="warn"><strong>Activating replaces the previous template.</strong> When you activate a template, any active template with the same category and format that covers the same activity types is replaced. Projects that used the old template move to the new one. If the old template covered only those activity types, it is made inactive when generated reports still point at it, and <strong>deleted</strong> (file and field mappings included) when nothing does. If it also covered other activity types, it keeps those. Reports already generated are not affected. Keep your own copy of every template file.</div>
     <p>Inactive templates can be deleted from the same page.</p>
   </section>
 

@@ -1,5 +1,7 @@
 # VAPT Command Center — Report Engine Specification
 
+> **Correction (2026-10-24):** this is a historical design draft. Where it says placeholders must be yellow-highlighted (sections 3 and 5), that no longer applies: Word placeholders are detected from their literal `{…}` text. The current placeholder reference is the Reports page of the documentation site, checked against the code.
+
 **Status:** Review draft — awaiting owner approval. No code changes have been made.
 **Date:** 2026-08-30
 **Basis:** Direct inspection of the 8 DOCX templates (`Report Template/PCI`, `Report Template/VAPT` — Web, API, Mobile, Thick-Client) and the current backend code.
