@@ -11,6 +11,7 @@ import {
 import { useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
+import { LiveUsersBadge } from '@/components/live-users-badge';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
 import { ChartFilter, DashboardEngagements } from '@/components/dashboard-engagements';
 import { DashboardRankings } from '@/components/dashboard-rankings';
@@ -156,9 +157,12 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between">
         <p className="text-gray-400 text-sm">Overview of your VAPT operations</p>
         <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-sm text-emerald-400 font-mono">SYSTEM ONLINE</span>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-sm text-emerald-400 font-mono">SYSTEM ONLINE</span>
+            </div>
+            <LiveUsersBadge />
           </div>
           <DashboardCustomize layout={layout} />
         </div>

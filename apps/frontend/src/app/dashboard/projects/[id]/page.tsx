@@ -26,6 +26,8 @@ import {
   Upload,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
+import { NetworkLimitationCaution } from '@/components/network-limitation-caution';
+import { ScopeImportButton } from '@/components/scope-import-button';
 import { triggerDownload } from '@/lib/download';
 import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
@@ -121,6 +123,9 @@ interface Project {
   subType: string;
   appVersion?: string;
   location?: string;
+  clientSpocName?: string;
+  clientSpocDesignation?: string;
+  clientSpocEmail?: string;
   documentVersion?: string;
   toolsUsed?: string;
   testingEnvironment?: string;
@@ -144,7 +149,37 @@ interface Project {
   tl: { id: string; username: string; email: string; fullName?: string | null };
   template?: { id: string; name: string; projectType: string } | null;
   findings: Finding[];
+  // Post-completion edits, oldest first. Only sent to Team Leads / Admins.
+  changes?: ProjectChange[];
 }
+
+interface ProjectChange {
+  id: string;
+  field: string;
+  oldValue: unknown;
+  newValue: unknown;
+  changedByName: string;
+  changedAt: string;
+}
+
+const CHANGE_LABELS: Record<string, string> = {
+  name: 'Project Name', clientName: 'Client', scope: 'Scope', startDate: 'Start Date', endDate: 'End Date',
+  templateId: 'Template', complianceStatus: 'Compliance Status', complianceType: 'Compliance Type',
+  appVersion: 'App Version', location: 'Location', clientSpocName: 'Client SPOC Name', clientSpocDesignation: 'Client SPOC Designation', clientSpocEmail: 'Client SPOC Email ID', documentVersion: 'Document Version',
+  toolsUsedTable: 'Tools Used', testingEnvironment: 'Testing Environment', qaReviewerName: 'QA Reviewer',
+  applicationDetails: 'Application Details', testingType: 'Testing Type', loginSystemTypes: 'Login Systems',
+  applicationNature: 'Application Nature', testingLimitation: 'Testing Limitation', mobilePlatform: 'Android/iOS',
+  sha1: 'SHA-1', externalInternal: 'Scope Exposure', networkActivityType: 'Network Activity Type',
+  totalScopeCount: 'Total Scope Count', networkScope: 'Network Scope', quarter: 'Quarter/Frequency',
+};
+
+const REPORT_BLOCKED_MESSAGE = 'Add findings, or set the project status to Compliant, before generating a report.';
+
+const changeLabel = (field: string) =>
+  field.startsWith('customFieldValues.') ? field.slice('customFieldValues.'.length) : CHANGE_LABELS[field] || field;
+
+const changeValue = (v: unknown) =>
+  v === null || v === undefined ? 'empty' : typeof v === 'string' ? v : JSON.stringify(v);
 
 export default function ProjectDetailPage() {
   const { id } = useParams();
@@ -162,12 +197,18 @@ export default function ProjectDetailPage() {
   const [reportResult, setReportResult] = useState<any>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showFormatMenu, setShowFormatMenu] = useState(false);
+  const [nessusCount, setNessusCount] = useState(0);
+  const [deletingNessus, setDeletingNessus] = useState(false);
   const [findingFilter, setFindingFilter] = useState<'ALL' | 'VA' | 'PT'>('ALL');
 
   const fetchProject = useCallback(async () => {
     try {
       const response = await api.get(`/projects/${id}`);
       setProject(response.data);
+      // How many Nessus-imported VA findings the caller may bulk-delete (drives the "Delete All VA Findings" button).
+      if (response.data.subType === 'NETWORK') {
+        api.get(`/findings/project/${id}/nessus-count`).then((r) => setNessusCount(r.data.count)).catch(() => setNessusCount(0));
+      }
     } catch (error) {
       console.error('Failed to fetch project:', error);
       showToast('Could not refresh project data — showing may be out of date', 'error');
@@ -179,6 +220,28 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     fetchProject();
   }, [fetchProject]);
+
+  // Deletes ALL of this project's Nessus-imported VA findings (server-side, every page / filter), after an explicit confirm.
+  const handleDeleteAllNessus = async () => {
+    if (!project) return;
+    const ok = await confirmDialog({
+      title: 'Delete all VA findings?',
+      message: `This will permanently delete all ${nessusCount} Nessus-imported VA finding${nessusCount === 1 ? '' : 's'} in this project, with their POC steps. PT findings, the Vulnerability Database, Nmap ports, Network Scope and reports are not affected. This cannot be undone through the UI.`,
+      confirmLabel: `Delete ${nessusCount} VA finding${nessusCount === 1 ? '' : 's'}`,
+      danger: true,
+    });
+    if (!ok) return;
+    setDeletingNessus(true);
+    try {
+      const res = await api.delete(`/findings/project/${project.id}/nessus`);
+      showToast(res.data.deleted === 0 ? 'No Nessus-imported VA findings were left to delete.' : `Deleted ${res.data.deleted} Nessus-imported VA finding${res.data.deleted === 1 ? '' : 's'}.`, 'success');
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to delete VA findings — nothing was changed.', 'error');
+    } finally {
+      setDeletingNessus(false);
+      await fetchProject();
+    }
+  };
 
   const handleDeleteFinding = async (findingId: string) => {
     const ok = await confirmDialog({ title: 'Delete finding?', message: 'This finding and its POC steps will be permanently deleted.', confirmLabel: 'Delete', danger: true });
@@ -313,6 +376,9 @@ export default function ProjectDetailPage() {
     );
   }
 
+  const changes = project.changes ?? [];
+  const changesFor = (field: string) => changes.filter((c) => c.field === field);
+  const reportReady = project.findings.length > 0 || project.complianceStatus === 'Compliant';
   const canEditFindings = user?.role === 'ADMIN' || user?.role === 'AVP' || user?.role === 'TEAM_LEAD' || project.tester.id === user?.id;
 
   const handleDeleteProject = async () => {
@@ -395,7 +461,7 @@ export default function ProjectDetailPage() {
       {/* Project Info Card */}
       <div className="glass-card rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white">Project Details</h2>
+          <h2 className="text-lg font-semibold text-white">Project Details<ChangedMark changes={[...changesFor('name'), ...changesFor('clientName')]} /></h2>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowEditModal(true)}
@@ -431,8 +497,8 @@ export default function ProjectDetailPage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-          <div>
-            <p className="text-gray-500 text-xs">Start Date</p>
+          <div className="min-w-0">
+            <p className="text-gray-500 text-xs">Start Date<ChangedMark changes={changesFor('startDate')} /></p>
             <p className="text-white font-medium flex items-center gap-1.5">
               {formatDate(project.startDate)}
               {user?.role !== 'TESTER' && project.startDateChangedAt && (
@@ -440,60 +506,86 @@ export default function ProjectDetailPage() {
               )}
             </p>
           </div>
-          <InfoField label="End Date" value={project.endDate ? formatDate(project.endDate) : 'Not set'} />
+          <InfoField label="End Date" value={project.endDate ? formatDate(project.endDate) : 'Not set'} changes={changesFor('endDate')} />
           <InfoField label="Sub Type" value={project.subType} />
-          <InfoField label="App Version" value={project.appVersion || 'N/A'} />
-          <InfoField label="Location" value={project.location || 'N/A'} />
-          <InfoField label="Document Version" value={project.documentVersion || 'N/A'} />
+          <InfoField label="App Version" value={project.appVersion || 'N/A'} changes={changesFor('appVersion')} />
+          <InfoField label="Location" value={project.location || 'N/A'} changes={changesFor('location')} />
+          {project.complianceType === 'CERT_IN' && (
+            <>
+          <InfoField label="Client SPOC Name" value={project.clientSpocName || 'N/A'} changes={changesFor('clientSpocName')} />
+          <InfoField label="Client SPOC Designation" value={project.clientSpocDesignation || 'N/A'} changes={changesFor('clientSpocDesignation')} />
+          <InfoField label="Client SPOC Email ID" value={project.clientSpocEmail || 'N/A'} changes={changesFor('clientSpocEmail')} />
+            </>
+          )}
+          <InfoField label="Document Version" value={project.documentVersion || 'N/A'} changes={changesFor('documentVersion')} />
           {(!project.toolsUsedTable || project.toolsUsedTable.length === 0) && (
             <InfoField label="Tools Used" value={project.toolsUsed || 'N/A'} />
           )}
-          <InfoField label="Testing Environment" value={project.testingEnvironment || 'N/A'} />
-          <InfoField label="QA Reviewer" value={project.qaReviewerName || 'N/A'} />
-          <InfoField label="Testing Type" value={project.testingType || 'N/A'} />
-          <InfoField label="Login Systems" value={project.loginSystemTypes || 'N/A'} />
+          <InfoField label="Testing Environment" value={project.testingEnvironment || 'N/A'} changes={changesFor('testingEnvironment')} />
+          <InfoField label="QA Reviewer" value={project.qaReviewerName || 'N/A'} changes={changesFor('qaReviewerName')} />
+          <InfoField label="Testing Type" value={project.testingType || 'N/A'} changes={changesFor('testingType')} />
+          <InfoField label="Login Systems" value={project.loginSystemTypes || 'N/A'} changes={changesFor('loginSystemTypes')} />
           {project.subType === 'MOBILE' && (
-            <InfoField label="Android/iOS" value={project.mobilePlatform || 'N/A'} />
+            <InfoField label="Android/iOS" value={project.mobilePlatform || 'N/A'} changes={changesFor('mobilePlatform')} />
           )}
           {(project.subType === 'MOBILE' || project.subType === 'THICK_CLIENT') && (
-            <InfoField label="SHA-1" value={project.sha1 || 'N/A'} />
+            <InfoField label="SHA-1" value={project.sha1 || 'N/A'} changes={changesFor('sha1')} />
           )}
           {project.subType === 'NETWORK' && (
             <>
-              <InfoField label="Scope Exposure" value={project.externalInternal || 'N/A'} />
-              <InfoField label="Network Activity Type" value={project.networkActivityType || 'N/A'} />
-              <InfoField label="Total Scope Count" value={project.totalScopeCount != null ? String(project.totalScopeCount) : 'N/A'} />
+              <InfoField label="Scope Exposure" value={project.externalInternal || 'N/A'} changes={changesFor('externalInternal')} />
+              <InfoField label="Network Activity Type" value={project.networkActivityType || 'N/A'} changes={changesFor('networkActivityType')} />
+              <InfoField label="Total Scope Count" value={project.totalScopeCount != null ? String(project.totalScopeCount) : 'N/A'} changes={changesFor('totalScopeCount')} />
             </>
           )}
-          <InfoField label="Quarter/Frequency" value={project.quarter || 'N/A'} />
-          <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} />
+          <InfoField label="Quarter/Frequency" value={project.quarter || 'N/A'} changes={changesFor('quarter')} />
+          <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} changes={changesFor('complianceType')} />
           {user?.role !== 'TESTER' ? (
             <AssignedTesterField project={project} onChanged={fetchProject} />
           ) : (
             <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
           )}
           <InfoField label="Team Lead" value={project.tl.fullName || project.tl.username} />
-          <InfoField label="Template" value={project.template?.name || 'Default'} />
+          <InfoField label="Template" value={project.template?.name || 'None - no matching template uploaded'} changes={changesFor('templateId')} />
         </div>
+
+        {changes.length > 0 && (
+          <details className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+            <summary className="cursor-pointer text-amber-400 text-xs font-medium">
+              Changed after completion — {new Set(changes.map((c) => c.field)).size} field(s), {changes.length} edit(s)
+            </summary>
+            <ul className="mt-2 space-y-1.5">
+              {[...changes].reverse().map((c) => (
+                <li key={c.id} className="text-xs text-gray-300">
+                  <span className="font-medium text-white">{changeLabel(c.field)}</span>:{' '}
+                  <span className="text-gray-400 break-all">{changeValue(c.oldValue)}</span> →{' '}
+                  <span className="text-white break-all">{changeValue(c.newValue)}</span>
+                  <span className="text-gray-500"> · {c.changedByName} · {formatDateTime(c.changedAt)}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
 
         {project.scope && (
           <div className="pt-3 border-t border-gray-700/50">
-            <p className="text-gray-500 text-xs mb-1">Scope</p>
-            <p className="text-white text-sm whitespace-pre-wrap">{project.scope}</p>
+            <p className="text-gray-500 text-xs mb-1">Scope<ChangedMark changes={changesFor('scope')} /></p>
+            <p className="text-white text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{project.scope}</p>
           </div>
         )}
         {project.applicationDetails && (
           <div>
-            <p className="text-gray-500 text-xs mb-1">Application Details</p>
-            <p className="text-white text-sm whitespace-pre-wrap">{project.applicationDetails}</p>
+            <p className="text-gray-500 text-xs mb-1">Application Details<ChangedMark changes={changesFor('applicationDetails')} /></p>
+            <p className="text-white text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{project.applicationDetails}</p>
           </div>
         )}
         {project.subType === 'NETWORK' && project.networkScope && project.networkScope.length > 0 && (
           <div className="pt-3 border-t border-gray-700/50">
-            <p className="text-gray-500 text-xs mb-2">Network Scope</p>
+            <p className="text-gray-500 text-xs mb-2">Network Scope<ChangedMark changes={changesFor('networkScope')} /></p>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-gray-500 text-xs">
+                  <th className="text-left font-normal pb-1 w-12">S.No</th>
                   <th className="text-left font-normal pb-1">IP</th>
                   <th className="text-left font-normal pb-1">Domain/Hostname</th>
                   <th className="text-left font-normal pb-1">Purpose</th>
@@ -502,6 +594,7 @@ export default function ProjectDetailPage() {
               <tbody>
                 {project.networkScope.map((row, i) => (
                   <tr key={i} className="text-white border-t border-gray-800">
+                    <td className="py-1 text-gray-400">{i + 1}</td>
                     <td className="py-1">{row.ip || 'NA'}</td>
                     <td className="py-1">{row.domainHostname || 'NA'}</td>
                     <td className="py-1">{row.purpose || 'NA'}</td>
@@ -513,7 +606,7 @@ export default function ProjectDetailPage() {
         )}
         {project.toolsUsedTable && project.toolsUsedTable.length > 0 && (
           <div className="pt-3 border-t border-gray-700/50">
-            <p className="text-gray-500 text-xs mb-2">Tools Used</p>
+            <p className="text-gray-500 text-xs mb-2">Tools Used<ChangedMark changes={changesFor('toolsUsedTable')} /></p>
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-gray-500 text-xs">
@@ -566,13 +659,13 @@ export default function ProjectDetailPage() {
         {project.applicationNature && (
           <div>
             <p className="text-gray-500 text-xs mb-1">Application Nature</p>
-            <p className="text-white text-sm whitespace-pre-wrap">{project.applicationNature}</p>
+            <p className="text-white text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{project.applicationNature}</p>
           </div>
         )}
         {project.testingLimitation && (
           <div>
             <p className="text-gray-500 text-xs mb-1">Testing Limitation</p>
-            <p className="text-white text-sm whitespace-pre-wrap">{project.testingLimitation}</p>
+            <p className="text-white text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{project.testingLimitation}</p>
           </div>
         )}
       </div>
@@ -603,11 +696,11 @@ export default function ProjectDetailPage() {
                 <button
                   onClick={() => nmapInputRef.current?.click()}
                   disabled={uploadingNmap}
-                  title="Upload Nmap port scan result"
+                  title="Upload Nmap port scan result (adds ports)"
                   className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm disabled:opacity-50"
                 >
                   {uploadingNmap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  Add Ports
+                  Nmap Ports
                 </button>
                 <input
                   ref={nessusInputRef}
@@ -644,7 +737,8 @@ export default function ProjectDetailPage() {
             <div className="relative">
               <button
                 onClick={() => (project.subType === 'NETWORK' ? setShowFormatMenu((v) => !v) : handleGenerateReport())}
-                disabled={generatingReport}
+                disabled={generatingReport || !reportReady}
+                title={reportReady ? undefined : REPORT_BLOCKED_MESSAGE}
                 aria-haspopup={project.subType === 'NETWORK' ? 'menu' : undefined}
                 aria-expanded={project.subType === 'NETWORK' ? showFormatMenu : undefined}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
@@ -669,7 +763,7 @@ export default function ProjectDetailPage() {
         </div>
 
         {project.subType === 'NETWORK' && (
-          <div className="flex items-center gap-2" role="tablist" aria-label="Filter findings">
+          <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Filter findings">
             {(['ALL', 'VA', 'PT'] as const).map((key) => {
               const count = key === 'ALL' ? project.findings.length : project.findings.filter((f) => f.findingType === key).length;
               const label = key === 'ALL' ? 'All' : key === 'VA' ? 'VA Findings' : 'PT Findings';
@@ -689,6 +783,17 @@ export default function ProjectDetailPage() {
                 </button>
               );
             })}
+            {canEditFindings && nessusCount > 0 && (
+              <button
+                onClick={handleDeleteAllNessus}
+                disabled={deletingNessus}
+                title="Permanently delete every Nessus-imported VA finding in this project"
+                className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+              >
+                {deletingNessus ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Delete All VA Findings ({nessusCount})
+              </button>
+            )}
           </div>
         )}
 
@@ -756,7 +861,6 @@ export default function ProjectDetailPage() {
 
 function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose: () => void; onSaved: () => void }) {
   const [submitting, setSubmitting] = useState(false);
-  const [templates, setTemplates] = useState<any[]>([]);
   const [customFields, setCustomFields] = useState<any[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>(project.customFieldValues || {});
   const [form, setForm] = useState({
@@ -766,6 +870,9 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     endDate: project.endDate ? toDateInputValue(project.endDate) : '',
     appVersion: project.appVersion || '',
     location: project.location || '',
+    clientSpocName: project.clientSpocName || '',
+    clientSpocDesignation: project.clientSpocDesignation || '',
+    clientSpocEmail: project.clientSpocEmail || '',
     documentVersion: project.documentVersion || '',
     toolsUsed: project.toolsUsed || '',
     testingEnvironment: project.testingEnvironment || '',
@@ -782,7 +889,6 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     totalScopeCount: project.totalScopeCount != null ? String(project.totalScopeCount) : '',
     quarter: project.quarter || '',
     complianceType: project.complianceType || 'VAPT',
-    templateId: project.template?.id || '',
   });
 
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
@@ -796,6 +902,9 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
       purpose: r?.purpose || '',
     })),
   );
+  // Imported rows are appended after any rows the user has actually filled in (untouched blank rows are dropped).
+  const importScopeRows = (added: { ip: string; domainHostname: string; purpose: string }[]) =>
+    setNetworkScope((rows) => [...rows.filter((r) => r.ip || r.domainHostname || r.purpose), ...added]);
   const addScopeRow = () => setNetworkScope((rows) => [...rows, { ip: '', domainHostname: '', purpose: '' }]);
   const removeScopeRow = (i: number) => setNetworkScope((rows) => rows.filter((_, idx) => idx !== i));
   const setScopeRow = (i: number, key: 'ip' | 'domainHostname' | 'purpose', value: string) =>
@@ -823,26 +932,14 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
   }, [project.subType, form.clientName, form.quarter]);
 
   useEffect(() => {
-    const fetchTemplates = async () => {
-      try {
-        const res = await api.get(`/reports/templates?category=${form.complianceType}&reportFormat=WORD`);
-        setTemplates(res.data);
-      } catch (error) {
-        console.error('Failed to fetch templates:', error);
-      }
-    };
-    fetchTemplates();
-  }, [form.complianceType]);
-
-  useEffect(() => {
-    if (!form.templateId) {
+    if (!project.template?.id) {
       setCustomFields([]);
       return;
     }
-    api.get(`/reports/templates/${form.templateId}/fields`)
+    api.get(`/reports/templates/${project.template.id}/fields`)
       .then((res) => setCustomFields(res.data.filter((f: any) => f.isCustom)))
       .catch(() => setCustomFields([]));
-  }, [form.templateId]);
+  }, [project.template?.id]);
 
   const setCustomFieldValue = (name: string, value: string) =>
     setCustomFieldValues((prev) => ({ ...prev, [name]: value }));
@@ -852,7 +949,6 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     setSubmitting(true);
     try {
       const payload: any = { ...form, customFieldValues };
-      if (!payload.templateId) payload.templateId = undefined;
       payload.totalScopeCount = form.totalScopeCount ? parseInt(form.totalScopeCount, 10) : undefined;
       if (project.subType === 'NETWORK') payload.networkScope = networkScope;
       payload.toolsUsedTable = toolsUsedTable;
@@ -865,7 +961,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     }
   };
 
-  const inputCls = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
+  const inputCls = 'w-full min-w-0 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
   const labelCls = 'block text-xs text-gray-400 mb-1';
 
   return createPortal(
@@ -873,7 +969,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-5xl max-h-[92vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between p-6 border-b border-gray-700 sticky top-0 bg-gray-900 z-10">
           <h2 className="text-lg font-semibold text-white">Edit Project</h2>
@@ -883,7 +979,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Testing Type (Platform) is fixed at creation and not editable here;
                 Compliance Category leads the form to mirror the creation dialog's
                 field order as closely as an immutable subType allows. */}
@@ -914,6 +1010,22 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
               <label className={labelCls}>Location</label>
               <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} />
             </div>
+            {form.complianceType === 'CERT_IN' && (
+              <>
+            <div>
+              <label className={labelCls}>Client SPOC Name</label>
+              <input type="text" value={form.clientSpocName} onChange={(e) => set('clientSpocName', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Designation</label>
+              <input type="text" value={form.clientSpocDesignation} onChange={(e) => set('clientSpocDesignation', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Email ID</label>
+              <input type="email" value={form.clientSpocEmail} onChange={(e) => set('clientSpocEmail', e.target.value)} className={inputCls} />
+            </div>
+              </>
+            )}
             <div>
               <label className={labelCls}>Document Version</label>
               <input type="text" value={form.documentVersion} onChange={(e) => set('documentVersion', e.target.value)} className={inputCls} placeholder="e.g. 1.0" />
@@ -921,15 +1033,6 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
             <div>
               <label className={labelCls}>QA Reviewer Name</label>
               <input type="text" value={form.qaReviewerName} onChange={(e) => set('qaReviewerName', e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className={labelCls}>Report Template</label>
-              <select value={form.templateId} onChange={(e) => set('templateId', e.target.value)} className={inputCls}>
-                <option value="">{templates.length > 0 ? 'Select template' : 'No templates'}</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
             </div>
             <div>
               <label className={labelCls}>End Date</label>
@@ -1007,11 +1110,15 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className={labelCls}>Network Scope</label>
-                <button type="button" onClick={addScopeRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <ScopeImportButton rows={networkScope} onImport={importScopeRows} />
+                  <button type="button" onClick={addScopeRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+                </div>
               </div>
               <div className="space-y-2">
                 {networkScope.map((row, i) => (
-                  <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                  <div key={i} className="grid grid-cols-1 md:grid-cols-[2rem_1fr_1fr_1fr_auto] gap-2 items-center">
+                    <span className="text-xs text-gray-500 md:text-right" aria-label="S.No">{i + 1}</span>
                     <input type="text" value={row.ip || ''} onChange={(e) => setScopeRow(i, 'ip', e.target.value)} className={inputCls} placeholder="IP" />
                     <input type="text" value={row.domainHostname || ''} onChange={(e) => setScopeRow(i, 'domainHostname', e.target.value)} className={inputCls} placeholder="Domain / Hostname" />
                     <input type="text" value={row.purpose || ''} onChange={(e) => setScopeRow(i, 'purpose', e.target.value)} className={inputCls} placeholder="Purpose" />
@@ -1063,12 +1170,13 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
           {project.subType !== 'NETWORK' && (
             <div>
               <label className={labelCls}>Nature / Purpose of the Application</label>
-              <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} />
+              <textarea rows={8} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} />
             </div>
           )}
           <div>
             <label className={labelCls}>Testing Limitation</label>
-            <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
+            <textarea rows={8} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} placeholder="Leave empty for N/A" />
+            {project.subType === 'NETWORK' && <NetworkLimitationCaution />}
           </div>
 
           {customFields.length > 0 && (
@@ -1181,11 +1289,21 @@ function AssignedTesterField({ project, onChanged }: {
   );
 }
 
-function InfoField({ label, value }: { label: string; value: string }) {
+function ChangedMark({ changes }: { changes: ProjectChange[] }) {
+  if (!changes.length) return null;
+  const last = changes[changes.length - 1];
   return (
-    <div>
-      <p className="text-gray-500 text-xs">{label}</p>
-      <p className="text-white font-medium">{value}</p>
+    <span title={`Changed after completion (${changes.length}×). Latest: ${changeValue(last.oldValue)} → ${changeValue(last.newValue)}`}>
+      <Pencil className="inline w-3 h-3 ml-1 text-amber-400" aria-label="Changed after completion" />
+    </span>
+  );
+}
+
+function InfoField({ label, value, changes = [] }: { label: string; value: string; changes?: ProjectChange[] }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-gray-500 text-xs">{label}<ChangedMark changes={changes} /></p>
+      <p className="text-white font-medium break-words [overflow-wrap:anywhere]">{value}</p>
     </div>
   );
 }
@@ -1916,72 +2034,75 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
             />
           </div>
 
-          <div className="border border-gray-700 rounded-lg p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white">POC Steps</h3>
-              <button
-                type="button"
-                onClick={addPocStep}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 text-xs hover:bg-emerald-600/30 transition-all"
-              >
-                <Plus className="w-3 h-3" /> Add Step
-              </button>
-            </div>
+          {/* Scan-imported (VA) findings take their evidence from the Nessus plugin output; steps/PoC are for PT findings. */}
+          {finding?.findingType !== 'VA' && (
+            <div className="border border-gray-700 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-white">POC Steps</h3>
+                <button
+                  type="button"
+                  onClick={addPocStep}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 text-xs hover:bg-emerald-600/30 transition-all"
+                >
+                  <Plus className="w-3 h-3" /> Add Step
+                </button>
+              </div>
 
-            {pocSteps.length === 0 && (
-              <p className="text-xs text-gray-500">No POC steps added yet.</p>
-            )}
+              {pocSteps.length === 0 && (
+                <p className="text-xs text-gray-500">No POC steps added yet.</p>
+              )}
 
-            <div className="space-y-2">
-              {pocSteps.map((step, index) => (
-                <div key={step.id || index} className="flex gap-3 items-start p-3 rounded-lg bg-gray-800/50">
-                  <span className="w-7 h-7 rounded bg-emerald-500/10 text-emerald-400 text-xs flex items-center justify-center font-medium shrink-0 mt-1">
-                    {step.stepNo}
-                  </span>
-                  <div className="flex-1 space-y-2">
-                    <textarea
-                      rows={2}
-                      value={step.description}
-                      onChange={(e) => updatePocStep(index, 'description', e.target.value)}
-                      placeholder="Describe this step..."
-                      className="w-full px-3 py-2 rounded-lg bg-gray-900/50 border border-gray-700 text-sm text-white"
-                    />
-                    <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-1 px-2 py-1 rounded bg-gray-700 text-xs text-gray-300 hover:bg-gray-600 transition-all cursor-pointer">
-                        {uploadingStep === index ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <ImageIcon className="w-3 h-3" />
+              <div className="space-y-2">
+                {pocSteps.map((step, index) => (
+                  <div key={step.id || index} className="flex gap-3 items-start p-3 rounded-lg bg-gray-800/50">
+                    <span className="w-7 h-7 rounded bg-emerald-500/10 text-emerald-400 text-xs flex items-center justify-center font-medium shrink-0 mt-1">
+                      {step.stepNo}
+                    </span>
+                    <div className="flex-1 space-y-2">
+                      <textarea
+                        rows={2}
+                        value={step.description}
+                        onChange={(e) => updatePocStep(index, 'description', e.target.value)}
+                        placeholder="Describe this step..."
+                        className="w-full px-3 py-2 rounded-lg bg-gray-900/50 border border-gray-700 text-sm text-white"
+                      />
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1 px-2 py-1 rounded bg-gray-700 text-xs text-gray-300 hover:bg-gray-600 transition-all cursor-pointer">
+                          {uploadingStep === index ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <ImageIcon className="w-3 h-3" />
+                          )}
+                          {step.imagePath ? 'Replace Screenshot' : 'Upload Screenshot'}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={uploadingStep !== null}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) uploadStepImage(index, file);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                        {step.imagePath && (
+                          <span className="text-xs text-cyan-400">Screenshot attached</span>
                         )}
-                        {step.imagePath ? 'Replace Screenshot' : 'Upload Screenshot'}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          disabled={uploadingStep !== null}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) uploadStepImage(index, file);
-                            e.target.value = '';
-                          }}
-                        />
-                      </label>
-                      {step.imagePath && (
-                        <span className="text-xs text-cyan-400">Screenshot attached</span>
-                      )}
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => removePocStep(index)}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all mt-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => removePocStep(index)}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all mt-1"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
             <button

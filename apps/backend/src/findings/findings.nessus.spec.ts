@@ -41,7 +41,7 @@ function setup(opts: { role: string; subType?: string; testerId?: string; findin
   };
   const audit: any = { log: jest.fn() };
   const user: any = { id: 'u1', role: opts.role };
-  return { svc: new FindingsService(prisma, audit), prisma, user };
+  return { svc: new FindingsService(prisma, audit, { deleteFile: jest.fn() } as any), prisma, user };
 }
 
 describe('FindingsService Nessus import (project-scoped)', () => {
@@ -117,13 +117,13 @@ describe('FindingsService Nessus import (project-scoped)', () => {
       p.projectVulnerability.findMany.mockImplementation(({ select }: any) =>
         select.findings && select.findings.where
           ? Promise.resolve([{ findings: findingsOf100 }])
-          : Promise.resolve([{ sourceKey: '100', findings: findingsOf100 }, { sourceKey: '300', findings: [{ proofOfConcept: null }] }]));
+          : Promise.resolve([{ sourceKey: '100', findings: findingsOf100 }, { sourceKey: '300', findings: [{ proofOfConcept: null, affectedInstances: ['10.0.0.1:80/tcp'] }] }]));
       p.finding.update = jest.fn().mockResolvedValue({});
     };
 
     it('previews as "refresh" only when the file has output and the existing finding has none', async () => {
       const { svc, prisma, user } = setup({ role: 'ADMIN' });
-      older([{ id: 'fOld', proofOfConcept: null, pocSteps: [] }])(prisma);
+      older([{ id: 'fOld', proofOfConcept: null, pocSteps: [], affectedInstances: ['10.0.0.1:443/tcp'] }])(prisma);
       const { items } = await svc.previewNessus('p1', file, user);
       const status = Object.fromEntries(items.map((i: any) => [i.key, i.status]));
       expect(status['100']).toBe('refresh');   // has output in the file, finding has none
@@ -132,14 +132,14 @@ describe('FindingsService Nessus import (project-scoped)', () => {
 
     it('is not offered again once the finding has its output', async () => {
       const { svc, prisma, user } = setup({ role: 'ADMIN' });
-      older([{ id: 'fOld', proofOfConcept: 'already here', pocSteps: [] }])(prisma);
+      older([{ id: 'fOld', proofOfConcept: 'already here', pocSteps: [], affectedInstances: ['10.0.0.1:443/tcp'] }])(prisma);
       const { items } = await svc.previewNessus('p1', file, user);
       expect(items.find((i: any) => i.key === '100')!.status).toBe('duplicate');
     });
 
     it('writes only the output and the one step, on the existing finding, creating nothing else', async () => {
       const { svc, prisma, user } = setup({ role: 'ADMIN' });
-      older([{ id: 'fOld', proofOfConcept: null, pocSteps: [] }])(prisma);
+      older([{ id: 'fOld', proofOfConcept: null, pocSteps: [], affectedInstances: ['10.0.0.1:443/tcp'] }])(prisma);
       const r = await svc.importNessus('p1', file, ['100'], user, 'ip', 'ua');
       expect(r.refreshed).toEqual([{ key: '100', name: 'TLS Weak Cipher' }]);
       expect(r.created).toHaveLength(0);
@@ -151,7 +151,7 @@ describe('FindingsService Nessus import (project-scoped)', () => {
 
     it('never overwrites existing output or duplicates an existing step', async () => {
       const { svc, prisma, user } = setup({ role: 'ADMIN' });
-      older([{ id: 'hasPoc', proofOfConcept: 'mine', pocSteps: [] }, { id: 'hasStep', proofOfConcept: null, pocSteps: [{ id: 's1' }] }])(prisma);
+      older([{ id: 'hasPoc', proofOfConcept: 'mine', pocSteps: [], affectedInstances: ['10.0.0.1:443/tcp'] }, { id: 'hasStep', proofOfConcept: null, pocSteps: [{ id: 's1' }], affectedInstances: ['10.0.0.1:443/tcp'] }])(prisma);
       await svc.importNessus('p1', file, ['100'], user, 'ip', 'ua');
       expect(prisma.finding.update).toHaveBeenCalledTimes(1);
       expect(prisma.finding.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'hasStep' } }));
@@ -190,5 +190,42 @@ describe('FindingsService Nessus import (project-scoped)', () => {
     await expect(web.svc.previewNessus('p1', file, web.user)).rejects.toThrow(BadRequestException);
     const other = setup({ role: 'TESTER', testerId: 'someone-else' });
     await expect(other.svc.previewNessus('p1', file, other.user)).rejects.toThrow(ForbiddenException);
+  });
+});
+
+describe('Nessus import: merging the same plugin from another scan', () => {
+  const xml = (host: string) => `<?xml version="1.0"?><NessusClientData_v2><Report name="r"><ReportHost name="${host}">
+<ReportItem port="443" protocol="tcp" severity="3" pluginID="100" pluginName="TLS Weak Cipher"><description>d</description></ReportItem>
+</ReportHost></Report></NessusClientData_v2>`;
+  const scan = (host: string) => ({ originalname: 's.nessus', buffer: Buffer.from(xml(host)) } as Express.Multer.File);
+
+  function mergeSetup(existing: string[]) {
+    const { svc, prisma, user } = setup({ role: 'TESTER' });
+    prisma.projectVulnerability.findMany.mockResolvedValue([
+      { sourceKey: '100', findings: [{ id: 'f1', proofOfConcept: 'out', affectedInstances: existing }] },
+    ]);
+    prisma.finding.update = jest.fn().mockResolvedValue({});
+    return { svc, prisma, user };
+  }
+
+  it('previews as merge when the scan adds a host, duplicate when it adds nothing', async () => {
+    const a = mergeSetup(['10.0.0.1:443/tcp']);
+    expect((await a.svc.previewNessus('p1', scan('10.0.0.2'), a.user)).items[0].status).toBe('merge');
+    expect((await a.svc.previewNessus('p1', scan('10.0.0.1'), a.user)).items[0].status).toBe('duplicate');
+  });
+
+  it('keeps existing instances and appends only the new ones; creates no second finding', async () => {
+    const { svc, prisma, user } = mergeSetup(['10.0.0.1:443/tcp']);
+    const r = await svc.importNessus('p1', scan('10.0.0.2'), ['100'], user, 'ip', 'ua');
+    expect(r.merged).toEqual([{ key: '100', name: 'TLS Weak Cipher' }]);
+    expect(prisma.finding.update).toHaveBeenCalledWith({ where: { id: 'f1' }, data: { affectedInstances: ['10.0.0.1:443/tcp', '10.0.0.2:443/tcp'] } });
+    expect(prisma.finding.create).not.toHaveBeenCalled();
+    expect(prisma.projectVulnerability.create).not.toHaveBeenCalled();
+  });
+
+  it('a finding whose record has no finding left is not offered for merge', async () => {
+    const { svc, prisma, user } = setup({ role: 'TESTER' });
+    prisma.projectVulnerability.findMany.mockResolvedValue([{ sourceKey: '100', findings: [] }]);
+    expect((await svc.previewNessus('p1', scan('10.0.0.2'), user)).items[0].status).toBe('duplicate');
   });
 });

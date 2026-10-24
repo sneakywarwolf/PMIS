@@ -167,9 +167,10 @@ describe('ReportsService.generateReport (fast/enqueue path)', () => {
       project: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'p1',
+          complianceStatus: 'Compliant',
           category: 'VAPT',
           subType: 'WEB',
-          template: { id: 't1', filePath: 'templates/t1.docx', subType: 'WEB' },
+          template: { id: 't1', filePath: 'templates/t1.docx', subType: 'WEB', category: 'VAPT', isActive: true, reportFormat: 'WORD' },
           tester: {},
           tl: { manager: null },
           findings: [approvedFinding],
@@ -221,12 +222,36 @@ describe('ReportsService.generateReport (fast/enqueue path)', () => {
     expect(result).toEqual({ reportId: 'rg1', status: 'PENDING', version: '1.0' });
   });
 
+  it.each([['In-Progress'], ['Non-Compliant'], [null]])('with no findings and status %s: rejected for Word and Excel, nothing enqueued', async (status) => {
+    const base = await prisma.project.findUnique();
+    prisma.project.findUnique.mockResolvedValue({ ...base, complianceStatus: status, subType: 'NETWORK', findings: [] });
+    for (const format of ['WORD', 'EXCEL'] as const) {
+      await expect(service.generateReport('p1', actor(UserRole.ADMIN, 'admin1'), '1.2.3.4', 'jest', format as any)).rejects.toThrow(/no findings/);
+    }
+    expect(prisma.reportGeneration.create).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it.each([['In-Progress'], ['Non-Compliant'], ['Compliant']])('with findings and status %s: allowed', async (status) => {
+    const base = await prisma.project.findUnique();
+    prisma.project.findUnique.mockResolvedValue({ ...base, complianceStatus: status });
+    await expect(service.generateReport('p1', actor(UserRole.ADMIN, 'admin1'), '1.2.3.4', 'jest')).resolves.toMatchObject({ status: 'PENDING' });
+  });
+
+  it('with no findings but status Compliant: allowed', async () => {
+    const base = await prisma.project.findUnique();
+    prisma.project.findUnique.mockResolvedValue({ ...base, complianceStatus: 'Compliant', findings: [] });
+    await expect(service.generateReport('p1', actor(UserRole.ADMIN, 'admin1'), '1.2.3.4', 'jest')).resolves.toMatchObject({ status: 'PENDING' });
+    expect(queue.add).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects before enqueuing when a finding is missing Steps or PoC', async () => {
     prisma.project.findUnique.mockResolvedValue({
       id: 'p1',
+      complianceStatus: 'Compliant',
       category: 'VAPT',
       subType: 'WEB',
-      template: { id: 't1', filePath: 'templates/t1.docx', subType: 'WEB' },
+      template: { id: 't1', filePath: 'templates/t1.docx', subType: 'WEB', category: 'VAPT', isActive: true, reportFormat: 'WORD' },
       tester: {},
       tl: { manager: null },
       findings: [{ ...approvedFinding, pocSteps: [{ stepNo: 1, description: 'step', imagePath: null }] }],

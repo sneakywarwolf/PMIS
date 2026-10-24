@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Loader2, Save, FolderKanban } from 'lucide-react';
 import { api } from '@/contexts/auth-context';
+import { NetworkLimitationCaution } from '@/components/network-limitation-caution';
+import { ScopeImportButton } from '@/components/scope-import-button';
 import { useToast } from '@/components/toast-provider';
 
 const inputCls =
@@ -28,6 +30,9 @@ export default function NewProjectPage() {
     // Report detail fields — captured once, reused at report generation
     appVersion: '',
     location: '',
+    clientSpocName: '',
+    clientSpocDesignation: '',
+    clientSpocEmail: '',
     documentVersion: '1.0',
     toolsUsed: '',
     testingEnvironment: '',
@@ -57,6 +62,9 @@ export default function NewProjectPage() {
   }, [form.subType, form.clientName, form.quarter]);
 
   const [networkScope, setNetworkScope] = useState<{ ip: string; domainHostname: string; purpose: string }[]>([]);
+  // Imported rows are appended after any rows the user has actually filled in (untouched blank rows are dropped).
+  const importScopeRows = (added: { ip: string; domainHostname: string; purpose: string }[]) =>
+    setNetworkScope((rows) => [...rows.filter((r) => r.ip || r.domainHostname || r.purpose), ...added]);
   const addScopeRow = () => setNetworkScope((rows) => [...rows, { ip: '', domainHostname: '', purpose: '' }]);
   const removeScopeRow = (i: number) => setNetworkScope((rows) => rows.filter((_, idx) => idx !== i));
   const setScopeRow = (i: number, key: 'ip' | 'domainHostname' | 'purpose', value: string) =>
@@ -69,20 +77,24 @@ export default function NewProjectPage() {
     setToolsUsedTable((rows) => rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
 
   const [customFields, setCustomFields] = useState<any[]>([]);
+  // null until the lookup for the chosen category + Testing Type has answered
+  const [matchedTemplate, setMatchedTemplate] = useState<{ id: string; name: string } | null | undefined>(undefined);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
   const setCustomFieldValue = (name: string, value: string) =>
     setCustomFieldValues((prev) => ({ ...prev, [name]: value }));
 
   useEffect(() => {
     let cancelled = false;
-    api.get(`/reports/templates?category=${form.category}&subType=${form.subType}&reportFormat=WORD`)
+    setMatchedTemplate(undefined);
+    api.get(`/reports/templates?category=${form.category}&subType=${form.subType}&reportFormat=WORD&forProject=true`)
       .then(async (res) => {
         const template = res.data[0];
-        if (!template) return;
+        if (!cancelled) setMatchedTemplate(template ? { id: template.id, name: template.name } : null);
+        if (!template) { if (!cancelled) setCustomFields([]); return; }
         const fieldsRes = await api.get(`/reports/templates/${template.id}/fields`);
         if (!cancelled) setCustomFields(fieldsRes.data.filter((f: any) => f.isCustom));
       })
-      .catch(() => { if (!cancelled) setCustomFields([]); });
+      .catch(() => { if (!cancelled) { setCustomFields([]); setMatchedTemplate(undefined); } });
     return () => { cancelled = true; };
   }, [form.category, form.subType]);
 
@@ -101,13 +113,18 @@ export default function NewProjectPage() {
       if (form.subType !== 'NETWORK') payload.scope = form.scope;
       // Optional fields — only send when filled
       const optional = [
-        'endDate', 'appVersion', 'location', 'documentVersion', 'toolsUsed',
+        'endDate', 'appVersion', 'location', 'clientSpocName', 'clientSpocDesignation', 'clientSpocEmail', 'documentVersion', 'toolsUsed',
         'testingEnvironment', 'qaReviewerName', 'applicationDetails', 'testingType',
         'loginSystemTypes', 'applicationNature', 'testingLimitation',
         'mobilePlatform', 'sha1', 'externalInternal', 'networkActivityType', 'quarter',
       ];
       for (const key of optional) {
         if ((form as any)[key]) payload[key] = (form as any)[key];
+      }
+      if (form.category !== 'CERT_IN') {
+        delete payload.clientSpocName;
+        delete payload.clientSpocDesignation;
+        delete payload.clientSpocEmail;
       }
       if (form.totalScopeCount) payload.totalScopeCount = parseInt(form.totalScopeCount, 10);
       if (form.subType === 'NETWORK' && networkScope.length > 0) payload.networkScope = networkScope;
@@ -177,7 +194,6 @@ export default function NewProjectPage() {
                 <option value="MOBILE">Mobile Application</option>
                 <option value="THICK_CLIENT">Thick Client</option>
                 <option value="NETWORK">Network</option>
-                <option value="APPLICATION">Application</option>
               </select>
             </div>
             {form.subType !== 'NETWORK' && (
@@ -198,6 +214,22 @@ export default function NewProjectPage() {
               <label className={labelCls}>Location</label>
               <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} placeholder="e.g. Mumbai, India" />
             </div>
+            {form.category === 'CERT_IN' && (
+              <>
+            <div>
+              <label className={labelCls}>Client SPOC Name</label>
+              <input type="text" value={form.clientSpocName} onChange={(e) => set('clientSpocName', e.target.value)} className={inputCls} placeholder="e.g. Priya Nair" />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Designation</label>
+              <input type="text" value={form.clientSpocDesignation} onChange={(e) => set('clientSpocDesignation', e.target.value)} className={inputCls} placeholder="e.g. Head of IT Security" />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Email ID</label>
+              <input type="email" value={form.clientSpocEmail} onChange={(e) => set('clientSpocEmail', e.target.value)} className={inputCls} placeholder="e.g. priya@acme.com" />
+            </div>
+              </>
+            )}
             <div>
               <label className={labelCls}>Start Date *</label>
               <input type="date" required value={form.startDate} onChange={(e) => set('startDate', e.target.value)} className={inputCls} />
@@ -306,11 +338,15 @@ export default function NewProjectPage() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className={labelCls}>Network Scope</label>
-                <button type="button" onClick={addScopeRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  <ScopeImportButton rows={networkScope} onImport={importScopeRows} />
+                  <button type="button" onClick={addScopeRow} className="text-xs text-emerald-400 hover:text-emerald-300">+ Add Row</button>
+                </div>
               </div>
               <div className="space-y-2">
                 {networkScope.map((row, i) => (
-                  <div key={i} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                  <div key={i} className="grid grid-cols-1 md:grid-cols-[2rem_1fr_1fr_1fr_auto] gap-2 items-center">
+                    <span className="text-xs text-gray-500 md:text-right" aria-label="S.No">{i + 1}</span>
                     <input type="text" value={row.ip || ''} onChange={(e) => setScopeRow(i, 'ip', e.target.value)} className={inputCls} placeholder="IP" />
                     <input type="text" value={row.domainHostname || ''} onChange={(e) => setScopeRow(i, 'domainHostname', e.target.value)} className={inputCls} placeholder="Domain / Hostname" />
                     <input type="text" value={row.purpose || ''} onChange={(e) => setScopeRow(i, 'purpose', e.target.value)} className={inputCls} placeholder="Purpose" />
@@ -356,12 +392,13 @@ export default function NewProjectPage() {
           {form.subType !== 'NETWORK' && (
             <div>
               <label className={labelCls}>Nature / Purpose of the Application</label>
-              <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} placeholder="What the application is used for..." />
+              <textarea rows={8} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} placeholder="What the application is used for..." />
             </div>
           )}
           <div>
             <label className={labelCls}>Testing Limitation</label>
-            <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
+            <textarea rows={8} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} placeholder="Leave empty for N/A" />
+            {form.subType === 'NETWORK' && <NetworkLimitationCaution />}
           </div>
         </motion.section>
 
@@ -386,6 +423,14 @@ export default function NewProjectPage() {
               ))}
             </div>
           </motion.section>
+        )}
+
+        {matchedTemplate !== undefined && (
+          <p className={`text-xs ${matchedTemplate ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {matchedTemplate
+              ? `Report template: ${matchedTemplate.name} (selected automatically)`
+              : 'No active report template matches this Compliance Category and Testing Type. The project can still be created, but an Admin must upload a matching template before a report can be generated.'}
+          </p>
         )}
 
         <div className="flex justify-end gap-3">

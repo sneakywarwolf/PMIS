@@ -72,3 +72,122 @@ describe('XlsxTemplateService', () => {
     await expect(svc.extractPlaceholders(await zip.generateAsync({ type: 'nodebuffer' }))).rejects.toThrow(/valid .xlsx/);
   });
 });
+
+describe('XlsxTemplateService plain string cells (t="str") on later sheets', () => {
+  const svc = new XlsxTemplateService();
+  const book = async () => {
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+    zip.file('xl/workbook.xml', `<workbook xmlns="${M}"><sheets><sheet name="A" sheetId="1"/><sheet name="B" sheetId="2"/><sheet name="C" sheetId="3"/></sheets></workbook>`);
+    const sheet = (cells: string) => `<worksheet xmlns="${M}"><sheetData><row r="1">${cells}</row></sheetData></worksheet>`;
+    zip.file('xl/worksheets/sheet1.xml', sheet('<c r="A1" t="str"><v>Client {Client Name}</v></c>'));
+    zip.file('xl/worksheets/sheet2.xml', sheet('<c r="A1" t="str"><v>Tester {Tester Name}</v></c><c r="B1" t="str"><f>A1&amp;"x"</f><v>{Client Name}x</v></c><c r="C1"><v>7</v></c>'));
+    zip.file('xl/worksheets/sheet3.xml', sheet('<c r="A1" t="str"><v>{Client Name} / {Client Name}</v></c>'));
+    return zip.generateAsync({ type: 'nodebuffer' });
+  };
+
+  it('lists and fills placeholders in t="str" cells on every sheet; formula results and numbers stay untouched', async () => {
+    expect(await svc.extractPlaceholders(await book())).toEqual(['Client Name', 'Tester Name']);
+    const out = await JSZip.loadAsync(await svc.fill(await book(), resolve));
+    expect(await out.file('xl/worksheets/sheet1.xml')!.async('text')).toContain('<v>Client Acme</v>');
+    const s2 = await out.file('xl/worksheets/sheet2.xml')!.async('text');
+    expect(s2).toContain('<v>Tester Asha</v>');
+    expect(s2).toContain('<f>A1&amp;"x"</f><v>{Client Name}x</v>'); // formula cache left for Excel to recalculate
+    expect(s2).toContain('<v>7</v>');
+    expect(await out.file('xl/worksheets/sheet3.xml')!.async('text')).toContain('<v>Acme / Acme</v>');
+  });
+});
+
+describe('XlsxTemplateService {Project Status}', () => {
+  const svc = new XlsxTemplateService();
+  const STYLES =
+    `<styleSheet xmlns="${M}"><fonts count="1"><font><sz val="11"/></font></fonts>`
+    + '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+    + '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyBorder="1"><alignment horizontal="center"/></xf></cellXfs></styleSheet>';
+
+  async function book() {
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+    zip.file('xl/workbook.xml', `<workbook xmlns="${M}"><sheets><sheet name="S" sheetId="1" r:id="rId1" xmlns:r="x"/></sheets></workbook>`);
+    zip.file('xl/styles.xml', STYLES);
+    zip.file('xl/sharedStrings.xml', `<sst xmlns="${M}" count="3" uniqueCount="3"><si><t>{Project Status}</t></si><si><t>Client: {Client Name}</t></si><si><t>Result</t></si></sst>`);
+    zip.file('xl/worksheets/sheet1.xml',
+      `<worksheet xmlns="${M}"><sheetData><row r="1">`
+      + '<c r="A1" s="1" t="s"><v>2</v></c><c r="B1" s="1" t="s"><v>0</v></c><c r="C1" t="s"><v>1</v></c>'
+      + '<c r="D1" t="inlineStr"><is><t>{Compliance Status}</t></is></c></row></sheetData></worksheet>');
+    return zip.generateAsync({ type: 'nodebuffer' });
+  }
+  const open = async (buf: Buffer) => {
+    const z = await JSZip.loadAsync(buf);
+    return {
+      sheet: await z.file('xl/worksheets/sheet1.xml').async('text'),
+      styles: await z.file('xl/styles.xml').async('text'),
+      shared: await z.file('xl/sharedStrings.xml').async('text'),
+    };
+  };
+  const styleOf = (sheet: string, ref: string) => /s="(\d+)"/.exec(new RegExp(`<c r="${ref}"[^>]*>`).exec(sheet)![0])?.[1] ?? '0';
+  const resolve = (raw: string) => (raw === 'Client Name' ? 'Acme' : undefined);
+
+  it.each([
+    ['Compliant', 'Compliant', 'FF92D050'],
+    ['Non-Compliant', 'Non-Compliant', 'FFFF0000'],
+  ])('%s: prints the text and fills only the status cells, as a copy of their own style', async (status, text, rgb) => {
+    const { sheet, styles, shared } = await open(await svc.fill(await book(), resolve, { complianceStatus: status }));
+    expect(shared).toContain(`>${text}</t>`);
+    expect(shared).not.toContain('{Project Status}');
+    expect(sheet).toContain(`>${text}<`); // the inline {Compliance Status} cell
+    expect(styles).toContain(`<fgColor rgb="${rgb}"/>`);
+    expect(styles).toContain('<fills count="3">');
+    expect(styles).toContain('<cellXfs count="4">'); // original 2 + a clone for style 1 + a clone for the default style
+    // B1 (was style 1) and D1 (was default) get new styles that keep what they had; A1 and C1 are untouched.
+    expect(styleOf(sheet, 'A1')).toBe('1');
+    expect(sheet).not.toMatch(/<c r="C1"[^>]* s=/);
+    const b1 = Number(styleOf(sheet, 'B1'));
+    expect(b1).toBeGreaterThanOrEqual(2);
+    const xfs = [...styles.matchAll(/<xf\b[^>]*?(?:\/>|>.*?<\/xf>)/gs)].map((m) => m[0]);
+    expect(xfs[b1]).toContain('fillId="2"');
+    expect(xfs[b1]).toContain('<alignment horizontal="center"/>'); // alignment of the original style 1 kept
+    expect(xfs[Number(styleOf(sheet, 'D1'))]).toContain('fillId="2"');
+  });
+
+  it.each(['In-Progress', null, undefined, 'other'])('%s: empty text, no style or colour change at all', async (status) => {
+    const { sheet, styles, shared } = await open(await svc.fill(await book(), resolve, { complianceStatus: status as string | null | undefined }));
+    expect(shared).not.toContain('{Project Status}');
+    expect(shared).toMatch(/<si><t[^>]*(\/>|><\/t>)<\/si>/); // empty text, either serialisation
+    expect(styles).toBe(STYLES.startsWith('<?xml') ? STYLES : (await open(await book())).styles); // styles part not rewritten
+    expect(styleOf(sheet, 'B1')).toBe('1');
+    expect(sheet).not.toMatch(/<c r="D1"[^>]* s=/);
+  });
+
+  it('a cell with other text beside the placeholder ("{Compliance Status} Report Delivered") gets the text but no colour', async () => {
+    const zip = new JSZip();
+    zip.file('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+    zip.file('xl/workbook.xml', `<workbook xmlns="${M}"><sheets><sheet name="S" sheetId="1" r:id="rId1" xmlns:r="x"/></sheets></workbook>`);
+    zip.file('xl/styles.xml', STYLES);
+    zip.file('xl/sharedStrings.xml', `<sst xmlns="${M}" count="3" uniqueCount="3"><si><t>{Compliance Status} Report Delivered</t></si><si><t>{Project Status}</t></si><si><t>{Project Status} {Client Name}</t></si></sst>`);
+    zip.file('xl/worksheets/sheet1.xml', `<worksheet xmlns="${M}"><sheetData><row r="1"><c r="A1" s="1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" s="1" t="s"><v>2</v></c></row></sheetData></worksheet>`);
+    const { sheet, styles, shared } = await open(await svc.fill(await zip.generateAsync({ type: 'nodebuffer' }), resolve, { complianceStatus: 'Non-Compliant' }));
+    expect(shared).toContain('>Non-Compliant Report Delivered</t>');
+    expect(shared).toContain('>Non-Compliant Acme</t>');
+    expect(styleOf(sheet, 'A1')).toBe('1'); // untouched
+    expect(styleOf(sheet, 'C1')).toBe('1'); // another placeholder counts as other content
+    const b1 = Number(styleOf(sheet, 'B1')); // the stand-alone one is coloured
+    expect(b1).toBeGreaterThanOrEqual(2);
+    expect((styles.match(/<fgColor rgb="FFFF0000"\/>/g) || []).length).toBe(1);
+    expect(styles).toContain('<cellXfs count="3">'); // just one new style, for B1
+  });
+
+  it('without the options argument (existing callers) the placeholder is simply emptied', async () => {
+    const { shared } = await open(await svc.fill(await book(), resolve));
+    expect(shared).not.toContain('{Project Status}');
+  });
+
+  it('other placeholders still resolve as before', async () => {
+    const { shared } = await open(await svc.fill(await book(), resolve, { complianceStatus: 'Compliant' }));
+    expect(shared).toContain('Client: Acme');
+  });
+
+  it('the status placeholders are still listed when the template is analysed', async () => {
+    expect(await svc.extractPlaceholders(await book())).toEqual(expect.arrayContaining(['Project Status', 'Compliance Status', 'Client Name']));
+  });
+});

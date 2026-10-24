@@ -12,7 +12,7 @@ function makePrismaMock(): any {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
       findFirst: jest.fn(),
-      updateMany: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       update: jest.fn(),
       create: jest.fn(),
       delete: jest.fn(),
@@ -83,8 +83,8 @@ describe('QuizService.sweepQuizStatuses', () => {
 
     await service.sweepQuizStatuses();
 
-    expect(prisma.quizQuestion.update).toHaveBeenCalledWith({
-      where: { id: 'q2' },
+    expect(prisma.quizQuestion.updateMany).toHaveBeenCalledWith({
+      where: { id: 'q2', status: 'ACTIVE' },
       data: { status: 'REVEALED', revealedAt: expect.any(Date) },
     });
     expect(prisma.quizAttempt.update).toHaveBeenCalledWith({
@@ -93,8 +93,25 @@ describe('QuizService.sweepQuizStatuses', () => {
     });
     expect(prisma.quizUserStats.upsert).toHaveBeenCalled();
     expect(notifications.notifyAllActiveUsers).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'QUIZ_ANSWER_REVEALED' }),
+      expect.objectContaining({ type: 'QUIZ_ANSWER_REVEALED', relatedId: 'q2', linkUrl: '/dashboard/quiz?reveal=q2' }),
     );
+  });
+
+  it('notifies once per revealed question, each pointing at its own question', async () => {
+    const t = new Date('2026-09-08T00:00:00.000Z');
+    prisma.quizQuestion.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'qa', scheduledFor: t }, { id: 'qb', scheduledFor: t }]);
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+    await service.sweepQuizStatuses();
+    const ids = notifications.notifyAllActiveUsers.mock.calls.map((c: any) => c[0].relatedId);
+    expect(ids).toEqual(['qa', 'qb']);
+  });
+
+  it('a question another run already revealed is neither re-scored nor re-notified', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'q2', scheduledFor: new Date() }]);
+    prisma.quizQuestion.updateMany.mockResolvedValueOnce({ count: 0 });
+    await service.sweepQuizStatuses();
+    expect(prisma.quizAttempt.findMany).not.toHaveBeenCalled();
+    expect(notifications.notifyAllActiveUsers).not.toHaveBeenCalled();
   });
 
   it('does not update or notify when nothing needs to transition', async () => {
@@ -265,8 +282,8 @@ describe('QuizService admin/read methods', () => {
   });
 
   it('getTodayQuestion includes userIsCorrect for the viewing user on a revealed question', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValue([]); // no ACTIVE question
     prisma.quizQuestion.findFirst
-      .mockResolvedValueOnce(null) // no ACTIVE question
       .mockResolvedValueOnce({
         id: 'q1',
         question: 'Q?',
@@ -275,6 +292,7 @@ describe('QuizService admin/read methods', () => {
         explanation: 'because',
         revealedAt: new Date(),
       });
+    prisma.quizAttempt.findUnique.mockResolvedValue({ userId: 'u1', isCorrect: false });
     prisma.quizAttempt.findMany.mockResolvedValue([
       { userId: 'u1', isCorrect: false },
       { userId: 'u2', isCorrect: true },
@@ -285,9 +303,31 @@ describe('QuizService admin/read methods', () => {
     expect(result.userIsCorrect).toBe(false);
   });
 
-  it('getTodayQuestion returns userIsCorrect null when the viewing user never answered', async () => {
+  it('getTodayQuestion returns every question still inside its answer window, newest first, with per-question answered flags', async () => {
+    const q = (id: string, hoursAgo: number) => ({ id, question: id, options: ['a', 'b'], correctIndex: 1, explanation: 'secret', scheduledFor: new Date(Date.now() - hoursAgo * 3600_000), status: 'ACTIVE' });
+    prisma.quizQuestion.findMany.mockResolvedValue([q('new', 1), q('mid', 10), q('old', 20)]);
+    prisma.quizAttempt.findMany.mockResolvedValue([{ questionId: 'mid' }]);
+
+    const r: any = await service.getTodayQuestion('u1');
+
+    expect(r.id).toBe('new');
+    expect(r.alreadyAnswered).toBe(false);
+    expect(r.others.map((o: any) => [o.id, o.alreadyAnswered])).toEqual([['mid', true], ['old', false]]);
+    expect(JSON.stringify(r)).not.toMatch(/correctIndex|secret/);
+    expect(prisma.quizAttempt.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('getTodayQuestion with a single open question has no others', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValue([{ id: 'only', question: 'Q', options: ['a', 'b'], scheduledFor: new Date(), status: 'ACTIVE' }]);
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+    const r: any = await service.getTodayQuestion('u1');
+    expect(r.id).toBe('only');
+    expect(r).not.toHaveProperty('others');
+  });
+
+  it('getTodayQuestion withholds the revealed question (and its answer) from a user who never answered', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValue([]);
     prisma.quizQuestion.findFirst
-      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         id: 'q1',
         question: 'Q?',
@@ -296,11 +336,9 @@ describe('QuizService admin/read methods', () => {
         explanation: 'because',
         revealedAt: new Date(),
       });
-    prisma.quizAttempt.findMany.mockResolvedValue([{ userId: 'u2', isCorrect: true }]);
+    prisma.quizAttempt.findUnique.mockResolvedValue(null);
 
-    const result: any = await service.getTodayQuestion('u1');
-
-    expect(result.userIsCorrect).toBeNull();
+    await expect(service.getTodayQuestion('u1')).resolves.toBeNull();
   });
 
   it('createQuestion creates the question and logs an audit entry with ipAddress/userAgent', async () => {
@@ -489,5 +527,71 @@ describe('QuizService late answers', () => {
     prisma.quizQuestion.findUnique.mockResolvedValue({ id: 'q1', status: 'REVEALED', correctIndex: 0, options: ['a', 'b'] });
     prisma.quizAttempt.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }));
     await expect(service.submitLateAnswer('u1', 'q1', 0)).rejects.toThrow(ConflictException);
+  });
+
+  const revealed = { id: 'q1', question: 'Q?', options: ['a', 'b'], correctIndex: 1, explanation: 'because', status: 'REVEALED', revealedAt: new Date() };
+
+  it('withholds the answer and explanation from a missed question (log list and entry)', async () => {
+    prisma.quizQuestion.findMany.mockResolvedValue([{ ...revealed, attempts: [] }]);
+    prisma.quizQuestion.count.mockResolvedValue(1);
+    const list = await service.getLog(1, 20, 'u1');
+    expect(list.items[0]).not.toHaveProperty('correctIndex');
+    expect(list.items[0]).not.toHaveProperty('explanation');
+
+    prisma.quizQuestion.findUnique.mockResolvedValue(revealed);
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+    prisma.quizAttempt.findUnique.mockResolvedValue(null);
+    const entry: any = await service.getLogEntry('q1', 'u1');
+    expect(entry).not.toHaveProperty('correctIndex');
+    expect(entry).not.toHaveProperty('explanation');
+    expect(entry.options).toEqual(['a', 'b']);
+  });
+
+  it.each([[1, true], [0, false]])('late answer %i shows the answer afterwards, isCorrect=%s, and never scores', async (pick, isCorrect) => {
+    prisma.quizQuestion.findUnique.mockResolvedValue(revealed);
+    prisma.quizAttempt.create.mockResolvedValue({ selectedOption: pick, isCorrect, isLate: true });
+    await service.submitLateAnswer('u1', 'q1', pick);
+    expect(prisma.quizAttempt.create.mock.calls[0][0].data).toMatchObject({ isCorrect, pointsAwarded: 0, isLate: true });
+    expect(prisma.quizUserStats.upsert).not.toHaveBeenCalled();
+
+    // Reopening an answered question: status preserved, answer shown, nothing written.
+    prisma.quizAttempt.findMany.mockResolvedValue([]);
+    prisma.quizAttempt.findUnique.mockResolvedValue({ selectedOption: pick, isCorrect, isLate: true });
+    const entry: any = await service.getLogEntry('q1', 'u1');
+    expect(entry.myAttempt).toEqual({ selectedOption: pick, isCorrect, isLate: true });
+    expect(entry.correctIndex).toBe(1);
+    expect(prisma.quizAttempt.create).toHaveBeenCalledTimes(1);
+    expect(prisma.quizUserStats.upsert).not.toHaveBeenCalled();
+  });
+
+  it('keeps unrevealed questions out of the log', async () => {
+    prisma.quizQuestion.findUnique.mockResolvedValue({ ...revealed, status: 'ACTIVE' });
+    await expect(service.getLogEntry('q1', 'u1')).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('QuizService.getRecentlyRevealed', () => {
+  it('returns each recent reveal as its own card; answer and explanation only for questions the caller attempted', async () => {
+    prisma = makePrismaMock();
+    const moduleRef = await Test.createTestingModule({
+      providers: [QuizService, { provide: PrismaService, useValue: prisma }, { provide: AuditService, useValue: { log: jest.fn() } }, { provide: NotificationsService, useValue: {} }],
+    }).compile();
+    const service = moduleRef.get(QuizService);
+    const q = (id: string, correctIndex: number, explanation: string, hoursAgo: number) => ({
+      id, question: `Q-${id}`, options: ['a', 'b'], correctIndex, explanation, revealedAt: new Date(Date.now() - hoursAgo * 3_600_000),
+    });
+    prisma.quizQuestion.findMany.mockResolvedValue([q('new', 1, 'why-new', 1), q('old', 0, 'why-old', 20)]);
+    prisma.quizAttempt.findMany.mockImplementation(async ({ where }: any) =>
+      where.userId ? [{ questionId: 'old', selectedOption: 0, isCorrect: true, isLate: true, userId: 'u1' }] : [{ questionId: where.questionId, userId: 'u1', isCorrect: true, isLate: false }],
+    );
+    const cards: any[] = await service.getRecentlyRevealed('u1');
+    expect(cards.map((c) => c.id)).toEqual(['new', 'old']); // newest reveal first
+    expect(cards[0]).toEqual(expect.objectContaining({ question: 'Q-new', myAttempt: null }));
+    expect(cards[0]).not.toHaveProperty('correctIndex');
+    expect(cards[0]).not.toHaveProperty('explanation');
+    expect(cards[1]).toEqual(expect.objectContaining({ id: 'old', correctIndex: 0, explanation: 'why-old', myAttempt: { selectedOption: 0, isCorrect: true, isLate: true } }));
+    const where = prisma.quizQuestion.findMany.mock.calls[0][0].where;
+    expect(where.status).toBe('REVEALED');
+    expect(where.revealedAt.gte).toBeInstanceOf(Date);
   });
 });

@@ -2,7 +2,7 @@ import { ISSUE_LOG_DEFAULT_COLUMNS } from '../reports/issue-log';
 
 export const DEFAULT_SETTINGS = {
   general: {
-    appName: 'VAPT Command Center',
+    appName: 'PMIS - Project Management for Information Security',
     logoUrl: '',
     faviconUrl: '',
   },

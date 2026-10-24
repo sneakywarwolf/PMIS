@@ -6,7 +6,7 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from './storage.service';
 import { DocxManipulatorService, FieldRule, FindingData, PocImage } from './docx-manipulator.service';
-import { XlsxTemplateService } from './xlsx-template.service';
+import { RowSet, XlsxTemplateService } from './xlsx-template.service';
 import { NmapPortRecord } from '../common/nmap-parser.util';
 import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
@@ -14,10 +14,11 @@ import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, Repor
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 import { findingPocReadiness } from '../common/poc-validation.util';
-import { nessusTextForReport, stripNessusBoilerplate } from '../common/nessus-text.util';
+import { LINE_SEP, nessusTextForReport, stripNessusBoilerplate } from '../common/nessus-text.util';
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { canAccessProject } from '../common/project-access.util';
 import { assertSafeDocx, safeFileName } from '../common/docx-package.util';
+import { coveredSubTypes, coversSubType, coversAnySubType, eligibleForProject, isEligibleTemplate, parseExtraSubTypes } from './template-subtypes';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
 
@@ -35,6 +36,15 @@ const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   NETWORK: 'Network',
   APPLICATION: 'Application',
 };
+
+/** The project's status as printed in reports and file names: "Compliant" / "Non-Compliant", empty while In-Progress or unset. */
+const complianceStatusText = (status?: string | null): string => {
+  const key = (status || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+  return key === 'compliant' ? 'Compliant' : key === 'non-compliant' ? 'Non-Compliant' : '';
+};
+
+/** The project status (Compliance Status dropdown) that allows a report even with no findings. */
+const REPORT_READY_STATUS = 'Compliant';
 
 @Injectable()
 export class ReportsService {
@@ -66,9 +76,11 @@ export class ReportsService {
     ipAddress: string,
     userAgent: string,
     reportFormat: ReportFormat = ReportFormat.WORD,
+    extraSubTypesRaw?: unknown,
   ) {
+    const extraSubTypes = parseExtraSubTypes(extraSubTypesRaw, subType, category);
     if (reportFormat === ReportFormat.EXCEL) {
-      return this.uploadExcelTemplate(file, name, category, subType, effectiveFrom, effectiveTo, adminId, ipAddress, userAgent);
+      return this.uploadExcelTemplate(file, name, category, subType, effectiveFrom, effectiveTo, adminId, ipAddress, userAgent, extraSubTypes);
     }
     if (!file?.buffer || !file.originalname.toLowerCase().endsWith('.docx')) {
       throw new BadRequestException(
@@ -103,7 +115,7 @@ export class ReportsService {
 
     // Diff against the currently active version of the same category + subType
     const previousActive = await this.prisma.reportTemplate.findFirst({
-      where: { category, subType, isActive: true, reportFormat: ReportFormat.WORD },
+      where: { category, ...coversSubType(subType), isActive: true, reportFormat: ReportFormat.WORD },
       include: { fields: true },
       orderBy: { effectiveFrom: 'desc' },
     });
@@ -128,6 +140,7 @@ export class ReportsService {
         fileHash,
         category,
         subType,
+        extraSubTypes,
         projectType: `${category}_${subType}`,
         effectiveFrom,
         effectiveTo,
@@ -155,7 +168,7 @@ export class ReportsService {
       ipAddress,
       userAgent,
       details: {
-        name, category, subType,
+        name, category, subType, extraSubTypes,
         fieldCount: analysis.fields.length,
         dryRunOk,
         missingMandatory: analysis.missingMandatory,
@@ -178,12 +191,13 @@ export class ReportsService {
     };
   }
 
-  async getTemplates(category?: TemplateCategory, subType?: TemplateSubType, includeInactive = false, reportFormat?: ReportFormat) {
+  async getTemplates(category?: TemplateCategory, subType?: TemplateSubType, includeInactive = false, reportFormat?: ReportFormat, forProject = false) {
     const where: any = {};
     if (!includeInactive) where.isActive = true;
     if (reportFormat) where.reportFormat = reportFormat;
     if (category) where.category = category;
-    if (subType) where.subType = subType;
+    // forProject: the project-eligibility rule (Cert-In Application umbrella); otherwise plain Activity Type coverage.
+    if (subType) Object.assign(where, forProject && category ? eligibleForProject(category, subType) : coversSubType(subType));
 
     return this.prisma.reportTemplate.findMany({
       where,
@@ -233,6 +247,7 @@ export class ReportsService {
     'android_ios', 'sha_1', 'sha1', 'report_date',
     'external_internal', 'total_scope_count', 'quarter',
     'testing_type', 'platform_type', 'testing_approach', 'location',
+    'client_spoc_name', 'client_spoc_designation', 'client_spoc_email',
   ];
 
   /** Slug: lowercase, spaces/dashes → underscore, strip anything else. */
@@ -366,16 +381,30 @@ export class ReportsService {
     // and its field mappings. Existing ReportGeneration rows are
     // FK-SetNull, so already generated reports and their stored docx/pdf
     // files are never touched by any of this.
+    const mine = coveredSubTypes(template);
     const replaced = await this.prisma.reportTemplate.findMany({
       where: {
         category: template.category,
-        subType: template.subType,
+        ...coversAnySubType(mine),
         reportFormat: template.reportFormat,
         isActive: true,
         id: { not: id },
       },
     });
     for (const old of replaced) {
+      const overlap = coveredSubTypes(old).filter((t) => mine.includes(t));
+      const remaining = coveredSubTypes(old).filter((t) => !mine.includes(t));
+      if (remaining.length > 0) {
+        // The old template also serves Activity Types this one doesn't: it keeps those and loses only the
+        // overlap. Projects of the overlapping types move to the new template; nothing else is touched.
+        const [primary, ...extra] = remaining;
+        await this.prisma.project.updateMany({ where: { templateId: old.id, subType: { in: overlap } }, data: { templateId: id } });
+        await this.prisma.reportTemplate.update({
+          where: { id: old.id },
+          data: { subType: primary, extraSubTypes: extra, projectType: `${old.category}_${primary}` },
+        });
+        continue;
+      }
       const rebound = await this.prisma.project.updateMany({
         where: { templateId: old.id },
         data: { templateId: id },
@@ -562,6 +591,11 @@ export class ReportsService {
   ) {
     const project = await this.loadProjectForReport(projectId, user);
 
+    // Allowed with findings, or when the project's saved status (not its compliance category / testing type) is Compliant.
+    if (project.findings.length === 0 && project.complianceStatus !== REPORT_READY_STATUS) {
+      throw new BadRequestException(`This project has no findings and its status is "${project.complianceStatus ?? 'not set'}". Add findings, or set the status to "${REPORT_READY_STATUS}", before generating a report.`);
+    }
+
     if (reportFormat === ReportFormat.EXCEL && project.subType !== TemplateSubType.NETWORK) {
       throw new BadRequestException('Excel reports are only available for Network projects');
     }
@@ -581,13 +615,19 @@ export class ReportsService {
     }
 
     // A project's pinned template is always a Word one; the Excel template is looked up by category + sub type.
+    // The pinned template is checked again here: if it is no longer eligible (deactivated, replaced) the project
+    // is re-pointed at the eligible one, never silently kept on a stale template.
     let template = reportFormat === ReportFormat.WORD && project.template?.reportFormat !== ReportFormat.EXCEL ? project.template : null;
+    if (template && !isEligibleTemplate(template, project.category, project.subType, reportFormat)) template = null;
     if (!template) {
       template = await this.prisma.reportTemplate.findFirst({
-        where: { isActive: true, category: project.category, subType: project.subType, reportFormat },
+        where: { isActive: true, category: project.category, ...eligibleForProject(project.category, project.subType), reportFormat },
         orderBy: { effectiveFrom: 'desc' },
         include: { fields: true },
       });
+      if (template && reportFormat === ReportFormat.WORD && project.templateId !== template.id) {
+        await this.prisma.project.update({ where: { id: project.id }, data: { templateId: template.id } });
+      }
     }
     if (!template) {
       throw new BadRequestException(
@@ -737,38 +777,13 @@ export class ReportsService {
           pocSteps.push({ stepNo: step.stepNo, description: step.description, imageKey });
         }
 
-        // Scan-imported (VA) findings only: tidy Nessus' wrapping/spacing in what is printed. Stored data is untouched.
-        const isVa = f.findingType === 'VA';
-        findingsData.push({
-          no: index + 1,
-          title: f.vulnerability.name,
-          severity: f.cvssScoreOverride != null
-            ? this.severityFromScore(f.cvssScoreOverride)
-            : f.vulnerability.severity,
-          cvssScore: effectiveScore,
-          cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
-          description: isVa ? nessusTextForReport(stripNessusBoilerplate(f.vulnerability.description)) : f.vulnerability.description,
-          impact: f.vulnerability.impact,
-          remediation: f.vulnerability.remediation,
-          references: f.vulnerability.references,
-          cveId: f.vulnerability.cveId,
-          cweId: f.vulnerability.cweId,
-          affectedInstances: (f.affectedInstances || []).join('\n'),
-          authenticationType: f.authenticationType,
-          vulnerabilityDependency: f.vulnerabilityDependency,
-          reportStatus: f.reportStatus,
-          classification: f.classification,
-          // Scan-imported (VA) findings only: PT findings never get scan output printed.
-          pocText: f.classification ? nessusTextForReport((f as any).proofOfConcept) || null : null,
-          findingType: f.findingType,
-          pocSteps,
-        });
+        findingsData.push(this.toFindingData(f, index + 1, pocSteps));
       }
 
       const { settings } = await this.settingsService.get();
       const reportDate = formatReportDateByPattern(new Date(), settings.formatting?.reportDateFormat || DEFAULT_REPORT_DATE_FORMAT);
 
-      // File naming convention: App-Security-Test_{Client}-{App}_{SubType}_v{Version}_{ReportDate}_Non-Compliant.docx
+      // File naming: the template's own file name as a pattern; older templates without one use {Testing-Type}_{Client}_{App}_{Version}_{ReportDate}_{Status}-Report.docx
       // Computed before content generation so {Report Name} can resolve to the final filename.
       const fileName = this.buildReportFileName(project, reportGeneration.version, template, reportDate);
 
@@ -786,7 +801,7 @@ export class ReportsService {
         (project.nmapPorts as NmapPortRecord[] | null) || [],
         (project.toolsUsedTable as { name: string; version: string; licenseType: string }[] | null) || [],
         fileName,
-        { splitVaPt: project.subType === 'NETWORK' },
+        { splitVaPt: project.subType === 'NETWORK', activityType: project.subType === 'NETWORK' ? project.networkActivityType : null, complianceStatus: project.complianceStatus },
       );
 
       const docxName = `reports/${project.id}/${Date.now()}_${fileName}`;
@@ -861,6 +876,7 @@ export class ReportsService {
     adminId: string,
     ipAddress: string,
     userAgent: string,
+    extraSubTypes: TemplateSubType[] = [],
   ) {
     if (!file.originalname.toLowerCase().endsWith('.xlsx')) {
       throw new BadRequestException(
@@ -895,14 +911,14 @@ export class ReportsService {
     // Admin should not have to map again: start from the mappings already saved on the active Word template
     // of the same category + sub type (copied by name; that template is not modified).
     const wordTemplate = await this.prisma.reportTemplate.findFirst({
-      where: { category, subType, isActive: true, reportFormat: ReportFormat.WORD },
+      where: { category, ...coversSubType(subType), isActive: true, reportFormat: ReportFormat.WORD },
       include: { fields: true },
       orderBy: { effectiveFrom: 'desc' },
     });
     const savedMapping = new Map((wordTemplate?.fields || []).filter((f) => f.mappedParameter).map((f) => [f.normalizedName, f.mappedParameter!]));
 
     const previousActive = await this.prisma.reportTemplate.findFirst({
-      where: { category, subType, isActive: true, reportFormat: ReportFormat.EXCEL },
+      where: { category, ...coversSubType(subType), isActive: true, reportFormat: ReportFormat.EXCEL },
       include: { fields: true },
       orderBy: { effectiveFrom: 'desc' },
     });
@@ -935,6 +951,7 @@ export class ReportsService {
         fileHash,
         category,
         subType,
+        extraSubTypes,
         projectType: `${category}_${subType}`,
         reportFormat: ReportFormat.EXCEL,
         effectiveFrom,
@@ -963,7 +980,7 @@ export class ReportsService {
       targetId: template.id,
       ipAddress,
       userAgent,
-      details: { name, category, subType, reportFormat: 'EXCEL', fieldCount: analysed.length, dryRunOk },
+      details: { name, category, subType, extraSubTypes, reportFormat: 'EXCEL', fieldCount: analysed.length, dryRunOk },
     });
 
     return {
@@ -982,6 +999,78 @@ export class ReportsService {
     };
   }
 
+  /** One finding as the report engines read it. VA (scan-imported) text is tidied for print; stored data is untouched. */
+  private toFindingData(f: any, no: number, pocSteps: FindingData['pocSteps']): FindingData {
+    const isVa = f.findingType === 'VA';
+    return {
+      no,
+      title: f.vulnerability.name,
+      severity: f.cvssScoreOverride != null
+        ? this.severityFromScore(f.cvssScoreOverride)
+        : f.vulnerability.severity,
+      cvssScore: f.cvssScoreOverride ?? f.vulnerability.cvssScore,
+      cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
+      description: isVa ? nessusTextForReport(stripNessusBoilerplate(f.vulnerability.description)) : f.vulnerability.description,
+      impact: f.vulnerability.impact,
+      remediation: f.vulnerability.remediation,
+      references: f.vulnerability.references,
+      cveId: f.vulnerability.cveId,
+      cweId: f.vulnerability.cweId,
+      affectedInstances: (f.affectedInstances || []).join('\n'),
+      authenticationType: f.authenticationType,
+      vulnerabilityDependency: f.vulnerabilityDependency,
+      reportStatus: f.reportStatus,
+      classification: f.classification,
+      // Scan-imported (VA) findings only: PT findings never get scan output printed.
+      pocText: f.classification ? nessusTextForReport(f.proofOfConcept) || null : null,
+      findingType: f.findingType,
+      pocSteps,
+    };
+  }
+
+  /**
+   * Rows of an Excel template that repeat per record: scope entries, Port Scan results and findings (VA and PT
+   * kept apart in Network projects, as in Word). Values come from the same sources as the Word report:
+   * the finding-level Application Parameter Registry and the project's saved scope / scan data.
+   */
+  private excelRowSets(template: any, project: any): RowSet[] {
+    const certIn = template.category === TemplateCategory.CERT_IN;
+    const sorted = project.findings
+      .map((f: any) => ({ f, score: f.cvssScoreOverride ?? f.vulnerability.cvssScore ?? 0 }))
+      .sort((a: any, b: any) => (certIn ? severityRank(this.effectiveSeverity(a.f)) - severityRank(this.effectiveSeverity(b.f)) : 0) || b.score - a.score)
+      .map(({ f }: any) => f);
+    const split = project.subType === 'NETWORK';
+    const resolversFor = (list: any[]) =>
+      list.map((f, i) => {
+        const data = this.toFindingData(f, i + 1, []);
+        // Excel cells take real line breaks; Word's line-separator marker becomes one here.
+        return (raw: string) => this.docxManipulator.resolveFindingParameter(this.slugifyFieldName(raw).substring(0, 100), data)?.split(LINE_SEP).join('\n');
+      });
+    const lc = (names: string[]) => names.map((n) => n.toLowerCase());
+    const scope = ((project.networkScope as { ip: string; domainHostname: string; purpose: string }[] | null) || []).map((e) => (raw: string) => {
+      const n = raw.toLowerCase();
+      if (n === 'ip') return e.ip || 'NA';
+      if (n.includes('domain')) return e.domainHostname || 'NA';
+      if (n === 'purpose') return e.purpose || 'NA';
+      return undefined;
+    });
+    const ports = ((project.nmapPorts as NmapPortRecord[] | null) || []).map((r) => (raw: string) => {
+      const n = raw.toLowerCase();
+      if (n.includes('nmap')) return r.ip || 'NA';
+      if (n === 'port') return r.port || 'NA';
+      if (n === 'protocol') return r.protocol || 'NA';
+      if (n === 'service') return r.service || 'NA';
+      if (n === 'status') return r.status || 'NA';
+      return undefined;
+    });
+    return [
+      { claims: (names) => lc(names).includes('ip') && lc(names).includes('purpose'), rows: scope },
+      { claims: (names) => lc(names).includes('port') && lc(names).some((n) => n.includes('nmap')), rows: ports },
+      { claims: (names) => lc(names).some((n) => n.startsWith('va ')), rows: resolversFor(sorted.filter((f: any) => f.findingType === 'VA')) },
+      { claims: (names) => lc(names).includes('vulnerability name'), rows: resolversFor(split ? sorted.filter((f: any) => f.findingType !== 'VA') : sorted) },
+    ];
+  }
+
   private async processExcelGeneration(
     reportGenerationId: string,
     project: any,
@@ -997,7 +1086,8 @@ export class ReportsService {
     const fileName = this.buildReportFileName(project, version, template, reportDate);
 
     this.logger.log(`Generating Excel report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
-    const buffer = await this.xlsxTemplate.fill(templateBuffer, this.excelResolver(template, project, version, reportDate, fileName));
+    const resolver = this.excelResolver(template, project, version, reportDate, fileName);
+    const buffer = await this.xlsxTemplate.fill(templateBuffer, resolver, { complianceStatus: project.complianceStatus, rowSets: this.excelRowSets(template, project) });
 
     const objectName = `reports/${project.id}/${Date.now()}_${fileName}`;
     await this.storage.uploadFile(objectName, buffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -1027,7 +1117,7 @@ export class ReportsService {
    * Parameters, values from the existing finding parameter registry. Nothing
    * is persisted, so changing the config never alters an Issue Log that was
    * already downloaded.
-   * Filename: Issue-Log_{Compliance Type}_{Sub Type}_{Client Name}-{Application Name}_v0.1_{Report Date}_Non-Compliant.csv
+   * Filename: Issue-Log_{Compliance Type}_{Sub Type}_{Client Name}-{Application Name}_v0.1_{Report Date}_{Compliance Status}.csv
    */
   async generateIssueLog(projectId: string, user: User) {
     const project = await this.loadProjectForReport(projectId, user);
@@ -1072,8 +1162,8 @@ export class ReportsService {
       `${safe(resolveTemplateParameter('project.clientName', project, fmt))}-${safe(resolveTemplateParameter('project.applicationName', project, fmt))}`,
       'v0.1',
       safe(resolveTemplateParameter('report.generationDateIso', project, fmt, undefined, reportDate)),
-      'Non-Compliant',
-    ].join('_');
+      complianceStatusText(project.complianceStatus),
+    ].filter(Boolean).join('_');
 
     return { fileName: `${fileName}.csv`, csv: buildIssueLogCsv(columns, rows) };
   }
@@ -1329,6 +1419,10 @@ export class ReportsService {
       // (1.0, 1.1, 1.2, ...) rather than the static field, same as the report
       // version counter — applies to every testing type uniformly.
       { match: ['version_ex', 'document_version'], value: version || project.documentVersion || '1.0' },
+      // Client SPOC (point of contact): optional on the project, so an empty one prints N/A like the other contact fields.
+      { match: ['client_spoc_name'], value: project.clientSpocName || 'N/A' },
+      { match: ['client_spoc_designation'], value: project.clientSpocDesignation || 'N/A' },
+      { match: ['client_spoc_email'], value: project.clientSpocEmail || 'N/A' },
       { match: ['client_name_location'], value: [project.clientName, project.location].filter(Boolean).join(', ') },
       { match: ['client_name'], value: project.clientName || '' },
       { match: ['month_dd_yyyy'], value: this.formatReportDate(new Date()) },
@@ -1374,7 +1468,10 @@ export class ReportsService {
       return this.buildLegacyReportFileName(project, version, template, reportDate);
     }
 
+    // {Compliance Status} / {Project Status}: same wording the report body prints (empty while In-Progress).
+    const statusText = complianceStatusText(project.complianceStatus);
     const rules = this.buildMappedFieldRules(template, project, version, reportDate)
+      .concat([{ match: ['compliance_status', 'project_status'], value: statusText }])
       .concat(this.buildFieldRules(project, version, reportDate))
       .concat(this.buildCustomFieldRules(project));
 
@@ -1409,7 +1506,8 @@ export class ReportsService {
     // safe() rather than raw — some report date formats (e.g. DD/MM/YYYY)
     // contain filesystem path separators.
     const date = safe(reportDate ?? new Date().toISOString().split('T')[0]);
-    return `App-Security-Test_${safe(project.clientName)}-${safe(project.name)}_${subTypeLabel}_v${version}_${date}_Non-Compliant.docx`;
+    const status = complianceStatusText(project.complianceStatus);
+    return `${subTypeLabel}_${safe(project.clientName)}_${safe(project.name)}_${version}_${date}_${status ? `${status}-` : ''}Report.docx`;
   }
 
   /**

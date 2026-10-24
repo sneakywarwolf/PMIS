@@ -151,6 +151,7 @@ export class DocxManipulatorService {
       let match: RegExpExecArray | null;
       while ((match = re.exec(fullText))) {
         const raw = match[1].trim();
+        if (/^[#/]\s*(VA|PT)$/i.test(raw)) continue; // conditional block marker, not a field
         if (!raw) continue;
 
         const normalizedName = this.normalizeFieldName(raw);
@@ -252,7 +253,7 @@ export class DocxManipulatorService {
     nmapPorts: NmapPortRecord[] = [],
     toolsUsed: ToolUsedRow[] = [],
     reportName?: string,
-    options?: { splitVaPt?: boolean },
+    options?: { splitVaPt?: boolean; activityType?: string | null; complianceStatus?: string | null },
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -268,6 +269,18 @@ export class DocxManipulatorService {
 
     // Step 1: merge split highlighted runs so placeholders are whole
     this.mergeAllHighlightedRuns(doc);
+
+    // Step 1.2: {#VA}...{/VA} / {#PT}...{/PT} blocks, kept or dropped by the project's activity type
+    this.applyActivityBlocks(doc, options?.activityType);
+
+    // Step 1.25: a sub-heading must continue its parent heading's list, not restart another one ("2.1")
+    this.alignSubheadingNumbering(doc);
+
+    // Step 1.26: Network reports start the Scope and Detail Findings sections on a new page
+    if (options?.splitVaPt) this.startSectionsOnNewPage(doc);
+
+    // Step 1.3: {Project Status} / {Compliance Status} text and background colour
+    this.applyComplianceStatus(doc, options?.complianceStatus);
 
     // Step 1.5: {Report Name} resolves to the final generated filename and,
     // unlike the generic project-info rules below, must populate every
@@ -342,9 +355,243 @@ export class DocxManipulatorService {
     const updatedXml = serializer.serializeToString(doc);
     zip.file('word/document.xml', updatedXml);
 
+    await this.fillHeaderFooterStatus(zip, options?.complianceStatus);
     await this.markFieldsForUpdate(zip);
 
     return zip.generateAsync({ type: 'nodebuffer' });
+  }
+
+  /** {Project Status} / {Compliance Status} in page headers and footers (cover banners etc.), which document.xml does not hold. */
+  private async fillHeaderFooterStatus(zip: any, status?: string | null): Promise<void> {
+    const names = Object.keys(zip.files).filter((n) => /^word\/(header|footer)\d*\.xml$/.test(n));
+    for (const name of names) {
+      const xml: string = await zip.file(name).async('text');
+      if (!/status/i.test(xml.replace(/<[^>]+>/g, ''))) continue;
+      const part = new DOMParser().parseFromString(xml, 'text/xml');
+      this.mergeAllHighlightedRuns(part);
+      this.applyComplianceStatus(part, status);
+      zip.file(name, new XMLSerializer().serializeToString(part));
+    }
+  }
+
+  /**
+   * "Scope" and "Detail(s) Findings" headings begin on a fresh page. Done with the paragraph's own
+   * pageBreakBefore, so no extra paragraph or blank page is added, and skipped where the template already
+   * provides the transition (heading already has it, or a page/section break sits right before it).
+   */
+  private startSectionsOnNewPage(doc: Document): void {
+    const W = this.W_NS;
+    const child = (el: Element, name: string) => Array.from(el.childNodes as any as Node[]).find((c) => c.nodeType === 1 && (c as Element).localName === name) as Element | undefined;
+    const breaks = (p: Element) =>
+      Array.from(p.getElementsByTagNameNS(W, 'br') as any as Element[]).some((br) => br.getAttributeNS(W, 'type') === 'page' || br.getAttribute('w:type') === 'page') ||
+      !!child(p, 'pPr') && !!child(child(p, 'pPr')!, 'pageBreakBefore') ||
+      (() => { const t = child(p, 'pPr') && child(child(p, 'pPr')!, 'sectPr'); const ty = t && child(t, 'type'); return !!t && ty?.getAttributeNS(W, 'val') !== 'continuous' && ty?.getAttribute('w:val') !== 'continuous'; })();
+    const empty = (p: Element) => !this.getElementText(p).trim() && !breaks(p) && !p.getElementsByTagNameNS(W, 'drawing').length && !p.getElementsByTagNameNS(W, 'pict').length;
+
+    for (const p of Array.from(doc.getElementsByTagNameNS(W, 'p')) as Element[]) {
+      const style = child(p, 'pPr') && child(child(p, 'pPr')!, 'pStyle')?.getAttributeNS(W, 'val');
+      if (!style || !/^heading/i.test(style) || !/^(scope|details?\s+findings)$/i.test(this.getElementText(p).trim()) || (p.parentNode as Element | null)?.localName !== 'body') continue;
+      if (breaks(p)) continue;
+      let prev = p.previousSibling;
+      while (prev && (prev.nodeType !== 1 || ((prev as Element).localName === 'p' && empty(prev as Element)))) prev = prev.previousSibling;
+      if (!prev || ((prev as Element).localName === 'p' && breaks(prev as Element))) continue; // top of document, or a break is already there
+      let pPr = child(p, 'pPr');
+      if (!pPr) { pPr = doc.createElementNS(W, 'w:pPr'); p.insertBefore(pPr, p.firstChild); }
+      const flag = doc.createElementNS(W, 'w:pageBreakBefore');
+      const after = Array.from(pPr.childNodes as any as Node[]).filter((c) => c.nodeType === 1 && ['pStyle', 'keepNext', 'keepLines'].includes((c as Element).localName)).pop();
+      pPr.insertBefore(flag, after ? after.nextSibling : pPr.firstChild);
+    }
+  }
+
+  /**
+   * A Heading 2 numbered from a different list (numId) than the Heading 1 above it shows as "<list start>.1"
+   * ("2.1" for the Network template's "Details of VA/PT Findings") instead of continuing the section number.
+   * It joins the parent heading's list; level, style and every other paragraph are untouched.
+   */
+  private alignSubheadingNumbering(doc: Document): void {
+    const W = this.W_NS;
+    let parentNumId: string | null = null;
+    for (const p of Array.from(doc.getElementsByTagNameNS(W, 'p')) as Element[]) {
+      const style = (p.getElementsByTagNameNS(W, 'pStyle')[0] as Element | undefined)?.getAttributeNS(W, 'val');
+      const numPr = p.getElementsByTagNameNS(W, 'numPr')[0] as Element | undefined;
+      const numId = numPr?.getElementsByTagNameNS(W, 'numId')[0] as Element | undefined;
+      if (!numId || !style) continue;
+      if (style === 'Heading1') parentNumId = numId.getAttributeNS(W, 'val');
+      else if (style === 'Heading2' && parentNumId && numId.getAttributeNS(W, 'val') !== parentNumId) numId.setAttributeNS(W, 'w:val', parentNumId);
+    }
+  }
+
+  /**
+   * Conditional blocks. A paragraph that is only `{#VA}` / `{#PT}` opens a block, one that is only
+   * `{/VA}` / `{/PT}` closes it; everything between (paragraphs, tables, ...) is kept or removed as
+   * a unit. VA keeps VA blocks, PT keeps PT blocks, VAPT keeps both; an unset/unknown activity type
+   * keeps both, so existing templates and projects are unchanged.
+   *
+   * Layout is preserved: kept content is never touched. A marker paragraph is deleted, unless it also
+   * carries a page break, section break or bookmark, in which case only its marker text goes and the
+   * (now empty) paragraph stays so that break survives. Excluded blocks vanish with their own breaks;
+   * a section break that ended a section which still has retained content moves onto the paragraph
+   * before the block. Blank paragraphs / page breaks that end up adjacent only because a block was
+   * removed are collapsed to one, so no gap or blank page appears.
+   */
+  private applyActivityBlocks(doc: Document, activityType?: string | null): void {
+    const activity = (activityType || '').trim().toUpperCase();
+    const keep = (kind: string) => !['VA', 'PT', 'VAPT'].includes(activity) || activity.includes(kind);
+    const W = this.W_NS;
+    const MARKER_RE = /^\{\s*([#/])\s*(VA|PT)\s*\}$/i;
+
+    const isPara = (n: Node | null): n is Element => !!n && n.nodeType === 1 && (n as Element).localName === 'p';
+    const has = (el: Element, name: string) => el.getElementsByTagNameNS(W, name).length > 0;
+    const marker = (n: Node | null) => (isPara(n) ? MARKER_RE.exec(this.getElementText(n).trim()) : null);
+    const pageBreaks = (el: Element) =>
+      Array.from(el.getElementsByTagNameNS(W, 'br') as any as Element[]).filter((br) => br.getAttributeNS(W, 'type') === 'page' || br.getAttribute('w:type') === 'page');
+    const paraProp = (el: Element, name: string) => {
+      const pPr = Array.from(el.childNodes as any as Node[]).find((c) => c.nodeType === 1 && (c as Element).localName === 'pPr') as Element | undefined;
+      return pPr ? (Array.from(pPr.childNodes as any as Node[]).find((c) => c.nodeType === 1 && (c as Element).localName === name) as Element | undefined) : undefined;
+    };
+    // Things that make a paragraph more than empty space.
+    const CONTENT = ['drawing', 'pict', 'object', 'fldChar', 'fldSimple', 'instrText', 'sym', 'sectPr', 'pageBreakBefore'];
+    // A tab character is content; a tab stop in <w:tabs> is only paragraph formatting.
+    const hasTab = (el: Element) => (Array.from(el.getElementsByTagNameNS(W, 'tab') as any as Element[])).some((t) => t.parentNode!.nodeName.replace(/^w:/, '') !== 'tabs');
+    const isBlank = (n: Node | null) => isPara(n) && !this.getElementText(n).trim() && pageBreaks(n).length === 0 && !has(n, 'br') && !hasTab(n) && !CONTENT.some((c) => has(n, c));
+    const isPageBreakOnly = (n: Node | null) =>
+      isPara(n) && !this.getElementText(n).trim() && pageBreaks(n).length > 0 && !['drawing', 'pict', 'object', 'sectPr'].some((c) => has(n, c));
+    const prevEl = (n: Node | null) => { let x = n ? n.previousSibling : null; while (x && x.nodeType !== 1) x = x.previousSibling; return x; };
+    const nextEl = (n: Node | null) => { let x = n ? n.nextSibling : null; while (x && x.nodeType !== 1) x = x.nextSibling; return x; };
+
+    // A chart/picture can share a paragraph with a marker (the PT risk matrix does); a kept block must not lose it.
+    const DRAWINGS = ['drawing', 'pict', 'object'];
+    /** Drop a marker paragraph, but keep an empty paragraph if it also holds a break/section/bookmark/drawing. */
+    const dropMarker = (para: Element) => {
+      const carries = pageBreaks(para).length > 0 || has(para, 'sectPr') || has(para, 'pageBreakBefore') || has(para, 'bookmarkStart') || has(para, 'bookmarkEnd') || DRAWINGS.some((c) => has(para, c));
+      if (!carries) return para.parentNode!.removeChild(para);
+      for (const run of Array.from(para.childNodes as any as Node[]).filter((c) => c.nodeType === 1 && (c as Element).localName === 'r') as Element[]) {
+        if (pageBreaks(run).length > 0 || DRAWINGS.some((c) => has(run, c))) {
+          Array.from(run.getElementsByTagNameNS(W, 't') as any as Element[]).forEach((t) => t.parentNode!.removeChild(t));
+        } else {
+          para.removeChild(run);
+        }
+      }
+    };
+
+    /** Section break found inside an excluded block, if the section it ends still has retained content before the block. */
+    const rescueSection = (open: Element, between: Node[]) => {
+      const sect = between.filter(isPara).map((pp) => paraProp(pp, 'sectPr')).filter(Boolean).pop() as Element | undefined;
+      if (!sect) return;
+      let retained = false;
+      for (let x = prevEl(open); x; x = prevEl(x)) {
+        if (isPara(x) && paraProp(x, 'sectPr')) break;
+        if (!isBlank(x)) { retained = true; break; }
+      }
+      if (!retained) return;
+      const prev = prevEl(open);
+      const clone = sect.cloneNode(true) as Element;
+      if (isPara(prev) && !paraProp(prev, 'sectPr')) {
+        let pPr = Array.from(prev.childNodes as any as Node[]).find((c) => c.nodeType === 1 && (c as Element).localName === 'pPr') as Element | undefined;
+        if (!pPr) { pPr = doc.createElementNS(W, 'w:pPr'); prev.insertBefore(pPr, prev.firstChild); }
+        pPr.appendChild(clone);
+      } else {
+        const carrier = doc.createElementNS(W, 'w:p');
+        const pPr = doc.createElementNS(W, 'w:pPr');
+        pPr.appendChild(clone);
+        carrier.appendChild(pPr);
+        open.parentNode!.insertBefore(carrier, open);
+      }
+    };
+
+    const edges: (Node | null)[] = []; // what sat just outside each block, to trim the template's padding there afterwards
+    for (const open of Array.from(doc.getElementsByTagNameNS(W, 'p')) as Element[]) {
+      const m = open.parentNode && marker(open);
+      if (!m || m[1] !== '#') continue;
+      const kind = m[2].toUpperCase();
+      const between: Node[] = [];
+      let close: Node | null = null;
+      for (let n = open.nextSibling; n; n = n.nextSibling) {
+        const c = marker(n);
+        if (c && c[1] === '/' && c[2].toUpperCase() === kind) { close = n; break; }
+        between.push(n);
+      }
+      if (!close) {
+        this.logger.warn(`Template block {#${kind}} has no matching {/${kind}} in the same section; leaving it as is`);
+        continue;
+      }
+      const parent = open.parentNode!;
+      edges.push(prevEl(open), nextEl(close));
+      if (keep(kind)) {
+        dropMarker(open);
+        dropMarker(close as Element);
+        continue;
+      }
+      rescueSection(open, between);
+      const before = prevEl(open);
+      const after = nextEl(close);
+      between.forEach((n) => parent.removeChild(n));
+      parent.removeChild(open);
+      parent.removeChild(close);
+      // Only what the removal made adjacent is collapsed; spacing that was already like that in the template stays.
+      if ((isBlank(before) && isBlank(after)) || (isPageBreakOnly(before) && isPageBreakOnly(after))) parent.removeChild(after!);
+    }
+
+    // The template pads the gap between blocks with a long run of empty paragraphs; whichever blocks survive, a run
+    // touching a block boundary keeps at most two (ponytail: fixed cap, the template's own spacing for a short gap).
+    for (const edge of edges) {
+      if (!edge || !edge.parentNode || !isBlank(edge)) continue;
+      const run: Node[] = [edge];
+      for (let n = prevEl(edge); isBlank(n); n = prevEl(n)) run.unshift(n!);
+      for (let n = nextEl(edge); isBlank(n); n = nextEl(n)) run.push(n!);
+      run.slice(2).forEach((n) => n.parentNode!.removeChild(n));
+    }
+  }
+
+  /**
+   * {Project Status} / {Compliance Status}: the project's saved status as text, with a background colour.
+   * Compliant -> "Compliant" on #92D050; Non-Compliant -> "Non-Compliant" on #FF0000; any other status
+   * (In Progress) -> empty, and the template's own background is left exactly as it is. The colour goes on
+   * the table cell holding the placeholder, or on the paragraph when it is not in a table.
+   */
+  private applyComplianceStatus(doc: Document, status?: string | null): void {
+    const key = (status || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
+    const look = key === 'compliant' ? { value: 'Compliant', fill: '92D050' } : key === 'non-compliant' ? { value: 'Non-Compliant', fill: 'FF0000' } : null;
+    const NAME_RE = /^(project|compliance)[\s_-]*status$/i;
+    const resolver = (n: string) => (/^(project|compliance)_status$/.test(n) ? look?.value ?? '' : undefined);
+
+    for (const para of Array.from(doc.getElementsByTagNameNS(this.W_NS, 'p')) as Element[]) {
+      const text = this.getParagraphRunSpans(para).map((s) => s.text).join('');
+      const hasStatus = [...text.matchAll(new RegExp(this.PLACEHOLDER_RE))].some((m) => NAME_RE.test(m[1].trim()));
+      if (!hasStatus) continue;
+      let cell: Node | null = para.parentNode;
+      while (cell && (cell as Element).localName !== 'tc') cell = cell.parentNode;
+      // The colour is only for a placeholder that stands alone ("{Compliance Status}"). With other text beside
+      // it ("{Compliance Status} Report Delivered") only the text is filled and the background is left alone.
+      const scope = (cell as Element | null) ?? para;
+      const standsAlone = !this.getElementText(scope)
+        .replace(new RegExp(this.PLACEHOLDER_RE), (m, name: string) => (NAME_RE.test(name.trim()) ? '' : m))
+        .trim();
+      this.replacePlaceholdersInParagraph(para, resolver);
+      if (!look || !standsAlone) continue;
+      if (cell) this.setCellShading(cell as Element, look.fill);
+      else this.setParagraphShading(para, look.fill);
+    }
+  }
+
+  /** Paragraph background, placed where the schema wants <w:shd> inside <w:pPr>. */
+  private setParagraphShading(para: Element, hexColor: string): void {
+    const doc = para.ownerDocument;
+    let pPr = this.getFirstChildByTagName(para, 'pPr');
+    if (!pPr) {
+      pPr = doc.createElementNS(this.W_NS, 'w:pPr');
+      para.insertBefore(pPr, para.firstChild);
+    }
+    for (const old of Array.from(pPr.getElementsByTagNameNS(this.W_NS, 'shd')) as Element[]) {
+      if (old.parentNode === pPr) pPr.removeChild(old);
+    }
+    const shd = doc.createElementNS(this.W_NS, 'w:shd');
+    shd.setAttributeNS(this.W_NS, 'w:val', 'clear');
+    shd.setAttributeNS(this.W_NS, 'w:color', 'auto');
+    shd.setAttributeNS(this.W_NS, 'w:fill', hexColor);
+    const after = ['tabs', 'suppressAutoHyphens', 'kinsoku', 'wordWrap', 'overflowPunct', 'topLinePunct', 'autoSpaceDE', 'autoSpaceDN', 'bidi', 'adjustRightInd', 'snapToGrid', 'spacing', 'ind', 'contextualSpacing', 'mirrorIndents', 'suppressOverlap', 'jc', 'textDirection', 'textAlignment', 'textboxTightWrap', 'outlineLvl', 'divId', 'cnfStyle', 'rPr', 'sectPr', 'pPrChange'];
+    const next = Array.from(pPr.childNodes as any as Node[]).find((c) => c.nodeType === 1 && after.includes((c as Element).localName));
+    pPr.insertBefore(shd, next ?? null);
   }
 
   /**
@@ -709,11 +956,17 @@ export class DocxManipulatorService {
   /** Direct <w:r> children of a paragraph with each run's text and its [start,end) offset in the paragraph's concatenated text. */
   private getParagraphRunSpans(para: Element): { run: Element; text: string; start: number; end: number }[] {
     const runs: Element[] = [];
-    for (let i = 0; i < para.childNodes.length; i++) {
-      const child = para.childNodes.item(i);
-      const localName = (child as any).localName || (child as Element).tagName;
-      if (localName === 'r' || localName === 'w:r') runs.push(child as Element);
-    }
+    // Runs may sit directly in the paragraph or inside a hyperlink / tracked insertion / smart tag / content control.
+    const WRAPPERS = ['hyperlink', 'ins', 'smartTag', 'sdt', 'sdtContent', 'customXml'];
+    const collect = (parent: Element) => {
+      for (let i = 0; i < parent.childNodes.length; i++) {
+        const child = parent.childNodes.item(i) as Element;
+        const localName = (child as any).localName || child.tagName;
+        if (localName === 'r' || localName === 'w:r') runs.push(child);
+        else if (WRAPPERS.includes(localName)) collect(child);
+      }
+    };
+    collect(para);
     let offset = 0;
     return runs.map((run) => {
       const text = this.getRunText(run);

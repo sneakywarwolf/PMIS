@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FolderKanban, Plus, Search, FileText, Edit, AlertTriangle, X, Loader2, CheckCircle, Eye, LayoutGrid, Table2, Trash2 } from 'lucide-react';
 import { toDateInputValue, formatDate } from '@/lib/datetime';
 import { api, useAuth } from '@/contexts/auth-context';
+import { NetworkLimitationCaution } from '@/components/network-limitation-caution';
 import { triggerDownload } from '@/lib/download';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
@@ -35,6 +36,9 @@ interface Project {
   endDate?: string;
   appVersion?: string;
   location?: string;
+  clientSpocName?: string;
+  clientSpocDesignation?: string;
+  clientSpocEmail?: string;
   documentVersion?: string;
   toolsUsed?: string;
   testingEnvironment?: string;
@@ -45,6 +49,7 @@ interface Project {
   applicationNature?: string;
   testingLimitation?: string;
   complianceType?: string;
+  complianceStatus?: string | null;
   category?: string;
   subType?: string;
   template?: { id: string; name: string } | null;
@@ -341,7 +346,7 @@ function ProjectsPageContent() {
                   </button>
                   <button
                     onClick={() => handleGenerateReport(project.id)}
-                    disabled={generatingReport === project.id}
+                    disabled={generatingReport === project.id || ((project._count?.findings ?? 0) === 0 && project.complianceStatus !== 'Compliant')}
                     className="flex items-center justify-center gap-2 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-medium transition-all disabled:opacity-50"
                   >
                     {generatingReport === project.id ? (
@@ -446,9 +451,9 @@ function ProjectsPageContent() {
                         </button>
                         <button
                           onClick={() => handleGenerateReport(project.id)}
-                          disabled={generatingReport === project.id}
+                          disabled={generatingReport === project.id || ((project._count?.findings ?? 0) === 0 && project.complianceStatus !== 'Compliant')}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all disabled:opacity-50"
-                          title="Report"
+                          title={(project._count?.findings ?? 0) > 0 || project.complianceStatus === 'Compliant' ? 'Report' : 'Add findings, or set the project status to Compliant, before generating a report.'}
                         >
                           {generatingReport === project.id ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -514,6 +519,9 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
     endDate: project.endDate ? toDateInputValue(project.endDate) : '',
     appVersion: project.appVersion || '',
     location: project.location || '',
+    clientSpocName: project.clientSpocName || '',
+    clientSpocDesignation: project.clientSpocDesignation || '',
+    clientSpocEmail: project.clientSpocEmail || '',
     documentVersion: project.documentVersion || '',
     toolsUsed: project.toolsUsed || '',
     testingEnvironment: project.testingEnvironment || '',
@@ -559,7 +567,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
     }
   };
 
-  const inputCls = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
+  const inputCls = 'w-full min-w-0 px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
   const labelCls = 'block text-xs text-gray-400 mb-1';
 
   return (
@@ -567,7 +575,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+        className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-5xl max-h-[92vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between p-6 border-b border-gray-700 sticky top-0 bg-gray-900 z-10">
           <h2 className="text-lg font-semibold text-white">Edit Project</h2>
@@ -594,6 +602,22 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
               <label className={labelCls}>Location</label>
               <input type="text" value={form.location} onChange={(e) => set('location', e.target.value)} className={inputCls} />
             </div>
+            {form.complianceType === 'CERT_IN' && (
+              <>
+            <div>
+              <label className={labelCls}>Client SPOC Name</label>
+              <input type="text" value={form.clientSpocName} onChange={(e) => set('clientSpocName', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Designation</label>
+              <input type="text" value={form.clientSpocDesignation} onChange={(e) => set('clientSpocDesignation', e.target.value)} className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Client SPOC Email ID</label>
+              <input type="email" value={form.clientSpocEmail} onChange={(e) => set('clientSpocEmail', e.target.value)} className={inputCls} />
+            </div>
+              </>
+            )}
             <div>
               <label className={labelCls}>Document Version</label>
               <input type="text" value={form.documentVersion} onChange={(e) => set('documentVersion', e.target.value)} className={inputCls} placeholder="e.g. 1.0" />
@@ -669,11 +693,12 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
           </div>
           <div>
             <label className={labelCls}>Nature / Purpose of the Application</label>
-            <textarea rows={2} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={inputCls} />
+            <textarea rows={8} value={form.applicationNature} onChange={(e) => set('applicationNature', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} />
           </div>
           <div>
             <label className={labelCls}>Testing Limitation</label>
-            <textarea rows={2} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={inputCls} placeholder="Leave empty for N/A" />
+            <textarea rows={8} value={form.testingLimitation} onChange={(e) => set('testingLimitation', e.target.value)} className={`${inputCls} min-h-[10rem] max-h-[60vh] resize-y`} placeholder="Leave empty for N/A" />
+            {project?.subType === 'NETWORK' && <NetworkLimitationCaution />}
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">

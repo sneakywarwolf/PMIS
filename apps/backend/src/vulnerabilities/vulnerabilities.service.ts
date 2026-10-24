@@ -6,6 +6,9 @@ import { AuditService } from '../audit/audit.service';
 import { UserRole, VulnerabilityStatus, NotificationType } from '@prisma/client';
 import { validateExactCsvHeaders, parseCsv } from '../common/csv-validation.util';
 
+/** Duplicate check key: case, leading/trailing and repeated spaces don't make a name different. */
+export const normalizeVulnName = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+
 @Injectable()
 export class VulnerabilitiesService {
   constructor(
@@ -535,9 +538,19 @@ export class VulnerabilitiesService {
     return `${headers}\n${sampleRow}\n`;
   }
 
-  async bulkUpload(csvContent: string, category: string, adminId: string, ipAddress: string, userAgent: string) {
+  /**
+   * REPLACE (default): the category's database is replaced by the file, as always.
+   * MERGE: the category's current entries stay; the file's new names are added. A name that appears more than
+   * once in the file, or that the category already has, is a conflict the admin resolves: `resolutions` maps the
+   * name (trimmed, whitespace-collapsed, lower-cased) to the file row number to keep, or 0 to keep the existing
+   * entry. Unresolved conflicts reject the upload, listing the competing versions, before anything is written.
+   */
+  async bulkUpload(csvContent: string, category: string, adminId: string, ipAddress: string, userAgent: string, resolutions: Record<string, number> = {}, mode: 'REPLACE' | 'MERGE' = 'REPLACE') {
     if (category !== 'APPLICATION_API' && category !== 'NETWORK') {
       throw new BadRequestException('category must be APPLICATION_API or NETWORK.');
+    }
+    if (mode !== 'REPLACE' && mode !== 'MERGE') {
+      throw new BadRequestException('mode must be REPLACE or MERGE.');
     }
 
     const allRows = parseCsv(csvContent.trim());
@@ -592,6 +605,7 @@ export class VulnerabilitiesService {
       const cvssScore = cvssRaw ? parseFloat(cvssRaw) : null;
 
       rows.push({
+        sourceRow: i + 1,
         name,
         severity,
         cvssScore: cvssScore && !isNaN(cvssScore) ? cvssScore : null,
@@ -612,30 +626,85 @@ export class VulnerabilitiesService {
       throw new BadRequestException('No valid data rows found in CSV.');
     }
 
-    // Transaction: soft-delete existing entries IN THIS CATEGORY ONLY, then
-    // insert the new ones — scoping this to `category` is what keeps an
-    // upload of one category from wiping out the other's data.
-    await this.prisma.$transaction(async (tx) => {
-      await tx.vulnerability.updateMany({
-        where: { category: category as any },
-        data: { isActive: false },
-      });
-      await tx.vulnerability.createMany({
-        data: rows,
-      });
+    const stripRow = ({ sourceRow, ...data }: any) => data;
+    const version = ({ sourceRow, id, severity, cvssScore, cvssVector, cveId, cweId, description, impact, remediation, references }: any) => ({
+      row: sourceRow ?? null, severity, cvssScore, cvssVector, cveId, cweId, description, impact, remediation, references,
     });
 
-    // Audit log
+    // REPLACE: the file replaces the whole category, as it always has.
+    if (mode === 'REPLACE') {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.vulnerability.updateMany({ where: { category: category as any }, data: { isActive: false } });
+        await tx.vulnerability.createMany({ data: rows.map(stripRow) });
+      });
+      await this.auditService.log({
+        actorId: adminId,
+        action: 'ADMIN_OVERRIDE',
+        targetType: 'VULNERABILITY',
+        ipAddress,
+        userAgent,
+        details: { action: 'bulk_upload', mode, count: rows.length, category },
+      });
+      return {
+        message: `Successfully uploaded ${rows.length} vulnerabilities. The existing ${category.replace('_', '/')} database has been replaced.`,
+        count: rows.length,
+      };
+    }
+
+    // MERGE: current entries stay. A name repeated in the file, or already in this category, is a conflict
+    // the admin resolves (a file row number to keep, or 0 to keep the existing entry).
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.vulnerability.findMany({ where: { category: category as any, isActive: true } });
+      const existingByKey = new Map<string, any[]>();
+      for (const e of existing) existingByKey.set(normalizeVulnName(e.name), [...(existingByKey.get(normalizeVulnName(e.name)) ?? []), e]);
+      const groups = new Map<string, any[]>();
+      for (const r of rows) groups.set(normalizeVulnName(r.name), [...(groups.get(normalizeVulnName(r.name)) ?? []), r]);
+
+      const valid = (key: string, g: any[]) => g.some((r) => r.sourceRow === resolutions[key]) || (resolutions[key] === 0 && existingByKey.has(key));
+      const conflicts = [...groups.entries()].filter(([key, g]) => (g.length > 1 || existingByKey.has(key)) && !valid(key, g));
+      if (conflicts.length > 0) {
+        throw new BadRequestException({
+          message: `${conflicts.length} vulnerability name${conflicts.length === 1 ? ' appears' : 's appear'} more than once (in the file or already in the database). Choose which version to keep for each; nothing has been uploaded.`,
+          duplicates: conflicts.map(([key, g]) => ({
+            key,
+            name: g[0].name,
+            existing: (existingByKey.get(key) ?? []).slice(0, 1).map(version)[0] ?? null,
+            rows: g.map(version),
+          })),
+        });
+      }
+
+      const toInsert: any[] = [];
+      const toDeactivate: string[] = [];
+      let skipped = 0;
+      for (const [key, g] of groups) {
+        const hasExisting = existingByKey.has(key);
+        if (g.length === 1 && !hasExisting) { toInsert.push(g[0]); continue; }
+        const pick = g.find((r) => r.sourceRow === resolutions[key]);
+        skipped += g.length - (pick ? 1 : 0);
+        if (pick) {
+          toInsert.push(pick);
+          (existingByKey.get(key) ?? []).forEach((e) => toDeactivate.push(e.id));
+        }
+      }
+      if (toDeactivate.length) await tx.vulnerability.updateMany({ where: { id: { in: toDeactivate } }, data: { isActive: false } });
+      if (toInsert.length) await tx.vulnerability.createMany({ data: toInsert.map(stripRow) });
+      return { added: toInsert.length - new Set(toDeactivate).size, replaced: new Set(toDeactivate).size, skipped, total: toInsert.length };
+    });
+
     await this.auditService.log({
       actorId: adminId,
       action: 'ADMIN_OVERRIDE',
       targetType: 'VULNERABILITY',
       ipAddress,
       userAgent,
-      details: { action: 'bulk_upload', count: rows.length, category },
+      details: { action: 'bulk_upload', mode, category, ...outcome },
     });
 
-    return { message: `Successfully uploaded ${rows.length} vulnerabilities. The existing ${category.replace('_', '/')} database has been replaced.`, count: rows.length };
+    return {
+      message: `Merged into the ${category.replace('_', '/')} database: ${outcome.added} added, ${outcome.replaced} replaced, ${outcome.skipped} row${outcome.skipped === 1 ? '' : 's'} left out. Other existing entries were kept.`,
+      count: outcome.total,
+    };
   }
 
   private escapeCsv(value: string): string {

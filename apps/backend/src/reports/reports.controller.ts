@@ -24,6 +24,8 @@ export class ReportsController {
       name: string;
       category: TemplateCategory;
       subType: TemplateSubType;
+      // Additional Activity Types for the same template (JSON array or comma-separated); subType stays the primary.
+      extraSubTypes?: string;
       reportFormat?: ReportFormat;
       effectiveFrom: string;
       effectiveTo?: string;
@@ -44,6 +46,7 @@ export class ReportsController {
       ipAddress,
       userAgent,
       body.reportFormat ?? ReportFormat.WORD,
+      body.extraSubTypes,
     );
   }
 
@@ -53,8 +56,9 @@ export class ReportsController {
     @Query('category') category?: TemplateCategory,
     @Query('subType') subType?: TemplateSubType,
     @Query('reportFormat') reportFormat?: ReportFormat,
+    @Query('forProject') forProject?: string,
   ) {
-    return this.reportsService.getTemplates(category, subType, false, reportFormat);
+    return this.reportsService.getTemplates(category, subType, false, reportFormat, forProject === 'true');
   }
 
   @Get('templates/all')

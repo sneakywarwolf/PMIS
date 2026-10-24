@@ -17,9 +17,9 @@ export class UpdateController {
   }
 
   @Post('check')
-  @ApiOperation({ summary: 'Force a fresh check for a newer version (any authenticated user)' })
-  check(@CurrentUser('role') role: UserRole) {
-    return this.updates.getStatus(true, role === UserRole.ADMIN);
+  @ApiOperation({ summary: 'Force a fresh check for a newer version; when an Admin checks and one is available, the update starts right away' })
+  check(@CurrentUser('role') role: UserRole, @CurrentUser('id') userId: string) {
+    return this.updates.checkAndUpdate(role === UserRole.ADMIN, userId);
   }
 
   @Post('schedule')

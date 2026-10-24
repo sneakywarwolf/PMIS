@@ -13,6 +13,12 @@ import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
 // Roles that can lead a team (be assigned testers). Admins can act as team leads too.
 const TL_ROLES: UserRole[] = [UserRole.TEAM_LEAD, UserRole.AVP, UserRole.ADMIN];
 
+/** Phone numbers saved without a country code get +91. Blank stays blank. */
+export const withDefaultPrefix = (phone?: string | null) => {
+  const p = phone?.trim();
+  return p ? (p.startsWith('+') ? p : `+91 ${p}`) : phone;
+};
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -123,7 +129,7 @@ export class UsersService {
         passwordHash,
         role: dto.role,
         fullName: dto.fullName,
-        phone: dto.phone,
+        phone: withDefaultPrefix(dto.phone),
         designation: dto.designation,
         assignedTlId: dto.role === UserRole.TESTER ? dto.assignedTlId : null,
         managerId: dto.managerId || null,
@@ -203,7 +209,7 @@ export class UsersService {
       }
     }
     if (dto.fullName !== undefined) updateData.fullName = dto.fullName;
-    if (dto.phone !== undefined) updateData.phone = dto.phone;
+    if (dto.phone !== undefined) updateData.phone = withDefaultPrefix(dto.phone);
     if (dto.designation !== undefined) updateData.designation = dto.designation;
     if (dto.managerId !== undefined) updateData.managerId = dto.managerId || null;
     if (dto.isActive !== undefined) {
@@ -326,7 +332,7 @@ export class UsersService {
       where: { id: userId },
       data: {
         ...(dto.fullName !== undefined && { fullName: dto.fullName }),
-        ...(dto.phone !== undefined && { phone: dto.phone }),
+        ...(dto.phone !== undefined && { phone: withDefaultPrefix(dto.phone) }),
         ...(dto.designation !== undefined && { designation: dto.designation }),
       },
       select: {
@@ -615,7 +621,7 @@ export class UsersService {
             passwordHash,
             role,
             fullName,
-            phone: mobile || null,
+            phone: withDefaultPrefix(mobile) || null,
             designation: designation || null,
             assignedTlId: role === UserRole.TESTER ? assignedTlId : null,
             managerId,

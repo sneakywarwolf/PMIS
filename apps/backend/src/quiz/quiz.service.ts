@@ -46,14 +46,17 @@ export class QuizService {
     });
     if (revealing.length > 0) {
       for (const question of revealing) {
-        await this.revealQuestion(question, now);
+        // One notification per revealed question, carrying its id so a tap opens that exact reveal card.
+        // A question another run already revealed is skipped: no second scoring pass, no duplicate notification.
+        if (!(await this.revealQuestion(question, now))) continue;
+        await this.notifications.notifyAllActiveUsers({
+          type: 'QUIZ_ANSWER_REVEALED',
+          title: 'Quiz answer revealed',
+          message: "The Question of the Day's answer and explanation are now available.",
+          linkUrl: `/dashboard/quiz?reveal=${question.id}`,
+          relatedId: question.id,
+        });
       }
-      await this.notifications.notifyAllActiveUsers({
-        type: 'QUIZ_ANSWER_REVEALED',
-        title: 'Quiz answer revealed',
-        message: "The Question of the Day's answer and explanation are now available.",
-        linkUrl: '/dashboard/quiz',
-      });
     }
   }
 
@@ -63,9 +66,12 @@ export class QuizService {
    * the instant someone answers, so a user's own scorecard and the
    * leaderboard can't leak whether an unrevealed answer was correct.
    */
-  private async revealQuestion(question: { id: string; scheduledFor: Date }, revealedAt: Date) {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.quizQuestion.update({ where: { id: question.id }, data: { status: 'REVEALED', revealedAt } });
+  private async revealQuestion(question: { id: string; scheduledFor: Date }, revealedAt: Date): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      // Only the run that flips ACTIVE -> REVEALED scores the question and stamps revealedAt; a retry or an
+      // overlapping run finds it already revealed and does nothing (so the 24h window never restarts).
+      const flipped = await tx.quizQuestion.updateMany({ where: { id: question.id, status: 'ACTIVE' }, data: { status: 'REVEALED', revealedAt } });
+      if (flipped.count === 0) return false;
 
       const attempts = await tx.quizAttempt.findMany({ where: { questionId: question.id, isLate: false } });
       for (const attempt of attempts) {
@@ -126,6 +132,7 @@ export class QuizService {
           },
         });
       }
+      return true;
     });
   }
 
@@ -158,19 +165,25 @@ export class QuizService {
   }
 
   async getTodayQuestion(userId: string) {
-    const active = await this.prisma.quizQuestion.findFirst({ where: { status: 'ACTIVE' }, orderBy: { scheduledFor: 'desc' } });
-    if (active) {
-      const alreadyAnswered = await this.prisma.quizAttempt.findUnique({
-        where: { questionId_userId: { questionId: active.id, userId } },
+    // Every question still inside its 24h answer window, not just the newest: a question stays answerable
+    // until its own deadline however many others are open. The newest leads; the rest come as `others`.
+    const open = await this.prisma.quizQuestion.findMany({ where: { status: 'ACTIVE' }, orderBy: { scheduledFor: 'desc' } });
+    if (open.length > 0) {
+      const answered = await this.prisma.quizAttempt.findMany({
+        where: { userId, questionId: { in: open.map((q) => q.id) } },
+        select: { questionId: true },
       });
-      return {
-        id: active.id,
-        question: active.question,
-        options: active.options,
-        scheduledFor: active.scheduledFor,
-        status: active.status,
-        alreadyAnswered: Boolean(alreadyAnswered),
-      };
+      const answeredIds = new Set(answered.map((a) => a.questionId));
+      const view = (q: (typeof open)[number]) => ({
+        id: q.id,
+        question: q.question,
+        options: q.options,
+        scheduledFor: q.scheduledFor,
+        status: q.status,
+        alreadyAnswered: answeredIds.has(q.id),
+      });
+      const [first, ...rest] = open;
+      return { ...view(first), ...(rest.length > 0 && { others: rest.map(view) }) };
     }
 
     const recentlyRevealed = await this.prisma.quizQuestion.findFirst({
@@ -179,7 +192,33 @@ export class QuizService {
     });
     if (!recentlyRevealed) return null;
 
+    // Someone who never answered must not see the answer here; they attempt it from the Question Log first.
+    const attempted = await this.prisma.quizAttempt.findUnique({ where: { questionId_userId: { questionId: recentlyRevealed.id, userId } } });
+    if (!attempted) return null;
+
     return this.buildRevealedSummary(recentlyRevealed, userId);
+  }
+
+  /**
+   * Every question revealed within the last 24 hours (from its own persisted revealedAt), newest first, each as its
+   * own card. The correct answer and explanation are only included for a caller who has attempted that question
+   * (on time or late); otherwise the card carries the question and options so they can attempt it late.
+   */
+  async getRecentlyRevealed(userId: string) {
+    const questions = await this.prisma.quizQuestion.findMany({
+      where: { status: 'REVEALED', revealedAt: { gte: new Date(Date.now() - TWENTY_FOUR_HOURS_MS) } },
+      orderBy: { revealedAt: 'desc' },
+    });
+    if (questions.length === 0) return [];
+    const mine = await this.prisma.quizAttempt.findMany({ where: { userId, questionId: { in: questions.map((q) => q.id) } } });
+    const attemptById = new Map(mine.map((a) => [a.questionId, a]));
+    return Promise.all(
+      questions.map(async (q) => {
+        const attempt = attemptById.get(q.id);
+        if (!attempt) return { id: q.id, question: q.question, options: q.options, revealedAt: q.revealedAt, myAttempt: null };
+        return { ...(await this.buildRevealedSummary(q, userId)), myAttempt: this.myAttempt(attempt) };
+      }),
+    );
   }
 
   private async buildRevealedSummary(
@@ -220,7 +259,10 @@ export class QuizService {
       this.prisma.quizQuestion.count({ where: { status: 'REVEALED' } }),
     ]);
     if (!userId) return { items, total };
-    return { items: items.map(({ attempts, ...q }: any) => ({ ...q, myAttempt: this.myAttempt(attempts[0]) })), total };
+    return {
+      items: items.map(({ attempts, ...q }: any) => this.hideAnswerUnlessAttempted({ ...q, myAttempt: this.myAttempt(attempts[0]) })),
+      total,
+    };
   }
 
   async getLogEntry(id: string, userId?: string) {
@@ -231,7 +273,14 @@ export class QuizService {
     const summary = await this.buildRevealedSummary(question);
     if (!userId) return summary;
     const mine = await this.prisma.quizAttempt.findUnique({ where: { questionId_userId: { questionId: id, userId } } });
-    return { ...summary, myAttempt: this.myAttempt(mine) };
+    return this.hideAnswerUnlessAttempted({ ...summary, myAttempt: this.myAttempt(mine) });
+  }
+
+  /** A missed question must not leak its answer: strip it until the caller has attempted it. */
+  private hideAnswerUnlessAttempted<T extends { myAttempt: unknown }>(entry: T) {
+    if (entry.myAttempt) return entry;
+    const { correctIndex, explanation, ...rest } = entry as T & { correctIndex?: number; explanation?: string };
+    return rest;
   }
 
   /**

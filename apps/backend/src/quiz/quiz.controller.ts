@@ -16,6 +16,11 @@ export class QuizController {
     return this.quiz.getTodayQuestion(userId);
   }
 
+  @Get('revealed')
+  getRecentlyRevealed(@CurrentUser('id') userId: string) {
+    return this.quiz.getRecentlyRevealed(userId);
+  }
+
   @Post('today/answer')
   answerToday(@CurrentUser('id') userId: string, @Body() dto: AnswerQuizQuestionDto) {
     return this.quiz.submitAnswer(userId, dto.questionId, dto.selectedOption);

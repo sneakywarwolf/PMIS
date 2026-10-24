@@ -32,6 +32,20 @@ const subTypeLabels: any = {
   APPLICATION: 'Application',
 };
 
+// Category display name: the stored value, except Cert-In which reads better than CERT_IN.
+const categoryLabel = (c: string) => (c === 'CERT_IN' ? 'Cert-In' : c);
+
+// Activity Types a template can be uploaded for, per category (the same two lists the upload form always offered).
+const activityTypesFor = (category: string): string[] =>
+  category === 'CERT_IN'
+    ? ['APPLICATION', 'NETWORK']
+    : category === 'PCI' || category === 'VAPT'
+      ? ['WEB', 'API', 'MOBILE', 'THICK_CLIENT', 'NETWORK']
+      : ['WEB', 'API', 'MOBILE', 'THICK_CLIENT', 'NETWORK', 'APPLICATION'];
+
+// Every Activity Type a template serves: its primary one plus any extras.
+const templateSubTypes = (t: any): string[] => [t.subType, ...(t.extraSubTypes ?? [])];
+
 export default function ReportsPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('generate');
@@ -412,10 +426,15 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
   const [savingField, setSavingField] = useState(false);
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
 
   useEffect(() => {
     fetchTemplates();
   }, []);
+
+  // Categories come from the templates themselves, so a new category appears without touching this list.
+  const categories = Array.from(new Set(templates.map((t) => t.category as string)));
+  const visibleTemplates = categoryFilter === 'ALL' ? templates : templates.filter((t) => t.category === categoryFilter);
 
   const fetchTemplates = async () => {
     try {
@@ -525,8 +544,30 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <div className="space-y-4">
+      {categories.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Filter templates by category">
+          {['ALL', ...categories].map((key) => {
+            const count = key === 'ALL' ? templates.length : templates.filter((t) => t.category === key).length;
+            return (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={categoryFilter === key}
+                onClick={() => setCategoryFilter(key)}
+                className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
+                  categoryFilter === key
+                    ? 'bg-emerald-600/20 text-emerald-400 border-emerald-500/30'
+                    : 'bg-gray-800/50 text-gray-400 border-gray-700 hover:text-white'
+                }`}
+              >
+                {key === 'ALL' ? 'All Categories' : categoryLabel(key)} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {templates.map((template) => {
+        {visibleTemplates.map((template) => {
           const Icon = subTypeIcons[template.subType] || FileText;
           return (
             <div
@@ -542,7 +583,9 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
                 <p className="font-medium text-white">{template.name}</p>
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <span className="px-2 py-0.5 rounded-full text-xs bg-blue-500/10 text-blue-400">{template.category}</span>
-                  <span className="px-2 py-0.5 rounded-full text-xs bg-violet-500/10 text-violet-400">{subTypeLabels[template.subType] || template.subType}</span>
+                  {templateSubTypes(template).map((st) => (
+                    <span key={st} className="px-2 py-0.5 rounded-full text-xs bg-violet-500/10 text-violet-400">{subTypeLabels[st] || st}</span>
+                  ))}
                   <span className="px-2 py-0.5 rounded-full text-xs bg-amber-500/10 text-amber-400">{template.reportFormat === 'EXCEL' ? 'Excel Report' : 'Word Report'}</span>
                   <span className={`px-2 py-0.5 rounded-full text-xs ${
                     template.isActive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-600/30 text-gray-400'
@@ -587,6 +630,9 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
 
       {templates.length === 0 && (
         <p className="text-gray-500 text-sm py-8 text-center">No templates uploaded yet</p>
+      )}
+      {templates.length > 0 && visibleTemplates.length === 0 && (
+        <p className="text-gray-500 text-sm py-8 text-center">No templates available in {categoryLabel(categoryFilter)}</p>
       )}
 
       {selectedTemplate && (
@@ -724,7 +770,8 @@ function TemplateUploader() {
   const [formData, setFormData] = useState({
     name: '',
     category: 'VAPT',
-    subType: 'WEB',
+    // Activity Types for this template; the first is the primary one (sent as subType), the rest as extras.
+    subTypes: ['WEB'] as string[],
     reportFormat: 'WORD',
     effectiveFrom: toDateInputValue(new Date()),
   });
@@ -732,6 +779,10 @@ function TemplateUploader() {
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) return;
+    if (formData.subTypes.length === 0) {
+      toast('Select at least one Activity Type.', 'error');
+      return;
+    }
 
     const wantedExt = formData.reportFormat === 'EXCEL' ? '.xlsx' : '.docx';
     if (!file.name.toLowerCase().endsWith(wantedExt)) {
@@ -743,7 +794,8 @@ function TemplateUploader() {
     data.append('file', file);
     data.append('name', formData.name);
     data.append('category', formData.category);
-    data.append('subType', formData.subType);
+    data.append('subType', formData.subTypes[0]);
+    data.append('extraSubTypes', JSON.stringify(formData.subTypes.slice(1)));
     data.append('reportFormat', formData.reportFormat);
     data.append('effectiveFrom', formData.effectiveFrom);
 
@@ -799,39 +851,48 @@ function TemplateUploader() {
                 value={formData.category}
                 onChange={(e) => {
                   const category = e.target.value;
-                  const subType = category === 'CERT_IN' ? 'APPLICATION' : 'WEB';
-                  setFormData({ ...formData, category, subType });
+                  setFormData({ ...formData, category, subTypes: [category === 'CERT_IN' ? 'APPLICATION' : 'WEB'] });
                 }}
                 className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700"
               >
                 <option value="PCI">PCI</option>
                 <option value="VAPT">VAPT</option>
-                <option value="CERT_IN">Cert-In</option>
+                <option value="CERT_IN">{categoryLabel('CERT_IN')}</option>
               </select>
             </div>
             <div>
-              <label className="block text-sm text-gray-300 mb-1">Activity Type</label>
-              <select
-                value={formData.subType}
-                onChange={(e) => setFormData({ ...formData, subType: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700"
-              >
-                {formData.category === 'CERT_IN' ? (
-                  <>
-                    <option value="APPLICATION">Application</option>
-                    <option value="NETWORK">Network</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="WEB">Web</option>
-                    <option value="API">API</option>
-                    <option value="MOBILE">Mobile</option>
-                    <option value="THICK_CLIENT">Thick Client</option>
-                    <option value="NETWORK">Network</option>
-                    <option value="APPLICATION">Application</option>
-                  </>
-                )}
-              </select>
+              <label className="block text-sm text-gray-300 mb-1" id="activity-types-label">Activity Type</label>
+              <details className="group relative">
+                <summary
+                  aria-labelledby="activity-types-label"
+                  className="flex items-center justify-between cursor-pointer list-none px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 text-sm"
+                >
+                  <span className={formData.subTypes.length ? '' : 'text-gray-500'}>
+                    {formData.subTypes.length ? formData.subTypes.map((st) => subTypeLabels[st] || st).join(', ') : 'Select Activity Types'}
+                  </span>
+                  <span className="ml-2 text-gray-400 text-xs transition-transform group-open:rotate-180">▼</span>
+                </summary>
+                <div className="absolute z-20 mt-1 w-full rounded-lg bg-gray-900 border border-gray-700 shadow-lg p-1">
+                  {activityTypesFor(formData.category).map((st) => (
+                    <label key={st} className="flex items-center gap-2 px-2 py-1.5 rounded text-sm text-gray-300 hover:bg-gray-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.subTypes.includes(st)}
+                        onChange={() =>
+                          setFormData({
+                            ...formData,
+                            subTypes: formData.subTypes.includes(st) ? formData.subTypes.filter((x) => x !== st) : [...formData.subTypes, st],
+                          })
+                        }
+                      />
+                      {subTypeLabels[st] || st}
+                    </label>
+                  ))}
+                </div>
+              </details>
+              <p className="mt-1 text-xs text-gray-500">
+                {formData.subTypes.length === 0 ? 'Select at least one.' : `${formData.subTypes.length} selected`}
+              </p>
             </div>
           </div>
           <div>

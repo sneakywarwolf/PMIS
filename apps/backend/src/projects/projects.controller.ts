@@ -7,6 +7,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
 import { User, UserRole } from '@prisma/client';
+import { parseNetworkScopeFile } from '../common/network-scope-import.util';
 
 @ApiTags('Projects')
 @Controller('projects')
@@ -83,6 +84,24 @@ export class ProjectsController {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
     return this.projectsService.remove(id, adminId, ipAddress, userAgent);
+  }
+
+  // Stateless: validates and returns rows; the caller adds them to its scope table and saves with the project as usual.
+  @Post('network-scope/parse')
+  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Parse a Network Scope import file (.txt, .csv, .xlsx)' })
+  async parseNetworkScope(@UploadedFile() file: Express.Multer.File, @Body('existing') existing?: string) {
+    let current: any[] = [];
+    try {
+      current = existing ? JSON.parse(existing) : [];
+    } catch {
+      // unreadable "existing" just means no rows to de-duplicate against
+    }
+    const rows = (Array.isArray(current) ? current : [])
+      .filter((r) => r && typeof r.ip === 'string')
+      .map((r) => ({ ip: r.ip, domainHostname: String(r.domainHostname ?? ''), purpose: '' }));
+    return parseNetworkScopeFile(file, rows);
   }
 
   @Post(':id/nmap-import')

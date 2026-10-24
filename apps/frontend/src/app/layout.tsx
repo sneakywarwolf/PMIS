@@ -11,7 +11,7 @@ import { ConfirmProvider } from '@/components/confirm-provider';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'STT',
+  title: 'PMIS - Project Management for Information Security',
   description: 'Security Testing Tool — by a Lazy Tester For Lazy Testers',
 };
 

@@ -293,3 +293,217 @@ describe('Network Word report: {VA Output} and VA text cleanup', () => {
     expect(new DocxManipulatorService().resolveFindingParameter('va_output', va('V', null))).toBe('');
   });
 });
+
+describe('{#VA}/{#PT} activity blocks', () => {
+  const p = (t: string) => `<w:p><w:r><w:t>${t}</w:t></w:r></w:p>`;
+  const body = [p('intro'), p('{#VA}'), p('va-text'), tbl(row('va-table', 'x')), p('{/VA}'), p('{#PT}'), p('pt-text'), p('{/PT}'), p('outro')].join('');
+
+  const run = async (activityType?: string | null) => {
+    const svc = new DocxManipulatorService();
+    const out = await svc.generateReport(await docxWith(body), [], [], [], undefined, undefined, [], [], [], undefined, { activityType });
+    return (await JSZip.loadAsync(out)).file('word/document.xml').async('text') as Promise<string>;
+  };
+
+  it.each([
+    ['VA', ['va-text', 'va-table'], ['pt-text']],
+    ['PT', ['pt-text'], ['va-text', 'va-table']],
+    ['VAPT', ['va-text', 'va-table', 'pt-text'], []],
+    [undefined, ['va-text', 'va-table', 'pt-text'], []],
+  ])('%s keeps %j and drops %j, never leaving markers', async (activity, kept, dropped) => {
+    const xml = await run(activity);
+    for (const k of kept) expect(xml).toContain(k);
+    for (const d of dropped) expect(xml).not.toContain(d);
+    expect(xml).toContain('intro');
+    expect(xml).toContain('outro');
+    expect(xml).not.toMatch(/\{[#/](VA|PT)\}/);
+  });
+
+  it('does not report markers as template fields', async () => {
+    const fields = await new DocxManipulatorService().extractPlaceholderFields(await docxWith(body));
+    expect(fields).toEqual([]);
+  });
+});
+
+describe('{#VA}/{#PT} blocks keep formatting, breaks and spacing', () => {
+  const SECT = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440"/></w:sectPr>';
+  const para = (t: string) => `<w:p><w:r><w:t>${t}</w:t></w:r></w:p>`;
+  const fmt = (t: string) =>
+    `<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:jc w:val="center"/><w:spacing w:before="240"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Calibri"/><w:b/><w:color w:val="FF0000"/><w:sz w:val="32"/></w:rPr><w:t>${t}</w:t></w:r></w:p>`;
+  const blank = '<w:p/>';
+  const pageBreak = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+  const sectBreak = `<w:p><w:pPr>${SECT}</w:pPr></w:p>`;
+  const M = (m: string) => para(m);
+
+  const run = async (body: string, activityType?: string | null) => {
+    const svc = new DocxManipulatorService();
+    const out = await svc.generateReport(await docxWith(body), [], [], [], undefined, undefined, [], [], [], undefined, { activityType });
+    return (await JSZip.loadAsync(out)).file('word/document.xml').async('text') as Promise<string>;
+  };
+  /** Top-level body children as a readable list: text, [blank], [pagebreak], [table]; "[sect]" is appended when a section break is attached. */
+  const outline = (xml: string) => {
+    const body = new DOMParser().parseFromString(xml, 'text/xml').getElementsByTagNameNS(W, 'body').item(0)!;
+    return (Array.from(body.childNodes as any as Element[]).filter((n) => n.nodeType === 1)).map((n) => {
+      if (n.localName === 'tbl') return '[table]';
+      const text = Array.from(n.getElementsByTagNameNS(W, 't') as any as Element[]).map((t) => t.textContent).join('');
+      const kind = text || (n.getElementsByTagNameNS(W, 'br').length ? '[pagebreak]' : '[blank]');
+      return kind + (n.getElementsByTagNameNS(W, 'sectPr').length ? '[sect]' : '');
+    });
+  };
+
+  const layout = [
+    para('intro'), blank,
+    M('{#VA}'), fmt('va-heading'), tbl(row('va-cell', 'x')), pageBreak, para('va-end'), M('{/VA}'),
+    blank,
+    M('{#PT}'), fmt('pt-heading'), para('pt-end'), M('{/PT}'),
+    blank, para('outro'),
+  ].join('');
+
+  const both = ['intro', '[blank]', 'va-heading', '[table]', '[pagebreak]', 'va-end', '[blank]', 'pt-heading', 'pt-end', '[blank]', 'outro'];
+  it.each([
+    ['VA', ['intro', '[blank]', 'va-heading', '[table]', '[pagebreak]', 'va-end', '[blank]', 'outro']],
+    ['PT', ['intro', '[blank]', 'pt-heading', 'pt-end', '[blank]', 'outro']],
+    ['VAPT', both],
+    [undefined, both],
+  ])('%s: exact structure, no leftover gaps, no markers', async (activity, expected) => {
+    expect(outline(await run(layout, activity as string | undefined))).toEqual(expected);
+  });
+
+  it('kept content keeps its run and paragraph formatting untouched', async () => {
+    const xml = await run(layout, 'VAPT');
+    expect(xml).toContain('<w:rFonts w:ascii="Calibri"/><w:b/><w:color w:val="FF0000"/><w:sz w:val="32"/>');
+    expect(xml).toContain('<w:pStyle w:val="Heading1"/><w:jc w:val="center"/><w:spacing w:before="240"/>');
+    expect(xml).not.toMatch(/\{[#/](VA|PT)\}/);
+  });
+
+  it('a page break inside an excluded block goes with it; one in kept content stays', async () => {
+    expect(outline(await run(layout, 'PT'))).not.toContain('[pagebreak]');
+    expect(outline(await run(layout, 'VA'))).toContain('[pagebreak]');
+  });
+
+  it('a break that removal makes adjacent to another is collapsed, so no blank page appears', async () => {
+    const body = [para('a'), pageBreak, M('{#VA}'), para('va'), M('{/VA}'), pageBreak, para('b')].join('');
+    expect(outline(await run(body, 'PT'))).toEqual(['a', '[pagebreak]', 'b']);
+    expect(outline(await run(body, 'VA'))).toEqual(['a', '[pagebreak]', 'va', '[pagebreak]', 'b']);
+  });
+
+  it('a break that was already adjacent in the template, outside any block, is left alone', async () => {
+    const body = [para('a'), pageBreak, pageBreak, M('{#VA}'), para('va'), M('{/VA}'), para('b')].join('');
+    expect(outline(await run(body, 'PT'))).toEqual(['a', '[pagebreak]', '[pagebreak]', 'b']);
+  });
+
+  it('a section break closing an excluded block moves to the paragraph before it, so the retained section keeps its settings', async () => {
+    const body = [para('keep'), M('{#VA}'), para('va'), sectBreak, M('{/VA}'), para('next')].join('');
+    const xml = await run(body, 'PT');
+    expect(outline(xml)).toEqual(['keep[sect]', 'next']);
+    expect(xml).toContain('<w:pgSz w:w="12240" w:h="15840"/>');
+  });
+
+  it('a section break that only belonged to excluded content is dropped; kept ones stay in place', async () => {
+    const body = [para('keep'), sectBreak, M('{#VA}'), para('va'), sectBreak, M('{/VA}'), para('next')].join('');
+    expect(outline(await run(body, 'PT'))).toEqual(['keep', '[blank][sect]', 'next']);
+    expect(outline(await run(body, 'VA'))).toEqual(['keep', '[blank][sect]', 'va', '[blank][sect]', 'next']);
+  });
+
+  it('a marker paragraph that also holds a page break keeps the break when the block is kept, loses it with the block', async () => {
+    const markerWithBreak = '<w:p><w:r><w:t>{#VA}</w:t></w:r><w:r><w:br w:type="page"/></w:r></w:p>';
+    const body = [para('a'), markerWithBreak, para('va'), M('{/VA}'), para('b')].join('');
+    expect(outline(await run(body, 'VA'))).toEqual(['a', '[pagebreak]', 'va', 'b']);
+    expect(outline(await run(body, 'PT'))).toEqual(['a', 'b']);
+  });
+
+  it('blank paragraphs that are part of retained content are never removed', async () => {
+    const body = [para('a'), blank, blank, M('{#VA}'), para('va'), M('{/VA}'), para('b'), blank, para('c')].join('');
+    expect(outline(await run(body, 'PT'))).toEqual(['a', '[blank]', '[blank]', 'b', '[blank]', 'c']);
+  });
+
+  it('a template without markers is unchanged', async () => {
+    const body = [para('a'), blank, blank, pageBreak, pageBreak, fmt('h'), tbl(row('x', 'y'))].join('');
+    for (const activity of ['VA', 'PT', 'VAPT', undefined]) {
+      expect(outline(await run(body, activity as string | undefined))).toEqual(['a', '[blank]', '[blank]', '[pagebreak]', '[pagebreak]', 'h', '[table]']);
+    }
+  });
+});
+
+describe('{Project Status} placeholder text and background', () => {
+  const run = async (body: string, complianceStatus?: string | null) => {
+    const svc = new DocxManipulatorService();
+    const out = await svc.generateReport(await docxWith(body), [], [], [], undefined, undefined, [], [], [], undefined, { complianceStatus });
+    return (await JSZip.loadAsync(out)).file('word/document.xml').async('text') as Promise<string>;
+  };
+  const para = (t: string) => `<w:p><w:r><w:t>${t}</w:t></w:r></w:p>`;
+  const cellWithShade = (t: string) => `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/><w:shd w:val="clear" w:color="auto" w:fill="DDDDDD"/></w:tcPr>${para(t)}</w:tc>`;
+  const tableBody = `<w:tbl><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid><w:tr><w:tc>${para('Status')}</w:tc>${cellWithShade('{Project Status}')}</w:tr></w:tbl>`;
+
+  it.each([
+    ['Compliant', 'Compliant', '92D050'],
+    ['Non-Compliant', 'Non-Compliant', 'FF0000'],
+    ['non-compliant', 'Non-Compliant', 'FF0000'],
+  ])('%s: prints %s with background %s on the cell holding it', async (status, text, fill) => {
+    const xml = await run(tableBody, status);
+    expect(xml).toContain(`<w:t>${text}</w:t>`);
+    expect(xml).not.toContain('{Project Status}');
+    expect(xml).toContain(`w:fill="${fill}"`);
+    expect(xml).not.toContain('w:fill="DDDDDD"'); // the template's grey is replaced, not stacked
+  });
+
+  it.each(['In-Progress', 'In Progress', null, undefined, 'something else'])('%s: empty text and the template background untouched', async (status) => {
+    const xml = await run(tableBody, status as string | null | undefined);
+    expect(xml).not.toContain('{Project Status}');
+    expect(xml).toContain('w:fill="DDDDDD"');
+    expect(xml).not.toMatch(/w:fill="(92D050|FF0000)"/);
+  });
+
+  it('{Compliance Status} is the same placeholder; on its own outside a table the paragraph is shaded, with other text it is not', async () => {
+    const alone = await run(para('{Compliance Status}'), 'Compliant');
+    expect(alone).toContain('<w:t>Compliant</w:t>');
+    expect(alone).toMatch(/<w:pPr><w:shd [^>]*w:fill="92D050"/);
+    const withText = await run(para('Result: {Compliance Status}'), 'Compliant');
+    expect(withText).toContain('Result: Compliant');
+    expect(withText).not.toContain('w:fill=');
+  });
+
+  it('paragraph shading goes before spacing/justification in an existing pPr, and a second status in the document is handled too', async () => {
+    const body = `<w:p><w:pPr><w:spacing w:before="120"/><w:jc w:val="center"/></w:pPr><w:r><w:t>{Project Status}</w:t></w:r></w:p>` + tableBody;
+    const xml = await run(body, 'Non-Compliant');
+    expect(xml).toMatch(/<w:pPr><w:shd [^>]*w:fill="FF0000"[^>]*\/><w:spacing/);
+    expect((xml.match(/w:fill="FF0000"/g) || []).length).toBe(2);
+  });
+
+  it.each(['Compliant', 'Non-Compliant'])('%s: with other text beside it ("{Compliance Status} Report Delivered") only the text is filled, the background is left alone', async (status) => {
+    const body = `<w:tbl><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid><w:tr>${cellWithShade('{Compliance Status} Report Delivered')}<w:tc>${para('{Project Status}')}</w:tc></w:tr></w:tbl>`;
+    const xml = await run(body, status);
+    expect(xml).toContain(`${status} Report Delivered`);
+    expect(xml).toContain('w:fill="DDDDDD"'); // that cell keeps the template's background
+    expect((xml.match(/w:fill="(92D050|FF0000)"/g) || []).length).toBe(1); // only the stand-alone placeholder's cell is coloured
+  });
+
+  it('another placeholder in the cell counts as other content, so no background', async () => {
+    const body = `<w:tbl><w:tblGrid><w:gridCol w:w="2000"/></w:tblGrid><w:tr>${cellWithShade('{Project Status} {Client Name}')}</w:tr></w:tbl>`;
+    const xml = await run(body, 'Compliant');
+    expect(xml).toContain('w:fill="DDDDDD"');
+    expect(xml).not.toMatch(/w:fill="(92D050|FF0000)"/);
+  });
+
+  it('a template without the placeholder is unchanged whatever the status', async () => {
+    const body = tableBody.replace('{Project Status}', 'plain');
+    for (const status of ['Compliant', 'Non-Compliant', 'In-Progress']) {
+      const xml = await run(body, status);
+      expect(xml).toContain('w:fill="DDDDDD"');
+      expect(xml).toContain('plain');
+    }
+  });
+  it('fills the placeholder in a header/footer and inside a hyperlink / content control', async () => {
+    const zip = await JSZip.loadAsync(await docxWith(
+      `<w:p><w:hyperlink><w:r><w:t>{Compliance </w:t></w:r><w:r><w:t>Status}</w:t></w:r></w:hyperlink></w:p>` +
+      `<w:p><w:sdt><w:sdtContent><w:r><w:t>{Project Status}</w:t></w:r></w:sdtContent></w:sdt></w:p>`));
+    zip.file('word/header1.xml', `<w:hdr xmlns:w="${W}">${para('Status: {Compliance Status}')}</w:hdr>`);
+    zip.file('word/footer2.xml', `<w:ftr xmlns:w="${W}">${para('no placeholder')}</w:ftr>`);
+    const out = await JSZip.loadAsync(await new DocxManipulatorService().generateReport(
+      await zip.generateAsync({ type: 'nodebuffer' }), [], [], [], undefined, undefined, [], [], [], undefined, { complianceStatus: 'Compliant' }));
+    const doc = await out.file('word/document.xml').async('text');
+    expect(doc).not.toMatch(/\{(Compliance|Project)/);
+    expect(doc.match(/Compliant/g)).toHaveLength(2);
+    expect(await out.file('word/header1.xml').async('text')).toContain('Status: Compliant');
+    expect(await out.file('word/footer2.xml').async('text')).toContain('no placeholder');
+  });
+});

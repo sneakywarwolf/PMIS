@@ -18,4 +18,19 @@ describe('report file name', () => {
   it('also tidies an empty value at the start or end', () => {
     expect(name({ ...project, externalInternal: '' })).toBe('VAPT_Testing-New-Project_1.2_12-10-2026_Non-Compliant.docx');
   });
+
+  it('fills {Compliance Status} in the file name from the project status', () => {
+    const t = 'VAPT_{Client-Name}_{Compliance Status}.docx';
+    expect(name({ ...project, complianceStatus: 'Compliant' }, t)).toBe('VAPT_Testing-New-Project_Compliant.docx');
+    expect(name({ ...project, complianceStatus: 'Non-Compliant' }, t)).toBe('VAPT_Testing-New-Project_Non-Compliant.docx');
+    expect(name({ ...project, complianceStatus: 'In-Progress' }, t)).toBe('VAPT_Testing-New-Project.docx');
+  });
+
+  it('fallback name (template without a stored file name) uses the project status', () => {
+    const p = { clientName: 'Acme Bank', name: 'Pay Portal', subType: 'WEB' };
+    const fb = (complianceStatus: string | null) => svc.buildReportFileName({ ...p, complianceStatus }, '1.2', { subType: 'WEB' }, '12-10-2026');
+    expect(fb('Compliant')).toBe('Web_Acme-Bank_Pay-Portal_1.2_12-10-2026_Compliant-Report.docx');
+    expect(fb('Non-Compliant')).toBe('Web_Acme-Bank_Pay-Portal_1.2_12-10-2026_Non-Compliant-Report.docx');
+    expect(fb(null)).toBe('Web_Acme-Bank_Pay-Portal_1.2_12-10-2026_Report.docx');
+  });
 });

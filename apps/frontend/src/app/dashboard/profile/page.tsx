@@ -1,5 +1,6 @@
 'use client';
 
+import { PhoneInput } from '@/components/phone-input';
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { User, Eye, EyeOff, Lock, Save, Phone, Briefcase, Shield } from 'lucide-react';
@@ -162,13 +163,7 @@ export default function ProfilePage() {
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1">Phone</label>
-              <input
-                type="text"
-                value={editForm.phone}
-                onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm"
-                placeholder="+91-XXXXXXXXXX"
-              />
+              <PhoneInput value={editForm.phone} onChange={(phone) => setEditForm({ ...editForm, phone })} />
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1">Designation</label>
