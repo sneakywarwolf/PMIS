@@ -56,10 +56,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: build and scan images (trivy, fails on high/critical)
+        env:
+          # Official Trivy image, pinned by digest so the scanner can't change under a reused tag.
+          TRIVY_IMAGE: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
         run: |
           docker build -t pmis-backend:ci apps/backend
           docker build -t pmis-frontend:ci apps/frontend
-          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.52.2
+          # Run Trivy from its container: reads local images via the Docker socket, writes reports to the workspace.
+          trivy() {
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD:/work" -w /work "$TRIVY_IMAGE" "$@"
+          }
           for i in backend frontend; do
             trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed pmis-$i:ci
             trivy image --format cyclonedx --output sbom-$i.json pmis-$i:ci
