@@ -111,7 +111,7 @@ echo Services:
 echo   Frontend:  http://localhost:3000
 echo   Backend:   http://localhost:4000
 echo   Swagger:   http://localhost:4000/api/docs
-echo   MinIO:     http://localhost:9001
+echo   RustFS console: http://localhost:9001
 echo.
 echo First Login:
 echo   Username: admin

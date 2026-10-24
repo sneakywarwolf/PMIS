@@ -1,4 +1,4 @@
-# DEVELOPMENT ONLY: infrastructure (Postgres/Redis/MinIO) published on localhost for running the apps with npm.
+# DEVELOPMENT ONLY: infrastructure (Postgres/Redis/RustFS) published on localhost for running the apps with npm.
 # Uses fixed local-only credentials - never expose this to a network. For real deployments use docker-compose.yml.
 version: "3.8"
 
@@ -31,26 +31,26 @@ services:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
 
-  minio:
-    image: ${MINIO_IMAGE:-minio/minio:latest}
-    container_name: vapt-minio
+  rustfs:
+    image: ${RUSTFS_IMAGE:-rustfs/rustfs:1.0.3}
+    container_name: vapt-rustfs
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: vaptminioadmin
-      MINIO_ROOT_PASSWORD: vaptminioadmin123
+      RUSTFS_ACCESS_KEY: vaptminioadmin
+      RUSTFS_SECRET_KEY: vaptminioadmin123
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
+      - rustfs_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
+  rustfs_data:

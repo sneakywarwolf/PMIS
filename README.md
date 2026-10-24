@@ -20,14 +20,10 @@ for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SEC
   sed -i.bak "s|^$k=CHANGE_ME|$k=$(openssl rand -hex 32)|" .env
 done; rm -f .env.bak
 
-# 2. Choose a MinIO image (required: minio/minio is no longer on Docker Hub).
-#    Use a publisher you trust; the image must include the `mc` client.
-echo 'MINIO_IMAGE=chainguard/minio:latest' >> .env
-
-# 3. Build and start
+# 2. Build and start
 docker compose up -d --build
 
-# 4. When `docker compose ps` shows the backend healthy, get the first admin password
+# 3. When `docker compose ps` shows the backend healthy, get the first admin password
 docker compose logs backend | grep "First login"
 ```
 

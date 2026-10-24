@@ -60,7 +60,7 @@
       <li><strong>Docker with Compose v2.</strong> Docker Desktop on Windows or macOS; Docker Engine with the Compose plugin on Linux. Check with <code>docker compose version</code>.</li>
       <li><strong>Git</strong>, to download the source.</li>
       <li><strong>OpenSSL</strong>, to generate the secrets. It is included on Linux and macOS, and in Git Bash on Windows. Windows PowerShell users can use the PowerShell block in step 3 instead.</li>
-      <li><strong>A free port 3000</strong> for the web interface, or another port you set in step 3c.</li>
+      <li><strong>A free port 3000</strong> for the web interface, or another port you set in step 3b.</li>
       <li><strong>Internet access</strong>, to download the npm packages used by the build.</li>
     </ul>
 
@@ -93,14 +93,9 @@ foreach ($name in $names) {
 [IO.File]::WriteAllLines((Resolve-Path .env).Path, $lines)
 if (Select-String -Path .env -Pattern '=CHANGE_ME') { 'Some secrets are still CHANGE_ME' } else { 'All secrets set' }</code></pre>
     <div class="warn">Keep <code>.env</code> private and never commit it. If you write a value by hand and it contains a <code>$</code>, write it as <code>$$</code>. The generated hex values never contain one.</div>
+    <p><code>MINIO_ROOT_PASSWORD</code> is the secret key of the object storage service (RustFS). The variable keeps its earlier name so existing <code>.env</code> files keep working.</p>
 
-    <p><strong>3b. Add the MinIO image (required).</strong> The default <code>minio/minio</code> image is no longer on Docker Hub, so set another one. Linux, macOS and Git Bash:</p>
-<pre><code>echo 'MINIO_IMAGE=chainguard/minio:latest' >> .env</code></pre>
-    <p>Windows PowerShell:</p>
-<pre><code>Add-Content -Path .env -Value 'MINIO_IMAGE=chainguard/minio:latest'</code></pre>
-    <p>If <code>.env</code> already has a <code>MINIO_IMAGE</code> line, edit that line instead of adding a second one. The image must include the <code>mc</code> client, which the health check uses. The complete stack was tested with <code>chainguard/minio:latest</code>. It is a third-party build of MinIO: review its publisher, and pin a specific version or digest in production.</p>
-
-    <p><strong>3c. Optional settings</strong> (edit <code>.env</code>):</p>
+    <p><strong>3b. Optional settings</strong> (edit <code>.env</code>):</p>
     <div class="table-wrap"><table>
       <thead><tr><th>Setting</th><th>When to change it</th></tr></thead>
       <tbody>
@@ -117,7 +112,7 @@ if (Select-String -Path .env -Pattern '=CHANGE_ME') { 'Some secrets are still CH
 
     <h3>5. Wait until everything is healthy</h3>
 <pre><code>docker compose ps</code></pre>
-    <p>Wait until <code>backend</code>, <code>frontend</code>, <code>postgres</code> and <code>minio</code> show <code>(healthy)</code>, and <code>redis</code> shows <code>Up</code>. The backend creates the database tables and loads the vulnerability library before it reports healthy.</p>
+    <p>Wait until <code>backend</code>, <code>frontend</code>, <code>postgres</code> and <code>rustfs</code> show <code>(healthy)</code>, and <code>redis</code> shows <code>Up</code>. The backend creates the database tables and loads the vulnerability library before it reports healthy.</p>
 
     <p>Option 1 is finished. Continue with <a href="#after">Sign in and set up</a>.</p>
   </section>
@@ -132,7 +127,7 @@ if (Select-String -Path .env -Pattern '=CHANGE_ME') { 'Some secrets are still CH
     <ul class="plain">
       <li><strong>Docker with Compose v2.</strong> Docker Desktop on Windows or macOS; Docker Engine with the Compose plugin on Linux. Check with <code>docker compose version</code>.</li>
       <li><strong>OpenSSL</strong>, to generate the secrets. It is included on Linux and macOS, and in Git Bash on Windows. Windows PowerShell users can use the PowerShell block in step 3.</li>
-      <li><strong>A free port 3000</strong> for the web interface, or another port you set in step 3c.</li>
+      <li><strong>A free port 3000</strong> for the web interface, or another port you set in step 3b.</li>
       <li><strong>Internet access</strong>, to pull the images.</li>
     </ul>
 
@@ -147,7 +142,7 @@ curl.exe -fsSLO https://raw.githubusercontent.com/sneakywarwolf/PMIS/master/dock
 curl.exe -fsSL https://raw.githubusercontent.com/sneakywarwolf/PMIS/master/.env.example -o .env</code></pre>
     <p>Run every remaining command of this option from the <code>pmis</code> folder.</p>
 
-    <h3>3. Set the secrets and the MinIO image in <code>.env</code></h3>
+    <h3>3. Set the secrets in <code>.env</code></h3>
     <p><strong>3a. Fill in the four required secrets.</strong> Linux, macOS and Git Bash:</p>
 <pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
   sed -i.bak "s|^$k=CHANGE_ME|$k=$(openssl rand -hex 32)|" .env
@@ -166,17 +161,12 @@ foreach ($name in $names) {
 [IO.File]::WriteAllLines((Resolve-Path .env).Path, $lines)
 if (Select-String -Path .env -Pattern '=CHANGE_ME') { 'Some secrets are still CHANGE_ME' } else { 'All secrets set' }</code></pre>
     <div class="warn">Keep <code>.env</code> private and never share it. If you write a value by hand and it contains a <code>$</code>, write it as <code>$$</code>.</div>
+    <p><code>MINIO_ROOT_PASSWORD</code> is the secret key of the object storage service (RustFS). The variable keeps its earlier name so existing <code>.env</code> files keep working.</p>
 
-    <p><strong>3b. Add the MinIO image (required).</strong> Linux, macOS and Git Bash:</p>
-<pre><code>echo 'MINIO_IMAGE=chainguard/minio:latest' >> .env</code></pre>
-    <p>Windows PowerShell:</p>
-<pre><code>Add-Content -Path .env -Value 'MINIO_IMAGE=chainguard/minio:latest'</code></pre>
-    <p>If <code>.env</code> already has a <code>MINIO_IMAGE</code> line, edit that line instead. The image must include the <code>mc</code> client. The complete stack was tested with <code>chainguard/minio:latest</code>; it is a third-party build, so review its publisher.</p>
-
-    <p><strong>3c. Optional settings</strong> (edit <code>.env</code>): the same table as in <a href="#github">Option 1, step 3c</a>. Leave <code>PMIS_VERSION=latest</code> and <code>PMIS_IMAGE_REPO=sneakywarwolf</code> as they are, unless you host the images in your own registry.</p>
+    <p><strong>3b. Optional settings</strong> (edit <code>.env</code>): the same table as in <a href="#github">Option 1, step 3b</a>. Leave <code>PMIS_VERSION=latest</code> and <code>PMIS_IMAGE_REPO=sneakywarwolf</code> as they are, unless you host the images in your own registry.</p>
 
     <h3>4. Pull the images</h3>
-    <p>Pull the two PMIS images, then the supporting PostgreSQL, Redis and MinIO images that the stack uses:</p>
+    <p>Pull the two PMIS images, then the supporting PostgreSQL, Redis and RustFS (object storage) images that the stack uses:</p>
 <pre><code>docker pull sneakywarwolf/pmis-frontend:latest
 docker pull sneakywarwolf/pmis-backend:latest
 docker compose pull</code></pre>
@@ -188,7 +178,7 @@ docker compose pull</code></pre>
 
     <h3>6. Wait until everything is healthy</h3>
 <pre><code>docker compose ps</code></pre>
-    <p>Wait until <code>backend</code>, <code>frontend</code>, <code>postgres</code> and <code>minio</code> show <code>(healthy)</code>, and <code>redis</code> shows <code>Up</code>.</p>
+    <p>Wait until <code>backend</code>, <code>frontend</code>, <code>postgres</code> and <code>rustfs</code> show <code>(healthy)</code>, and <code>redis</code> shows <code>Up</code>.</p>
 
     <p>Option 2 is finished. Continue with <a href="#after">Sign in and set up</a>.</p>
   </section>
@@ -228,10 +218,9 @@ docker compose pull</code></pre>
     <div class="table-wrap"><table>
       <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
       <tbody>
-        <tr><td><code>pull access denied for minio/minio</code></td><td><code>MINIO_IMAGE</code> is not set. See step 3b of your option.</td></tr>
         <tr><td><code>set POSTGRES_PASSWORD in .env</code> (or another secret name)</td><td><code>.env</code> is missing or a required value is empty. See step 3a of your option.</td></tr>
         <tr><td><code>backend</code> keeps restarting</td><td>Run <code>docker compose logs backend</code>. The most common cause is a JWT secret still set to <code>CHANGE_ME</code>.</td></tr>
-        <tr><td><code>minio</code> never becomes healthy</td><td>The chosen MinIO image has no <code>mc</code> client. Choose another image (step 3b).</td></tr>
+        <tr><td><code>rustfs</code> never becomes healthy</td><td>Run <code>docker compose logs rustfs</code>. The usual cause is a data volume that the storage user cannot write to. Named volumes created by Docker work; for a bind mount, make the folder writable by user ID 10001.</td></tr>
         <tr><td>Port 3000 already in use</td><td>Set <code>FRONTEND_PORT</code> (for example <code>3001</code>) and the matching <code>FRONTEND_URL</code>, then run <code>docker compose up -d</code> (Option 1) or <code>docker compose up -d --no-build</code> (Option 2).</td></tr>
         <tr><td>No <code>First login</code> line in the log</td><td>The admin account already existed, or <code>ADMIN_PASSWORD</code> was set. Use that password.</td></tr>
         <tr><td>Sign-in works on HTTPS but not on <code>http://</code></td><td><code>COOKIE_SECURE=true</code> requires HTTPS. Set it to <code>false</code> for plain HTTP on localhost.</td></tr>
