@@ -69,7 +69,7 @@
         <tr><td><code>backend</code></td><td>Application server. Applies database migrations on every start.</td><td>No</td></tr>
         <tr><td><code>postgres</code></td><td>Database (PostgreSQL 16)</td><td>No</td></tr>
         <tr><td><code>redis</code></td><td>Sessions, background jobs (Redis 7)</td><td>No</td></tr>
-        <tr><td><code>rustfs</code></td><td>Object storage (RustFS, S3-compatible) for templates, reports and screenshots</td><td>No</td></tr>
+        <tr><td><code>rustfs</code></td><td>Object storage (RustFS, S3-compatible) for templates, reports and screenshots. Its web console is disabled in production (<a href="#storage-console">details</a>).</td><td>No</td></tr>
       </tbody>
     </table></div>
     <p>Data is kept in three Docker volumes: <code>postgres_data</code>, <code>redis_data</code> and <code>rustfs_data</code>. Docker prefixes them with the project name, for example <code>pmis_rustfs_data</code> when the folder is named <code>PMIS</code>. Check with <code>docker volume ls</code>.</p>
@@ -223,6 +223,38 @@ docker compose up -d</code></pre></li>
     <p>The old <code>MINIO_IMAGE</code> line in <code>.env</code> is no longer used and can be removed.</p>
   </section>
 
+  <section id="storage-console">
+    <h2>Keep the RustFS console private</h2>
+    <p>RustFS ships a web console (port 9001) that signs in with the same access and secret key PMIS uses. PMIS does not need it: the backend talks only to the storage's S3 API on port 9000, over the private Docker network. Anyone who reached the console with those keys could read or delete every report, template and screenshot, so it must not be reachable by users or from the internet.</p>
+    <p>The production <code>docker-compose.yml</code> protects it in two layers:</p>
+    <ol class="plain">
+      <li><strong>No published ports.</strong> The <code>rustfs</code> service has no <code>ports:</code> entry, so neither 9000 nor 9001 is reachable from outside the Docker network. Only the <code>frontend</code> port is published.</li>
+      <li><strong>Console switched off.</strong> <code>RUSTFS_CONSOLE_ENABLE: "false"</code> stops the console from listening at all, so no other container on the network can open it either. The S3 API on port 9000 is unaffected, so uploads, downloads, report generation and the health check keep working.</li>
+    </ol>
+    <h3>Check your deployment</h3>
+    <p>Run in the <code>PMIS</code> folder with the stack running.</p>
+    <ol class="plain">
+      <li>Confirm the storage ports are not published. Both commands should print <code>:0</code> (nothing mapped):
+<pre><code>docker compose port rustfs 9000
+docker compose port rustfs 9001</code></pre></li>
+      <li>Confirm the console is off and the S3 API is up. The first line should print <code>console:000</code> (connection refused) and the second <code>health:200</code>:
+<pre><code>docker compose exec -T rustfs curl -s -o /dev/null \
+  -w 'console:%{http_code}\n' --max-time 5 http://127.0.0.1:9001/
+docker compose exec -T rustfs curl -s -o /dev/null \
+  -w 'health:%{http_code}\n' http://127.0.0.1:9000/health</code></pre></li>
+      <li>Confirm PMIS still works: <code>docker compose ps</code> shows every service healthy, then upload a template or a PoC screenshot and generate a report.</li>
+    </ol>
+    <h3>If your install predates this setting</h3>
+    <p>Either pull the current <code>docker-compose.yml</code>, or add the variable to the <code>rustfs</code> service yourself and recreate it:</p>
+<pre><code>    environment:
+      RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER:-pmisminio}
+      RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      RUSTFS_CONSOLE_ENABLE: "false"</code></pre>
+<pre><code>docker compose up -d rustfs</code></pre>
+    <p>Recreating the container does not touch the <code>rustfs_data</code> volume. The backend reconnects on its own; if a request fails right after, run <code>docker compose restart backend</code>.</p>
+    <div class="warn">Never publish ports 9000 or 9001 in production, for example with a <code>ports:</code> entry or a proxy rule. <code>docker-compose.dev.yml</code> publishes both with fixed credentials and is for development only. If you must administer storage, use <code>mc</code> over the private network as in <a href="#migrate-minio">the migration steps</a>, not a published port.</div>
+  </section>
+
   <section id="monitoring">
     <h2>Health and logs</h2>
 <pre><code>docker compose ps                 # status and health of each container
@@ -243,6 +275,7 @@ docker compose logs -f frontend</code></pre>
       <li>The admin password was changed at first sign-in, and each administrator has their own named account.</li>
       <li><code>PMIS_VERSION</code> and <code>RUSTFS_IMAGE</code> are pinned to specific versions.</li>
       <li>The database, cache and storage ports are not published. Never use <code>docker-compose.dev.yml</code> for production.</li>
+      <li>The RustFS console is off (<code>RUSTFS_CONSOLE_ENABLE: "false"</code>) and unreachable from outside. See <a href="#storage-console">Keep the RustFS console private</a>.</li>
       <li>Backups are scheduled, encrypted and stored off the server, and a restore has been tested.</li>
       <li>The host operating system, Docker and PMIS are kept up to date.</li>
     </ul>

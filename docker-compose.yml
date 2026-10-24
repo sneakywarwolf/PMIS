@@ -76,6 +76,8 @@ services:
     environment:
       RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER:-pmisminio}
       RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+      # The web console is not used by PMIS (the backend talks to the S3 API on port 9000 only), so it is switched off.
+      RUSTFS_CONSOLE_ENABLE: "false"
     volumes:
       - rustfs_data:/data
     healthcheck:
