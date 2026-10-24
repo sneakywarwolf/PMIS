@@ -44,13 +44,40 @@
     <h3>Placeholders you can map</h3>
     <p>After upload, each detected placeholder can be mapped to one of these values. Unmapped placeholders are matched by name automatically.</p>
     <div class="table-wrap"><table>
-      <thead><tr><th>Group</th><th>Values</th></tr></thead>
+      <thead><tr><th>Group</th><th>Parameter</th><th>Used for</th></tr></thead>
       <tbody>
-        <tr><td>Project</td><td>Application Name, App Version, Application Name &amp; Version, Document Version, Client Name, Client Name &amp; Location, Start Date, End Date, Start &amp; End Date, Scope, Application Details &amp; Scope, Build Details, Tools Used, Testing Environment, Testing Type (Black/Grey Box), Testing Type (Platform), Login/Role Types, Nature/Purpose of Application, Testing Limitation, QA Reviewer Name, Mobile Platform, SHA-1 Hash</td></tr>
-        <tr><td>Network</td><td>Scope Exposure (External/Internal), Network Activity Type (VA/PT/VAPT), Total Scope Count, Quarter</td></tr>
-        <tr><td>Client contact</td><td>Client SPOC Name, Designation and Email ID (CERT-In projects)</td></tr>
-        <tr><td>People</td><td>Tester, Team Lead and Manager: name, designation, phone, email</td></tr>
-        <tr><td>Report</td><td>Report Generation Date, Report Date (format set in Settings), Report Name (generated filename)</td></tr>
+        <tr><td>Project</td><td>Application Name</td><td>The project name: the app, API or product under test.</td></tr>
+        <tr><td></td><td>App Version</td><td>Version of the application being tested.</td></tr>
+        <tr><td></td><td>Application Name &amp; Version</td><td>Name and version on one line, for cover page titles.</td></tr>
+        <tr><td></td><td>Document Version</td><td>Report version. Rises with each generation (1.0, 1.1, 1.2).</td></tr>
+        <tr><td></td><td>Client Name</td><td>Organisation that ordered the test.</td></tr>
+        <tr><td></td><td>Client Name &amp; Location</td><td>Client name and site, joined with a comma.</td></tr>
+        <tr><td></td><td>Start Date, End Date</td><td>Testing window, in the date format set in Settings.</td></tr>
+        <tr><td></td><td>Start &amp; End Date</td><td>Both dates in one sentence: Start Date …, to End Date ….</td></tr>
+        <tr><td></td><td>Scope</td><td>URLs, hosts or modules in scope.</td></tr>
+        <tr><td></td><td>Application Details &amp; Scope</td><td>Build details and scope together, one per line.</td></tr>
+        <tr><td></td><td>Build Details</td><td>Build, release or environment description.</td></tr>
+        <tr><td></td><td>Tools Used</td><td>Tools used during testing.</td></tr>
+        <tr><td></td><td>Testing Environment</td><td>Where testing ran, such as UAT, staging or production.</td></tr>
+        <tr><td></td><td>Testing Type (Black/Grey Box)</td><td>Black box or grey box approach.</td></tr>
+        <tr><td></td><td>Testing Type (Platform)</td><td>Web Application, API, Mobile Application, Thick Client, Network or Application.</td></tr>
+        <tr><td></td><td>Login/Role Types</td><td>User roles or logins used during testing.</td></tr>
+        <tr><td></td><td>Nature/Purpose of Application</td><td>What the application does for the client.</td></tr>
+        <tr><td></td><td>Testing Limitation</td><td>Constraints that limited testing. Prints N/A when empty.</td></tr>
+        <tr><td></td><td>QA Reviewer Name</td><td>Person who reviewed the report. Prints N/A when empty.</td></tr>
+        <tr><td></td><td>Mobile Platform</td><td>Android or iOS, for mobile projects.</td></tr>
+        <tr><td></td><td>SHA-1 Hash</td><td>Hash of the tested build.</td></tr>
+        <tr><td>Network</td><td>Scope Exposure (External/Internal)</td><td>Whether the scope is external or internal.</td></tr>
+        <tr><td></td><td>Network Activity Type (VA/PT/VAPT)</td><td>Which activities the engagement covers.</td></tr>
+        <tr><td></td><td>Total Scope Count</td><td>Number of IPs or hosts in scope.</td></tr>
+        <tr><td></td><td>Quarter</td><td>Reporting quarter, for recurring network assessments.</td></tr>
+        <tr><td>Client contact</td><td>Client SPOC Name, Designation, Email ID</td><td>Client point of contact (CERT-In projects). Prints N/A when empty.</td></tr>
+        <tr><td>People</td><td>Tester Name, Team Lead Name</td><td>Names of the assigned tester and Team Lead.</td></tr>
+        <tr><td></td><td>Manager Name</td><td>The Team Lead's manager (AVP).</td></tr>
+        <tr><td></td><td>Tester, Team Lead, Manager: Designation, Phone, Email</td><td>Contact details for sign-off pages. Prints N/A when a profile field is empty.</td></tr>
+        <tr><td>Report</td><td>Report Generation Date</td><td>Date the report was generated.</td></tr>
+        <tr><td></td><td>Report Date</td><td>Generation date in the format set in Settings.</td></tr>
+        <tr><td></td><td>Report Name</td><td>The final generated file name, for headers and footers.</td></tr>
       </tbody>
     </table></div>
     <p>Two placeholders have special behaviour:</p>
