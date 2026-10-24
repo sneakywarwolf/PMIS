@@ -132,6 +132,19 @@
       var c = document.createElement('code');
       c.textContent = p;
       panel.appendChild(c);
+      if (navigator.clipboard) {
+        var cb = document.createElement('button');
+        cb.className = 'copy';
+        cb.type = 'button';
+        cb.textContent = 'Copy';
+        cb.addEventListener('click', function () {
+          navigator.clipboard.writeText(c.textContent).then(function () {
+            cb.textContent = 'Copied';
+            setTimeout(function () { cb.textContent = 'Copy'; }, 1500);
+          });
+        });
+        panel.appendChild(cb);
+      }
       panel.setAttribute('role', 'tabpanel');
       tab.addEventListener('click', function () { select(label); });
       list.appendChild(tab); wrap.appendChild(panel);

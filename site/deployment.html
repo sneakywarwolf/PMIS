@@ -116,7 +116,7 @@ server {
         <tr><td><code>MINIO_ROOT_PASSWORD</code></td><td>Yes</td><td>none</td><td>File storage password</td></tr>
         <tr><td><code>JWT_ACCESS_SECRET</code></td><td>Yes</td><td>none</td><td>Signs sign-in session tokens</td></tr>
         <tr><td><code>JWT_REFRESH_SECRET</code></td><td>Yes</td><td>none</td><td>Signs session renewals. Must differ from the access secret.</td></tr>
-        <tr><td><code>MINIO_IMAGE</code></td><td>Yes, in practice</td><td><code>minio/minio:latest</code> (no longer available)</td><td>MinIO server image. See <a href="installation.html#step-3">Installation, step 3b</a>.</td></tr>
+        <tr><td><code>MINIO_IMAGE</code></td><td>Yes, in practice</td><td><code>minio/minio:latest</code> (no longer available)</td><td>MinIO server image. See <a href="installation.html#github">Installation, step 3b</a>.</td></tr>
         <tr><td><code>ADMIN_PASSWORD</code></td><td>No</td><td>empty (random)</td><td>First admin password. Used only when the admin account is created. Remove it from <code>.env</code> afterwards.</td></tr>
         <tr><td><code>SEED_DEMO</code></td><td>No</td><td><code>false</code></td><td>Demo data with public passwords. Never enable on a reachable instance.</td></tr>
         <tr><td><code>FRONTEND_PORT</code></td><td>No</td><td><code>3000</code></td><td>Host port, or <code>address:port</code>, for the web interface</td></tr>

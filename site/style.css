@@ -296,7 +296,6 @@ th { position: sticky; top: 0; z-index: 1; }
 .filter select { font: inherit; padding: 6px 10px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
 
 /* Install helpers */
-.copy-all { cursor: pointer; font: inherit; font-size: 0.88rem; margin: 4px 0 8px; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 6px; padding: 5px 12px; }
 .steps { counter-reset: step; list-style: none; padding: 0; }
 .steps li { counter-increment: step; position: relative; padding: 4px 0 14px 44px; max-width: 74ch; }
 .steps li::before { content: counter(step); position: absolute; left: 0; top: 2px; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 700; text-align: center; line-height: 28px; font-size: 0.9rem; }

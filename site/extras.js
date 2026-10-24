@@ -110,23 +110,6 @@
     im.addEventListener('keydown', function (e) { if (e.key === 'Enter') open(); });
   });
 
-  // Installation: copy every command on the page
-  if (here === 'installation.html' && main && navigator.clipboard) {
-    var first = main.querySelector('section');
-    var ca = document.createElement('button');
-    ca.type = 'button';
-    ca.className = 'copy-all';
-    ca.textContent = 'Copy all commands';
-    ca.addEventListener('click', function () {
-      var text = Array.prototype.map.call(main.querySelectorAll('pre code'), function (c) { return c.textContent; }).join('\n\n');
-      navigator.clipboard.writeText(text).then(function () {
-        ca.textContent = 'Copied';
-        setTimeout(function () { ca.textContent = 'Copy all commands'; }, 1500);
-      });
-    });
-    if (first) first.insertBefore(ca, first.children[1] || null);
-  }
-
   // Search (Ctrl+K or "/"): headings and parameters from every page
   var index = null;
   function load() {
