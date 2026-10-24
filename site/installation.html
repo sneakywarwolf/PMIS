@@ -39,6 +39,7 @@
 
   <section id="overview">
     <h2>Install at a glance</h2>
+    <p>Two ways to run PMIS: <a href="#dockerhub">pull prebuilt images from Docker Hub</a> (no source code), or build from source with the steps below.</p>
     <ol class="steps">
       <li><a href="#step-1">Check prerequisites</a>: Docker, Git and OpenSSL.</li>
       <li><a href="#step-2">Get the source</a> with git clone.</li>
@@ -46,6 +47,43 @@
       <li><a href="#step-4">Start PMIS</a> from source or prebuilt images.</li>
       <li><a href="#step-5">Check it is healthy</a>, then continue to the remaining steps.</li>
     </ol>
+  </section>
+
+  <section id="dockerhub">
+    <h2>Install from Docker Hub (no build)</h2>
+    <p>Use this path to run PMIS from the prebuilt images <code>sneakywarwolf/pmis-backend</code> and <code>sneakywarwolf/pmis-frontend</code> with <code>docker pull</code>. It needs no source code, Git or Node.js: only Docker with Compose v2, plus OpenSSL for the secrets, and two files from the repository.</p>
+    <div class="warn">Docker Hub currently has only <code>1.0.0</code> and <code>latest</code>, both pushed on 2026-10-08. They predate later fixes in the source, including the dependency and Node 22 updates. Use this path for a trial. For real use, <a href="#step-1">build from source</a> until a newer version is listed on the <a href="https://github.com/sneakywarwolf/PMIS/releases">releases page</a>.</div>
+    <ol class="steps">
+      <li>Make an empty folder and download the two files into it:
+<pre><code># Linux, macOS, Git Bash
+mkdir pmis &amp;&amp; cd pmis
+curl -fsSLO https://raw.githubusercontent.com/sneakywarwolf/PMIS/master/docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/sneakywarwolf/PMIS/master/.env.example -o .env
+
+# Windows PowerShell
+mkdir pmis; cd pmis
+curl.exe -fsSLO https://raw.githubusercontent.com/sneakywarwolf/PMIS/master/docker-compose.yml
+curl.exe -fsSL https://raw.githubusercontent.com/sneakywarwolf/PMIS/master/.env.example -o .env</code></pre></li>
+      <li>Open <code>.env</code> and replace each <code>CHANGE_ME</code> with its own long random value: <code>POSTGRES_PASSWORD</code>, <code>MINIO_ROOT_PASSWORD</code>, <code>JWT_ACCESS_SECRET</code> and <code>JWT_REFRESH_SECRET</code>. On Linux, macOS or Git Bash this fills all four:
+<pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
+  sed -i.bak "s|^$k=CHANGE_ME|$k=$(openssl rand -hex 32)|" .env
+done
+rm -f .env.bak</code></pre>
+      On Windows, generate each value with the PowerShell command in <a href="#step-3">step 3a</a>.</li>
+      <li>Choose a MinIO image and pin the PMIS version. <code>minio/minio</code> is no longer on Docker Hub, so <code>MINIO_IMAGE</code> is required. Use a publisher you trust whose image includes the <code>mc</code> client (see <a href="#step-3">step 3b</a>):
+<pre><code>MINIO_IMAGE=chainguard/minio:latest
+PMIS_VERSION=1.0.0</code></pre>
+      Put these two lines in <code>.env</code>, replacing any existing <code>PMIS_VERSION</code> line.</li>
+      <li>Pull the images. This downloads PMIS and also PostgreSQL, Redis and MinIO:
+<pre><code>docker compose pull</code></pre>
+      To pull only the PMIS images by hand, run <code>docker pull sneakywarwolf/pmis-backend:1.0.0</code> and <code>docker pull sneakywarwolf/pmis-frontend:1.0.0</code>.</li>
+      <li>Start PMIS without building. <code>--no-build</code> stops with an error if an image is missing, instead of trying to build from source, which this folder cannot do:
+<pre><code>docker compose up -d --no-build</code></pre></li>
+      <li>Wait until <code>docker compose ps</code> shows the backend as healthy, then read the first admin password:
+<pre><code>docker compose logs backend | grep "First login"</code></pre>
+      Open <code>http://localhost:3000</code> and continue with <a href="#step-6">step 6</a> and <a href="#step-7">step 7</a>.</li>
+    </ol>
+    <p>To update later, change <code>PMIS_VERSION</code> in <code>.env</code>, then run <code>docker compose pull</code> and <code>docker compose up -d --no-build</code>. Data stays in the Docker volumes. The images are published for <code>amd64</code> and <code>arm64</code>.</p>
   </section>
 
   <section id="step-1">
