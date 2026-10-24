@@ -273,7 +273,7 @@ ul.plain li, ol.plain li { margin: 6px 0; }
   display: none; font: inherit; font-size: 0.85rem; cursor: pointer;
   color: var(--text); background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px;
 }
-@media (max-width: 700px) {
+@media (max-width: 1100px) {
   .site-header .bar { flex-wrap: wrap; }
   .menu-btn { display: block; margin-left: auto; order: 2; }
   .theme-toggle { order: 3; }
@@ -384,3 +384,16 @@ details.fold[open] > summary { border-bottom: 1px solid var(--border); margin-bo
 @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 
 @media print { details.fold > :not(summary) { display: block; } .progress, .feedback, .pager, .foldtools { display: none; } }
+
+/* Profile links, always visible at the top right of every page */
+.profile { display: flex; gap: 6px; align-items: center; margin-left: auto; order: 6; }
+.profile-btn { display: inline-flex; align-items: center; padding: 5px 12px; font-size: 0.85rem; color: var(--text); text-decoration: none; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); white-space: nowrap; }
+.profile-btn:hover, .profile-btn:focus-visible { color: var(--accent); border-color: var(--accent); }
+@media (max-width: 1100px) { .profile { order: 4; margin-left: auto; } }
+@media (max-width: 700px) { .profile-btn { padding: 4px 9px; font-size: 0.8rem; } }
+
+/* Header bar is wider than the page column so the nav and profile buttons fit on one row */
+.site-header .bar { max-width: 1240px; }
+
+/* Between the menu breakpoint and 1150px, tighten the nav so its items fit beside the profile buttons */
+@media (min-width: 1101px) and (max-width: 1150px) { .nav { font-size: 0.85rem; } .nav a { padding-left: 7px; padding-right: 7px; } }
