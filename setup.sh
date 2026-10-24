@@ -67,9 +67,11 @@ echo "  Backend:   http://localhost:4000"
 echo "  Swagger:   http://localhost:4000/api/docs"
 echo "  MinIO:     http://localhost:9001"
 echo ""
-echo "Default Login:"
+echo "First Login:"
 echo "  Username: admin"
-echo "  Password: Admin@1234567890!"
+echo "  Password: the 'First login' line printed by the seed step above"
+echo "            (or your ADMIN_PASSWORD, if you set one before seeding)."
+echo "  You must change it at first sign-in."
 echo ""
 
 # Keep script running

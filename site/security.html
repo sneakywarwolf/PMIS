@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Security - PMIS-Project Management for Information Security</title>
+  <meta name="description" content="How PMIS protects accounts and data, what operators are responsible for, and how to report a vulnerability.">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap bar">
+    <a class="brand" href="index.html">PMIS</a>
+    <nav class="nav">
+      <a href="index.html">Overview</a>
+      <a href="installation.html">Installation</a>
+      <a href="user-guide.html">User guide</a>
+      <a href="reports.html">Reports</a>
+      <a href="deployment.html">Production &amp; operations</a>
+      <a href="security.html" aria-current="page">Security</a>
+    </nav>
+  </div>
+</header>
+
+<header class="hero">
+  <div class="wrap">
+    <p class="crumb">PMIS documentation</p>
+    <h1>Security</h1>
+    <p class="tagline">PMIS holds client vulnerability data. This page summarises how it protects that data and what you need to do as an operator.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="reporting">
+    <h2>Reporting a vulnerability</h2>
+    <p>Report vulnerabilities privately through GitHub: on the <a href="https://github.com/sneakywarwolf/PMIS/security">repository's Security tab</a>, choose <em>Report a vulnerability</em>. Do not open a public issue. Include steps to reproduce, the affected version and the impact. See the <a href="https://github.com/sneakywarwolf/PMIS/blob/master/SECURITY.md">security policy</a>. Only the latest release is supported.</p>
+  </section>
+
+  <section id="controls">
+    <h2>Built-in protections</h2>
+    <div class="card-grid">
+      <div class="card"><h3>Access control</h3><p>Every request is checked on the server against the user's role and team. Users see only the projects, findings and reports they are entitled to.</p></div>
+      <div class="card"><h3>Passwords</h3><p>Stored only as Argon2id hashes. Admins set a password policy, by default at least 14 characters with mixed character types. New and reset accounts must choose their own password at first sign-in.</p></div>
+      <div class="card"><h3>Sessions</h3><p>Session tokens are kept in HTTP-only, same-site cookies that scripts cannot read. Sessions expire after inactivity (15 minutes by default). Each user has one active session at a time. Signing out or changing a password ends the session.</p></div>
+      <div class="card"><h3>Sign-in protection</h3><p>Accounts are locked temporarily after repeated failed sign-ins, and request rates are limited.</p></div>
+      <div class="card"><h3>Browser protections</h3><p>Security headers, including a content security policy, block framing and restrict where content loads from. Changes requested from other websites are refused.</p></div>
+      <div class="card"><h3>File handling</h3><p>Uploads are size-limited and checked by content, not by name. Spreadsheets containing macros, formulas or embedded objects are rejected.</p></div>
+      <div class="card"><h3>Minimal exposure</h3><p>Only the web interface is published. Database, cache, storage and the API stay on an internal network. Interactive API documentation is disabled in production.</p></div>
+      <div class="card"><h3>Report downloads</h3><p>Generated reports are downloaded through signed links that expire after one hour.</p></div>
+      <div class="card"><h3>Audit trail</h3><p>Sign-ins, account changes, project, template and report actions, library changes and settings changes are recorded with time, user and source address.</p></div>
+      <div class="card"><h3>Data lifecycle</h3><p>Completed projects and PoC screenshots are deleted automatically after the retention periods set by the Admin. Data owned by deleted users is purged after a 24-hour grace period.</p></div>
+    </div>
+  </section>
+
+  <section id="operator">
+    <h2>Your responsibilities as operator</h2>
+    <p>PMIS's protections depend on a correct deployment. You are responsible for:</p>
+    <ul class="plain">
+      <li><strong>Running a current version</strong> built from source or from a supported release. See <a href="installation.html#step-4">Installation, step 4</a>.</li>
+      <li><strong>HTTPS</strong> through a reverse proxy, with <code>COOKIE_SECURE=true</code> and the exact <code>FRONTEND_URL</code>.</li>
+      <li><strong>Strong, private secrets</strong> in <code>.env</code>, never committed or shared.</li>
+      <li><strong>Network access</strong>: limit who can reach PMIS, for example to your VPN or office network.</li>
+      <li><strong>Accounts</strong>: one named account per person, the least role each person needs, and prompt deactivation of leavers.</li>
+      <li><strong>Backups</strong>: encrypted, stored off the server and restore-tested.</li>
+      <li><strong>Updates</strong> to PMIS, Docker, the host and the MinIO image.</li>
+      <li><strong>Lawful use</strong>: PMIS is for authorized security testing only.</li>
+    </ul>
+    <p>The full list is the <a href="deployment.html#checklist">production checklist</a>.</p>
+  </section>
+
+  <section id="never">
+    <h2>Never do this on a real deployment</h2>
+    <ul class="plain">
+      <li>Enable <code>SEED_DEMO</code>. Its accounts have publicly known passwords.</li>
+      <li>Use <code>docker-compose.dev.yml</code> or the development setup scripts. They use fixed, published credentials.</li>
+      <li>Publish the database, cache or storage ports, or serve PMIS to users over plain HTTP.</li>
+      <li>Run the prebuilt 1.0.0 images.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer class="site-footer wrap">
+  PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a> &middot; <a href="security.html#reporting">Report a vulnerability</a>
+</footer>
+
+</body>
+</html>
