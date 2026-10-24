@@ -373,55 +373,60 @@ export class ReportsService {
       throw new NotFoundException('Template not found');
     }
 
-    // Activating a template replaces whatever was active for the same
-    // category + subType. Any project explicitly pinned to the template(s)
-    // being replaced is rebound to the new one FIRST (so Template Mapping
-    // and future generation immediately resolve against the new template's
-    // own mappings), then the old template is deleted outright — file, row,
-    // and its field mappings. Existing ReportGeneration rows are
-    // FK-SetNull, so already generated reports and their stored docx/pdf
-    // files are never touched by any of this.
+    // Activating (= approving) a template replaces whatever was active for the same category + Activity Type +
+    // report format. Projects explicitly pinned to a replaced template are rebound to the new one first, so
+    // Template Mapping and future generation resolve against the new template at once. A replaced template that
+    // generated reports still point at is kept, inactive (history and audit); one nothing references is deleted,
+    // file included. Reports already generated are never touched.
+    //
+    // All of it is one transaction, serialised per category + format by an advisory lock: a failure part-way
+    // leaves the previously active template exactly as it was, and two concurrent activations cannot both win.
+    // Stored files are only removed after the commit.
     const mine = coveredSubTypes(template);
-    const replaced = await this.prisma.reportTemplate.findMany({
-      where: {
-        category: template.category,
-        ...coversAnySubType(mine),
-        reportFormat: template.reportFormat,
-        isActive: true,
-        id: { not: id },
-      },
-    });
-    for (const old of replaced) {
-      const overlap = coveredSubTypes(old).filter((t) => mine.includes(t));
-      const remaining = coveredSubTypes(old).filter((t) => !mine.includes(t));
-      if (remaining.length > 0) {
-        // The old template also serves Activity Types this one doesn't: it keeps those and loses only the
-        // overlap. Projects of the overlapping types move to the new template; nothing else is touched.
-        const [primary, ...extra] = remaining;
-        await this.prisma.project.updateMany({ where: { templateId: old.id, subType: { in: overlap } }, data: { templateId: id } });
-        await this.prisma.reportTemplate.update({
-          where: { id: old.id },
-          data: { subType: primary, extraSubTypes: extra, projectType: `${old.category}_${primary}` },
-        });
-        continue;
-      }
-      const rebound = await this.prisma.project.updateMany({
-        where: { templateId: old.id },
-        data: { templateId: id },
+    const orphanedFiles: string[] = [];
+    const activated = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`template:${template.category}:${template.reportFormat}`}))`;
+      const replaced = await tx.reportTemplate.findMany({
+        where: {
+          category: template.category,
+          ...coversAnySubType(mine),
+          reportFormat: template.reportFormat,
+          isActive: true,
+          id: { not: id },
+        },
       });
-      if (rebound.count > 0) {
-        this.logger.log(`Rebound ${rebound.count} project(s) from replaced template ${old.id} to ${id}`);
+      for (const old of replaced) {
+        const overlap = coveredSubTypes(old).filter((t) => mine.includes(t));
+        const remaining = coveredSubTypes(old).filter((t) => !mine.includes(t));
+        if (remaining.length > 0) {
+          // The old template also serves Activity Types this one doesn't: it keeps those and loses only the
+          // overlap. Projects of the overlapping types move to the new template; nothing else is touched.
+          const [primary, ...extra] = remaining;
+          await tx.project.updateMany({ where: { templateId: old.id, subType: { in: overlap } }, data: { templateId: id } });
+          await tx.reportTemplate.update({
+            where: { id: old.id },
+            data: { subType: primary, extraSubTypes: extra, projectType: `${old.category}_${primary}` },
+          });
+          continue;
+        }
+        const rebound = await tx.project.updateMany({ where: { templateId: old.id }, data: { templateId: id } });
+        if (rebound.count > 0) {
+          this.logger.log(`Rebound ${rebound.count} project(s) from replaced template ${old.id} to ${id}`);
+        }
+        if ((await tx.reportGeneration.count({ where: { templateId: old.id } })) > 0) {
+          await tx.reportTemplate.update({ where: { id: old.id }, data: { isActive: false, effectiveTo: new Date() } });
+        } else {
+          await tx.reportTemplate.delete({ where: { id: old.id } });
+          orphanedFiles.push(old.filePath);
+        }
       }
-      await this.storage.deleteFile(old.filePath).catch((err) =>
-        this.logger.warn(`Failed to delete replaced template file ${old.filePath}: ${err?.message}`),
-      );
-      await this.prisma.reportTemplate.delete({ where: { id: old.id } });
-    }
-
-    const activated = await this.prisma.reportTemplate.update({
-      where: { id },
-      data: { isActive: true },
+      return tx.reportTemplate.update({ where: { id }, data: { isActive: true } });
     });
+    for (const filePath of orphanedFiles) {
+      await this.storage.deleteFile(filePath).catch((err) =>
+        this.logger.warn(`Failed to delete replaced template file ${filePath}: ${err?.message}`),
+      );
+    }
 
     await this.auditService.log({
       actorId: adminId,
