@@ -6,6 +6,7 @@
 - Network VA findings hide the PoC steps section.
 - Report templates are selected automatically from category and Testing Type.
 - Security: patched dependencies; images on Node 22.
+- Documentation: the documentation site and README were rebuilt and checked against the report code. Corrected: Word placeholders do not need yellow highlighting, and the template activation behaviour.
 
 ## 1.0.0
 - First public release.

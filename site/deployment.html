@@ -5,13 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Production &amp; operations - PMIS-Project Management for Information Security</title>
   <meta name="description" content="Running PMIS in production: HTTPS with a reverse proxy, configuration reference, backup and restore, upgrades and the production checklist.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PMIS documentation">
+  <meta name="theme-color" content="#12302a">
+  <link rel="icon" href="logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header class="site-header">
   <div class="wrap bar">
-    <a class="brand" href="index.html">PMIS</a>
+    <a class="brand" href="index.html"><img src="logo.svg" alt="" width="26" height="26">PMIS</a>
     <nav class="nav">
       <a href="index.html">Overview</a>
       <a href="installation.html">Installation</a>
@@ -20,6 +24,10 @@
       <a href="deployment.html" aria-current="page">Production &amp; operations</a>
       <a href="security.html">Security</a>
     </nav>
+    <div class="profile">
+      <a class="profile-btn" href="https://sneakywarwolf.github.io/" target="_blank" rel="noopener noreferrer" aria-label="GitHub profile (opens in a new tab)" title="GitHub"><svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true" focusable="false"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/></svg></a>
+      <a class="profile-btn" href="https://www.linkedin.com/in/nirmalchak/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn profile (opens in a new tab)" title="LinkedIn"><svg viewBox="0 0 16 16" width="18" height="18" fill="currentColor" aria-hidden="true" focusable="false"><path d="M0 1.146C0 .513.526 0 1.175 0h13.65C15.474 0 16 .513 16 1.146v13.708c0 .633-.526 1.146-1.175 1.146H1.175C.526 16 0 15.487 0 14.854zm4.943 12.248V6.169H2.542v7.225zm-1.2-8.212c.837 0 1.358-.554 1.358-1.248-.015-.709-.52-1.248-1.342-1.248S2.4 3.226 2.4 3.934c0 .694.521 1.248 1.327 1.248zm4.908 8.212V9.359c0-.216.016-.432.08-.586.173-.431.568-.878 1.232-.878.869 0 1.216.662 1.216 1.634v3.865h2.401V9.25c0-2.22-1.184-3.252-2.764-3.252-1.274 0-1.845.7-2.165 1.193v.025h-.016l.016-.025V6.169h-2.4c.03.678 0 7.225 0 7.225z"/></svg></a>
+    </div>
   </div>
 </header>
 
@@ -36,6 +44,24 @@
   <section id="components">
     <h2>What runs</h2>
     <p><code>docker compose up -d</code> starts five containers on a private Docker network:</p>
+    <figure class="shot">
+      <div class="diagram">
+        <svg viewBox="0 0 760 210" role="img" aria-label="Browser reaches the frontend container; the frontend calls the backend; the backend uses postgres, redis and minio on a private network">
+          <defs><marker id="ah2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="head"/></marker></defs>
+          <rect class="net" x="196" y="10" width="560" height="190" rx="12"/>
+          <text class="sub" x="210" y="30">Private Docker network</text>
+          <rect class="box" x="6" y="75" width="140" height="60" rx="8"/><text x="76" y="102" text-anchor="middle">Browser</text><text class="sub" x="76" y="120" text-anchor="middle">HTTPS via proxy</text>
+          <rect class="box lit" x="222" y="75" width="130" height="60" rx="8"/><text x="287" y="102" text-anchor="middle">frontend</text><text class="sub" x="287" y="120" text-anchor="middle">FRONTEND_PORT</text>
+          <rect class="box" x="402" y="75" width="130" height="60" rx="8"/><text x="467" y="102" text-anchor="middle">backend</text><text class="sub" x="467" y="120" text-anchor="middle">internal only</text>
+          <rect class="box" x="600" y="30" width="140" height="44" rx="8"/><text x="670" y="57" text-anchor="middle">postgres</text>
+          <rect class="box" x="600" y="86" width="140" height="44" rx="8"/><text x="670" y="113" text-anchor="middle">redis</text>
+          <rect class="box" x="600" y="142" width="140" height="44" rx="8"/><text x="670" y="169" text-anchor="middle">minio</text>
+          <path class="arrow" d="M146,105 H220" marker-end="url(#ah2)"/><path class="arrow" d="M352,105 H400" marker-end="url(#ah2)"/>
+          <path class="arrow" d="M532,95 C566,95 566,52 598,52" marker-end="url(#ah2)"/><path class="arrow" d="M532,108 H598" marker-end="url(#ah2)"/><path class="arrow" d="M532,118 C566,118 566,164 598,164" marker-end="url(#ah2)"/>
+        </svg>
+      </div>
+      <figcaption>Only the frontend port is published. Everything else stays inside the private network.</figcaption>
+    </figure>
     <div class="table-wrap"><table>
       <thead><tr><th>Container</th><th>Purpose</th><th>Reachable from outside</th></tr></thead>
       <tbody>
@@ -94,7 +120,7 @@ server {
         <tr><td><code>MINIO_ROOT_PASSWORD</code></td><td>Yes</td><td>none</td><td>File storage password</td></tr>
         <tr><td><code>JWT_ACCESS_SECRET</code></td><td>Yes</td><td>none</td><td>Signs sign-in session tokens</td></tr>
         <tr><td><code>JWT_REFRESH_SECRET</code></td><td>Yes</td><td>none</td><td>Signs session renewals. Must differ from the access secret.</td></tr>
-        <tr><td><code>MINIO_IMAGE</code></td><td>Yes, in practice</td><td><code>minio/minio:latest</code> (no longer available)</td><td>MinIO server image. See <a href="installation.html#step-3">Installation, step 3b</a>.</td></tr>
+        <tr><td><code>MINIO_IMAGE</code></td><td>Yes, in practice</td><td><code>minio/minio:latest</code> (no longer available)</td><td>MinIO server image. See <a href="installation.html#github">Installation, step 3b</a>.</td></tr>
         <tr><td><code>ADMIN_PASSWORD</code></td><td>No</td><td>empty (random)</td><td>First admin password. Used only when the admin account is created. Remove it from <code>.env</code> afterwards.</td></tr>
         <tr><td><code>SEED_DEMO</code></td><td>No</td><td><code>false</code></td><td>Demo data with public passwords. Never enable on a reachable instance.</td></tr>
         <tr><td><code>FRONTEND_PORT</code></td><td>No</td><td><code>3000</code></td><td>Host port, or <code>address:port</code>, for the web interface</td></tr>
@@ -196,5 +222,8 @@ docker compose logs -f frontend</code></pre>
   PMIS-Project Management for Information Security &middot; <a href="https://github.com/sneakywarwolf/PMIS">Source</a> &middot; <a href="https://github.com/sneakywarwolf/PMIS/blob/master/LICENSE">MIT License</a> &middot; <a href="security.html#reporting">Report a vulnerability</a>
 </footer>
 
+<script src="docs.js"></script>
+<script src="extras.js"></script>
+<script src="extras2.js"></script>
 </body>
 </html>

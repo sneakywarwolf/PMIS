@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 220" role="img" aria-label="Findings flow into a report">
+  <g fill="none" stroke="#3fc79a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="12" y="20" width="96" height="30" rx="6" fill="#0f2f28"/>
+    <rect x="12" y="95" width="96" height="30" rx="6" fill="#0f2f28"/>
+    <rect x="12" y="170" width="96" height="30" rx="6" fill="#0f2f28"/>
+    <path d="M108 35 C150 35 150 110 192 110"/>
+    <path d="M108 110 H192"/>
+    <path d="M108 185 C150 185 150 110 192 110"/>
+    <rect x="192" y="40" width="150" height="140" rx="8" fill="#eef6f2" stroke="#a9c4ba"/>
+    <path d="M214 70 H320 M214 92 H320 M214 114 H290" stroke="#9db8ae"/>
+    <rect x="214" y="136" width="40" height="26" rx="4" fill="#3fc79a" stroke="none"/>
+    <path d="M222 149 L230 156 L246 141" stroke="#0a1f1a"/>
+  </g>
+  <g fill="#a9c4ba" font-family="system-ui, sans-serif" font-size="11">
+    <text x="24" y="39">Finding</text><text x="24" y="114">Evidence</text><text x="24" y="189">Scan import</text>
+  </g>
+</svg>
