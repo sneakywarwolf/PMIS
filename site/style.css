@@ -397,3 +397,8 @@ details.fold[open] > summary { border-bottom: 1px solid var(--border); margin-bo
 
 /* Between the menu breakpoint and 1150px, tighten the nav so its items fit beside the profile buttons */
 @media (min-width: 1101px) and (max-width: 1150px) { .nav { font-size: 0.85rem; } .nav a { padding-left: 7px; padding-right: 7px; } }
+
+/* Circular icon buttons: GitHub, LinkedIn and the theme switch */
+.icon-btn, .profile-btn { width: 36px; height: 36px; padding: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; }
+.icon-btn svg, .profile-btn svg { width: 18px; height: 18px; }
+@media (max-width: 700px) { .profile-btn { padding: 0; } }
