@@ -1,11 +1,11 @@
-name: Deploy GitHub Pages
+name: github-webpage
 
 on:
   push:
     branches: [master]
     paths:
       - 'site/**'
-      - '.github/workflows/pages.yml'
+      - '.github/workflows/github-webpage.yml'
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: github-webpage
   cancel-in-progress: false
 
 jobs:
