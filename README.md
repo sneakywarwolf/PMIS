@@ -31,6 +31,8 @@ Open http://localhost:3000, sign in as `admin` with that password, and set a new
 
 **Prebuilt images:** instead of building, you can pull `sneakywarwolf/pmis-backend` and `sneakywarwolf/pmis-frontend` from Docker Hub with no source checkout: download `docker-compose.yml` and `.env.example`, set the secrets, then run `docker pull sneakywarwolf/pmis-frontend:latest`, `docker pull sneakywarwolf/pmis-backend:latest`, `docker compose pull` and `docker compose up -d --no-build`. Full commands: [Install from Docker Hub](https://sneakywarwolf.github.io/PMIS/installation.html#dockerhub). The `latest` images were last pushed on 2026-10-08 and predate security improvements in the current code, so build from source, as above, until newer images are published.
 
+**Upgrading from a MinIO-based version:** file storage is now RustFS (S3-compatible). Existing installs must copy their files across once: see [Migrating from MinIO to RustFS](https://sneakywarwolf.github.io/PMIS/deployment.html#migrate-minio). New installs need no extra step.
+
 ## Repository layout
 
 | Path | Contents |
