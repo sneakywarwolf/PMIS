@@ -29,6 +29,10 @@ FROM node:22-alpine AS production
 
 WORKDIR /app
 
+# Pull patched Alpine packages (musl, zlib, openssl) and a current npm (the base image's bundled copy
+# carries vulnerable tar/minimatch/etc.)
+RUN apk upgrade --no-cache && npm install -g npm@latest
+
 # Set Node.js to production
 ENV NODE_ENV=production
 ENV NODE_OPTIONS=--max-old-space-size=1024

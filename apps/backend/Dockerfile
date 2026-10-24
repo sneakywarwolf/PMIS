@@ -23,19 +23,23 @@ RUN npx prisma generate
 # Build application
 RUN npm run build && find dist -name "*.map" -delete
 
+# Drop dev dependencies (prisma CLI + ts-node stay: they are runtime deps for migrate/seed),
+# then regenerate the Prisma client because prune removes node_modules/.prisma
+RUN npm prune --omit=dev && npx prisma generate
+
 # Stage 2: Production
 FROM node:22-alpine AS production
 
 WORKDIR /app
 
-# Prisma's query engine needs OpenSSL on Alpine
-RUN apk add --no-cache openssl
+# Pull patched Alpine packages (musl, zlib, openssl) and a current npm (the base image's bundled copy
+# carries vulnerable tar/minimatch/etc.); Prisma's query engine needs OpenSSL on Alpine
+RUN apk upgrade --no-cache && apk add --no-cache openssl && npm install -g npm@latest
 
 # Set Node.js to production
 ENV NODE_ENV=production
 
-# ponytail: reuse the builder's node_modules (includes prisma CLI + ts-node for migrate/seed at start);
-# image is larger than a prod-only install. Slim it later if size matters.
+# Builder's pruned node_modules (prod deps incl. prisma CLI + ts-node for migrate/seed at start)
 COPY package*.json tsconfig.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
