@@ -178,7 +178,7 @@ docker compose up -d</code></pre>
   <section id="upgrade">
     <h2>Upgrading</h2>
     <ol class="plain">
-      <li><a href="#backup">Back up</a>.</li>
+      <li><a href="#backup">Back up</a>. If you are upgrading from a version that used MinIO for file storage, also follow <a href="#migrate-minio">Migrating from MinIO to RustFS</a>: the files have to be copied across once.</li>
       <li>Get the new version:
 <pre><code># Prebuilt images: set PMIS_VERSION in .env to the new release, then
 docker compose pull

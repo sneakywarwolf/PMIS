@@ -93,7 +93,7 @@ async function main(): Promise<number> {
       try {
         impact = await describeImpact(prisma, storage, scopes);
       } catch (e) {
-        console.error(`Could not read the current state (is Docker/Postgres/MinIO running?): ${(e as Error).message}`);
+        console.error(`Could not read the current state (is Docker/Postgres/object storage running?): ${(e as Error).message}`);
         return EXIT_FAILED;
       }
       console.log(`\nSelected: ${isEverything(scopes) ? 'EVERYTHING' : scopes.join(', ')}\n`);
