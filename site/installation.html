@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Installation - PMIS-Project Management for Information Security</title>
   <meta name="description" content="Step-by-step installation of PMIS with Docker Compose, first sign-in, initial setup and troubleshooting.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PMIS documentation">
+  <meta name="theme-color" content="#12302a">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -32,6 +35,17 @@
 </header>
 
 <main class="wrap">
+
+  <section id="overview">
+    <h2>Install at a glance</h2>
+    <ol class="steps">
+      <li><a href="#step-1">Check prerequisites</a>: Docker, Git and OpenSSL.</li>
+      <li><a href="#step-2">Get the source</a> with git clone.</li>
+      <li><a href="#step-3">Create the .env file</a> and generate secrets.</li>
+      <li><a href="#step-4">Start PMIS</a> from source or prebuilt images.</li>
+      <li><a href="#step-5">Check it is healthy</a>, then continue to the remaining steps.</li>
+    </ol>
+  </section>
 
   <section id="step-1">
     <h2>Step 1: Check prerequisites</h2>
@@ -192,5 +206,6 @@ docker compose down        # remove containers, keep data volumes</code></pre>
 </footer>
 
 <script src="docs.js"></script>
+<script src="extras.js"></script>
 </body>
 </html>

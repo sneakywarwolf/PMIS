@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PMIS-Project Management for Information Security</title>
   <meta name="description" content="PMIS-Project Management for Information Security: role-based project management and report generation for VAPT teams.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PMIS documentation">
+  <meta name="theme-color" content="#12302a">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -36,6 +39,23 @@
 </header>
 
 <main class="wrap">
+
+  <section id="start-here">
+    <h2>Start here</h2>
+    <div class="paths">
+      <a href="installation.html"><strong>Install PMIS</strong><span>Get it running with Docker in about ten minutes.</span></a>
+      <a href="user-guide.html"><strong>Use it day to day</strong><span>Projects, findings, evidence and approvals.</span></a>
+      <a href="reports.html"><strong>Build report templates</strong><span>Placeholders, mapping and generating reports.</span></a>
+    </div>
+    <p>Or jump to the part for your role:</p>
+    <div class="roles">
+      <a href="user-guide.html#roles">Tester</a>
+      <a href="user-guide.html#roles">Team Lead</a>
+      <a href="user-guide.html#roles">AVP</a>
+      <a href="reports.html#templates">Admin: templates</a>
+      <a href="deployment.html">Admin: operations</a>
+    </div>
+  </section>
 
   <section id="what">
     <h2>What PMIS does</h2>
@@ -89,5 +109,6 @@
 </footer>
 
 <script src="docs.js"></script>
+<script src="extras.js"></script>
 </body>
 </html>

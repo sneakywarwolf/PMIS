@@ -254,3 +254,88 @@ ul.plain li, ol.plain li { margin: 6px 0; }
   .hero { background: none; color: inherit; padding: 0; }
   .hero .tagline { color: inherit; }
 }
+
+/* Motion: one page fade, colour fade on theme switch, flash on section jump */
+@media (prefers-reduced-motion: no-preference) {
+  main, .hero { animation: page-in 0.35s ease-out both; }
+  body, .site-header, .card, .table-wrap, pre, code { transition: background-color 0.25s, color 0.25s, border-color 0.25s; }
+  .flash { animation: flash 1.4s ease-out; }
+  .lightbox[open] img { animation: page-in 0.2s ease-out; }
+}
+@keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes flash { from { background: var(--accent-soft); box-shadow: 0 0 0 8px var(--accent-soft); } to { background: transparent; box-shadow: 0 0 0 8px transparent; } }
+
+/* Mobile menu */
+.menu-btn {
+  display: none; font: inherit; font-size: 0.85rem; cursor: pointer;
+  color: var(--text); background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px;
+}
+@media (max-width: 700px) {
+  .site-header .bar { flex-wrap: wrap; }
+  .menu-btn { display: block; margin-left: auto; order: 2; }
+  .theme-toggle { order: 3; }
+  .nav { display: none; order: 5; flex-basis: 100%; flex-direction: column; overflow: visible; padding-top: 6px; }
+  .nav.open { display: flex; }
+  .nav a { padding: 10px; }
+}
+
+/* Pager and footer */
+.pager { display: flex; justify-content: space-between; gap: 12px; padding-top: 8px; padding-bottom: 8px; }
+.pager a { padding: 8px 14px; border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; background: var(--surface); }
+.pager a:hover { border-color: var(--accent); }
+.updated { margin-top: 6px; }
+
+/* Access matrix */
+td.yes { color: var(--accent); font-weight: 600; }
+td.no { color: var(--muted); }
+.table-wrap { max-height: 75vh; }
+th { position: sticky; top: 0; z-index: 1; }
+.filter select { font: inherit; padding: 6px 10px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+
+/* Install helpers */
+.copy-all { cursor: pointer; font: inherit; font-size: 0.88rem; margin: 4px 0 8px; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 6px; padding: 5px 12px; }
+.steps { counter-reset: step; list-style: none; padding: 0; }
+.steps li { counter-increment: step; position: relative; padding: 4px 0 14px 44px; max-width: 74ch; }
+.steps li::before { content: counter(step); position: absolute; left: 0; top: 2px; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 700; text-align: center; line-height: 28px; font-size: 0.9rem; }
+
+/* Entry points on the home page */
+.paths { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 16px 0; }
+.paths a { display: block; padding: 18px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; color: var(--text); }
+.paths a:hover { border-color: var(--accent); }
+.paths strong { display: block; font-size: 1.05rem; margin-bottom: 4px; }
+.paths span { color: var(--muted); font-size: 0.92rem; }
+.roles { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.roles a { padding: 6px 14px; border: 1px solid var(--border); border-radius: 999px; text-decoration: none; background: var(--surface); }
+.roles a:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Screenshots: browser frame, click to enlarge, numbered callouts, clips */
+.shot.framed img { border-top: 26px solid var(--code-bg); background-image: radial-gradient(circle, #e0645c 4px, transparent 5px), radial-gradient(circle, #e0b44c 4px, transparent 5px), radial-gradient(circle, #5cb85c 4px, transparent 5px); background-repeat: no-repeat; background-size: 14px 14px; background-position: 10px -20px, 28px -20px, 46px -20px; }
+.shot img { cursor: zoom-in; }
+.shot .pin { position: absolute; width: 24px; height: 24px; border-radius: 50%; background: #c62828; color: #fff; font-size: 0.8rem; font-weight: 700; text-align: center; line-height: 24px; transform: translate(-50%, -50%); }
+.shot .stage { position: relative; }
+.legend { font-size: 0.9rem; color: var(--muted); padding-left: 1.3em; }
+video.clip { display: block; width: 100%; border: 1px solid var(--border); border-radius: var(--radius); }
+.lightbox { border: none; padding: 0; background: transparent; max-width: 94vw; max-height: 94vh; }
+.lightbox::backdrop { background: rgba(0, 0, 0, 0.75); }
+.lightbox img { max-width: 94vw; max-height: 94vh; border-radius: var(--radius); cursor: zoom-out; }
+
+/* Search palette */
+.search { border: 1px solid var(--border); border-radius: var(--radius); padding: 0; width: min(560px, 92vw); margin-top: 12vh; background: var(--surface); color: var(--text); }
+.search::backdrop { background: rgba(0, 0, 0, 0.5); }
+.search input { width: 100%; font: inherit; font-size: 1.05rem; padding: 14px 16px; border: none; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); }
+.search input:focus-visible { outline: none; }
+.search ul { list-style: none; margin: 0; padding: 4px; max-height: 50vh; overflow-y: auto; }
+.search li a { display: flex; justify-content: space-between; gap: 12px; padding: 9px 12px; border-radius: 6px; text-decoration: none; color: var(--text); }
+.search li a:hover, .search li a:focus-visible { background: var(--accent-soft); }
+.search li span { color: var(--muted); font-size: 0.85rem; }
+.search .none { padding: 12px; color: var(--muted); }
+
+/* Pipeline diagram */
+.diagram { margin: 16px 0; overflow-x: auto; }
+.diagram svg { min-width: 640px; width: 100%; height: auto; }
+.diagram .box { fill: var(--surface); stroke: var(--border); stroke-width: 1.5; }
+.diagram .lit { fill: var(--accent-soft); stroke: var(--accent); }
+.diagram text { fill: var(--text); font: 600 14px system-ui, sans-serif; }
+.diagram .sub { fill: var(--muted); font-weight: 400; font-size: 12px; }
+.diagram .arrow { stroke: var(--muted); stroke-width: 2; fill: none; }
+.diagram .head { fill: var(--muted); }

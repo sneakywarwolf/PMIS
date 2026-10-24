@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Reports - PMIS-Project Management for Information Security</title>
   <meta name="description" content="PMIS reports: preparing Word and Excel templates, placeholders, uploading and activating templates, generating reports and the Issue Log.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PMIS documentation">
+  <meta name="theme-color" content="#12302a">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -40,6 +43,23 @@
       <li>Write each value PMIS should fill in as a placeholder in braces, for example <code>{Client Name}</code>, and <strong>highlight it yellow</strong>. Only highlighted placeholders are detected.</li>
       <li>Keep each placeholder's text together. Don't rename the placeholders in the findings tables. Keep table header rows intact.</li>
     </ol>
+
+    <figure class="shot">
+      <div class="diagram">
+        <svg viewBox="0 0 760 110" role="img" aria-label="Report flow: upload template, map parameters, activate, generate, download">
+          <defs><marker id="ah" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="head"/></marker></defs>
+          <g>
+            <rect class="box" x="4" y="25" width="128" height="60" rx="8"/><text x="68" y="52" text-anchor="middle">Upload</text><text class="sub" x="68" y="70" text-anchor="middle">Word or Excel</text>
+            <rect class="box" x="162" y="25" width="128" height="60" rx="8"/><text x="226" y="52" text-anchor="middle">Map</text><text class="sub" x="226" y="70" text-anchor="middle">placeholders</text>
+            <rect class="box" x="320" y="25" width="128" height="60" rx="8"/><text x="384" y="52" text-anchor="middle">Activate</text><text class="sub" x="384" y="70" text-anchor="middle">Admin</text>
+            <rect class="box lit" x="478" y="25" width="128" height="60" rx="8"/><text x="542" y="52" text-anchor="middle">Generate</text><text class="sub" x="542" y="70" text-anchor="middle">on the project</text>
+            <rect class="box" x="636" y="25" width="120" height="60" rx="8"/><text x="696" y="52" text-anchor="middle">Download</text><text class="sub" x="696" y="70" text-anchor="middle">link lasts 1 hour</text>
+          </g>
+          <path class="arrow" d="M132,55 H160" marker-end="url(#ah)"/><path class="arrow" d="M290,55 H318" marker-end="url(#ah)"/><path class="arrow" d="M448,55 H476" marker-end="url(#ah)"/><path class="arrow" d="M606,55 H634" marker-end="url(#ah)"/>
+        </svg>
+      </div>
+      <figcaption>The report flow. Admins do the first three steps once per template; testers repeat the last two for each project.</figcaption>
+    </figure>
 
     <h3>Placeholders you can map</h3>
     <p>After upload, each detected placeholder can be mapped to one of these values. Unmapped placeholders are matched by name automatically. The suggested placeholder is the parameter's own name: click it to copy, then paste it into your template. <em>Entered in</em> shows where the value comes from.</p>
@@ -159,5 +179,6 @@
 </footer>
 
 <script src="docs.js"></script>
+<script src="extras.js"></script>
 </body>
 </html>
