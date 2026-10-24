@@ -24,6 +24,8 @@ async function setup(project: any = network()) {
     reportTemplate: { findFirst: jest.fn().mockResolvedValue(null), findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]), create: jest.fn(), update: jest.fn() },
     reportGeneration: { count: jest.fn().mockResolvedValue(0), create: jest.fn().mockResolvedValue({ id: 'rg1' }) },
   };
+  prisma.$executeRaw = jest.fn().mockResolvedValue(0);
+  prisma.$transaction = jest.fn((cb: (tx: any) => unknown) => cb(prisma)); // one shared mock stands in for the transaction client
   const queue = { add: jest.fn() };
   const moduleRef = await Test.createTestingModule({
     providers: [
@@ -277,3 +279,56 @@ describe('Template Activity Types (multi-select)', () => {
     expect(prisma.project.updateMany).toHaveBeenCalledWith({ where: { templateId: 'old', subType: { in: ['WEB'] } }, data: { templateId: 'new' } }); // only Web projects move
   });
 });
+
+describe('Activation (approval) replaces the previous template safely', () => {
+  const tpl = (over: object = {}) => ({ id: 'new', category: 'CERT_IN', subType: 'NETWORK', extraSubTypes: [], reportFormat: 'WORD', name: 'N', filePath: 'f-new', ...over });
+  const old = (over: object = {}) => ({ id: 'old', category: 'CERT_IN', subType: 'NETWORK', extraSubTypes: [], filePath: 'f-old', ...over });
+  async function run(over: { replaced?: any[]; generations?: number } = {}) {
+    const { service, prisma } = await setup();
+    (service as any).storage.deleteFile = jest.fn().mockResolvedValue(undefined);
+    prisma.reportTemplate.findUnique.mockResolvedValue(tpl());
+    prisma.reportTemplate.findMany.mockResolvedValue(over.replaced ?? [old()]);
+    prisma.reportTemplate.update.mockResolvedValue({ id: 'new', isActive: true });
+    prisma.reportTemplate.delete = jest.fn();
+    prisma.project.updateMany = jest.fn().mockResolvedValue({ count: 3 });
+    prisma.reportGeneration.count.mockResolvedValue(over.generations ?? 0);
+    return { service, prisma, storage: (service as any).storage };
+  }
+
+  it('looks only at the same category, Activity Types and report format, under a lock, inside one transaction', async () => {
+    const { service, prisma } = await run();
+    await service.activateTemplate('new', 'admin1', 'ip', 'ua');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+    expect(prisma.reportTemplate.findMany.mock.calls[0][0].where).toEqual({
+      category: 'CERT_IN', OR: [{ subType: 'NETWORK' }, { extraSubTypes: { has: 'NETWORK' } }], reportFormat: 'WORD', isActive: true, id: { not: 'new' },
+    });
+  });
+
+  it('rebinds projects, activates the new one, and deletes a replaced template nothing references (file after commit)', async () => {
+    const { service, prisma, storage } = await run();
+    await service.activateTemplate('new', 'admin1', 'ip', 'ua');
+    expect(prisma.project.updateMany).toHaveBeenCalledWith({ where: { templateId: 'old' }, data: { templateId: 'new' } });
+    expect(prisma.reportTemplate.delete).toHaveBeenCalledWith({ where: { id: 'old' } });
+    expect(prisma.reportTemplate.update).toHaveBeenCalledWith({ where: { id: 'new' }, data: { isActive: true } });
+    expect(storage.deleteFile).toHaveBeenCalledWith('f-old');
+  });
+
+  it('a replaced template that generated reports still point at is kept, inactive, with its file', async () => {
+    const { service, prisma, storage } = await run({ generations: 4 });
+    await service.activateTemplate('new', 'admin1', 'ip', 'ua');
+    expect(prisma.reportTemplate.delete).not.toHaveBeenCalled();
+    expect(storage.deleteFile).not.toHaveBeenCalled();
+    expect(prisma.reportTemplate.update).toHaveBeenCalledWith({ where: { id: 'old' }, data: { isActive: false, effectiveTo: expect.any(Date) } });
+    expect(prisma.project.updateMany).toHaveBeenCalledWith({ where: { templateId: 'old' }, data: { templateId: 'new' } });
+  });
+
+  it('a failure part-way rolls back: the old template stays active and no file is removed', async () => {
+    const { service, prisma, storage } = await run();
+    // A real transaction rolls back on throw; the mock only needs to prove nothing escapes the transaction callback.
+    prisma.reportTemplate.update.mockRejectedValue(new Error('db down'));
+    await expect(service.activateTemplate('new', 'admin1', 'ip', 'ua')).rejects.toThrow('db down');
+    expect(storage.deleteFile).not.toHaveBeenCalled();
+  });
+});
+

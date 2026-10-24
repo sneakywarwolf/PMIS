@@ -823,7 +823,7 @@ function TemplateUploader() {
         <h2 className="text-lg font-semibold text-white mb-2">Upload Report Template</h2>
         <p className="text-xs text-gray-400 mb-4">
           Templates are versioned: uploads stay as inactive drafts until you review the validation
-          report and activate them from the Browse tab. Existing projects keep their original template.
+          report and activate them from the Browse tab. Activating replaces the previous active template for the same category, Activity Type and report type, and projects using it move to the new one; reports already generated are not changed.
         </p>
         <p className="text-xs text-amber-400/90 mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
           <strong>How field detection works:</strong> the parser only picks up placeholders written in
