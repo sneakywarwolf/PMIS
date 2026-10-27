@@ -312,14 +312,10 @@ export default function ProjectDetailPage() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    // Matches the server's 25 MB upload limit; checked here so nothing is uploaded just to be rejected.
-    if (file.size > 25 * 1024 * 1024) {
-      showToast(
-        file.name.toLowerCase().endsWith('.nessus')
-          ? 'This .nessus file is larger than 25 MB. Please export the scan as a CSV file from Nessus and upload that instead.'
-          : 'This file is larger than 25 MB, which is the upload limit.',
-        'error',
-      );
+    // Matches the server's limit for a .nessus or .csv scan export (it is read as it arrives and never stored);
+    // checked here so nothing is uploaded just to be rejected.
+    if (file.size > 500 * 1024 * 1024) {
+      showToast('This file is larger than 500 MB, which is the upload limit.', 'error');
       return;
     }
     setNessusFile(file);

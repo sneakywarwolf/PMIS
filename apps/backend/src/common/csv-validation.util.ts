@@ -1,68 +1,119 @@
 import { BadRequestException } from '@nestjs/common';
 
+export const MAX_CSV_ROWS = 200_000;
+export const MAX_CSV_COLUMNS = 200;
+
+const QUOTE = 34;
+const COMMA = 44;
+const CR = 13;
+const LF = 10;
+
+const limitError = () => new BadRequestException(`File exceeds the allowed size (max ${MAX_CSV_ROWS} rows and ${MAX_CSV_COLUMNS} columns).`);
+
+/**
+ * Incremental RFC 4180 reader: feed it text in any chunking and it hands each finished row to `onRow`, so a file
+ * of any size can be read without ever being held whole. Quoting works as in parseCsv, which is built on it: a
+ * newline inside a quoted field does not end the row, "" is a literal quote, a lone \r is ignored.
+ * `maxFieldChars` (optional) cuts any single field at that length, so one runaway quoted field cannot use memory.
+ */
+export class CsvRowStream {
+  private row: string[] = [];
+  private field = '';
+  private touched = false;
+  private inQuotes = false;
+  /** A quote was just read inside quotes: an escaped "" or the closing quote, decided by the next character. */
+  private quotePending = false;
+
+  constructor(private readonly onRow: (row: string[]) => void, private readonly opts: { maxFieldChars?: number } = {}) {}
+
+  write(text: string): void {
+    let start = 0; // where the current run of ordinary characters began; runs are appended in one piece
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i);
+      if (this.inQuotes) {
+        if (c !== QUOTE) {
+          if (!this.quotePending) continue;
+          this.inQuotes = false; // the quote before this character closed the field: read it as unquoted
+          this.quotePending = false;
+        } else if (this.quotePending) {
+          this.append('"');
+          this.quotePending = false;
+          start = i + 1;
+          continue;
+        } else {
+          this.append(text.slice(start, i));
+          this.quotePending = true;
+          start = i + 1;
+          continue;
+        }
+      }
+      if (c === QUOTE) {
+        this.append(text.slice(start, i));
+        this.inQuotes = true;
+        this.touched = true;
+        start = i + 1;
+      } else if (c === COMMA) {
+        this.append(text.slice(start, i));
+        this.endField();
+        this.touched = true;
+        start = i + 1;
+      } else if (c === CR) {
+        this.append(text.slice(start, i));
+        start = i + 1;
+      } else if (c === LF) {
+        this.append(text.slice(start, i));
+        this.endField();
+        this.emit();
+        this.touched = false;
+        start = i + 1;
+      }
+    }
+    this.append(text.slice(start));
+  }
+
+  end(): void {
+    this.inQuotes = false;
+    this.quotePending = false;
+    if (this.touched || this.field.length > 0 || this.row.length > 0) {
+      this.endField();
+      this.emit();
+    }
+    this.touched = false;
+  }
+
+  private append(s: string): void {
+    if (!s) return;
+    const max = this.opts.maxFieldChars;
+    if (max === undefined) this.field += s;
+    else if (this.field.length < max) this.field += s.length > max - this.field.length ? s.slice(0, max - this.field.length) : s;
+  }
+
+  private endField(): void {
+    this.row.push(this.field);
+    this.field = '';
+    if (this.row.length > MAX_CSV_COLUMNS) throw limitError();
+  }
+
+  private emit(): void {
+    const row = this.row;
+    this.row = [];
+    this.onRow(row);
+  }
+}
+
 /**
  * Parses full CSV content into rows of columns, honoring RFC 4180 quoting —
  * critically, a newline inside a quoted field (e.g. a multi-paragraph
- * Remediation/Description column) does NOT start a new row. Splitting the
- * raw text on "\n" before parsing quotes (the naive approach) breaks on any
- * such field, so this parses the whole content as one character stream.
+ * Remediation/Description column) does NOT start a new row.
  */
 export function parseCsv(content: string): string[][] {
   const rows: string[][] = [];
-  let row: string[] = [];
-  let field = '';
-  let inQuotes = false;
-  let fieldTouched = false;
-
-  for (let i = 0; i < content.length; i++) {
-    const char = content[i];
-
-    if (inQuotes) {
-      if (char === '"') {
-        if (content[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += char;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inQuotes = true;
-      fieldTouched = true;
-    } else if (char === ',') {
-      row.push(field);
-      field = '';
-      fieldTouched = true;
-    } else if (char === '\r') {
-      // consumed as part of a \r\n pair below, or ignored for a lone \r
-    } else if (char === '\n') {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = '';
-      fieldTouched = false;
-    } else {
-      field += char;
-      fieldTouched = true;
-    }
-  }
-
-  if (fieldTouched || field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-
+  const stream = new CsvRowStream((row) => rows.push(row));
+  stream.write(content);
+  stream.end();
   assertCsvLimits(rows);
   return rows;
 }
-
-export const MAX_CSV_ROWS = 200_000;
-export const MAX_CSV_COLUMNS = 200;
 
 /** Parser limits: a hostile file must not be able to turn a 10-25 MB upload into millions of rows/columns. */
 export function assertCsvLimits(rows: string[][]): void {

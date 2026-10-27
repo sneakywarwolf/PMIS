@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Nessus imports accept `.nessus` and `.csv` files up to 500 MB. The file is read while it uploads and is never stored; only the findings you import are saved. Behind your own reverse proxy, raise its body limit to at least 512 MB (the docs example is updated).
 - Network Excel reports repeat rows per scope entry, port and finding; `{VA Output}` maps to Nessus plugin output.
 - Network Word reports start Scope and Detail Findings on a new page.
 - Network VA findings hide the PoC steps section.

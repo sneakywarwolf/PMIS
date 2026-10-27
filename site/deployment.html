@@ -93,7 +93,7 @@ server {
     ssl_certificate     /etc/ssl/pmis/fullchain.pem;
     ssl_certificate_key /etc/ssl/pmis/privkey.pem;
 
-    client_max_body_size 25m;   # PMIS accepts uploads up to 25 MB
+    client_max_body_size 512m;   # Nessus scans up to 500 MB; every other upload is far smaller
 
     location / {
         proxy_pass http://127.0.0.1:3000;

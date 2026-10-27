@@ -13,6 +13,13 @@ const nextConfig = {
     return config;
   },
   poweredByHeader: false,
+  experimental: {
+    // Next's /api proxy copies the request body only up to this size (10 MB by default) and cuts off the rest,
+    // which breaks every larger upload. Nessus scans can be up to 500 MB (plus multipart overhead, hence 512).
+    middlewareClientMaxBodySize: '512mb',
+    // How long the proxy waits on the API without any traffic (30 s by default). Importing a big scan takes longer.
+    proxyTimeout: 15 * 60 * 1000,
+  },
   async headers() {
     const dev = process.env.NODE_ENV !== 'production';
     // 'unsafe-inline' is needed for Next's inline bootstrap and the static theme script in layout.tsx;

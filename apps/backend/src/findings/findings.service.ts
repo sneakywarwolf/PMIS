@@ -5,7 +5,8 @@ import { AuditService } from '../audit/audit.service';
 import { User, UserRole, FindingStatus, ProjectStatus } from '@prisma/client';
 import { resolveCvssVector } from '../common/cvss-vector.util';
 import { findingPocReadiness } from '../common/poc-validation.util';
-import { parseNessusFile } from '../common/nessus-parser.util';
+import { NESSUS_POC_MAX, parseNessusFile } from '../common/nessus-parser.util';
+import type { ScanUpload } from '../common/nessus-upload.storage';
 import { assertPocKey, assertPocKeys } from '../common/upload-security.util';
 import { StorageService } from '../reports/storage.service';
 
@@ -66,7 +67,8 @@ export class FindingsService {
     if (user.role === UserRole.TESTER && project.testerId !== user.id) {
       throw new ForbiddenException('Cannot add findings to this project');
     }
-    const parsed = parseNessusFile(file);
+    // An uploaded .nessus arrives already parsed (streamed, never kept); a .csv or a plain buffer is parsed here.
+    const parsed = (file as ScanUpload | undefined)?.scan ?? parseNessusFile(file);
 
     // Duplicate = same Nessus plugin already imported here, or a finding with the same name already in this project.
     const [scoped, existing] = await Promise.all([
@@ -106,7 +108,7 @@ export class FindingsService {
   }
 
   static readonly NESSUS_POC_STEP = 'Observe the output.';
-  private static readonly NESSUS_POC_MAX = 32000;
+  private static readonly NESSUS_POC_MAX = NESSUS_POC_MAX;
 
   /** Plugin output as captured; with several hosts each block is headed by its host:port. Null when the scan has none. */
   static nessusPocText(outputs: { at: string; text: string }[]): string | null {

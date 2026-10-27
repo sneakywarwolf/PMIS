@@ -85,7 +85,7 @@ export function NessusImportDialog({
       .catch((e) =>
         setError(
           e.response?.status === 413
-            ? `This file is larger than 25 MB.${file.name.toLowerCase().endsWith('.nessus') ? ' Please export the scan as a CSV file from Nessus and upload that instead.' : ''}`
+            ? 'This file is larger than 500 MB, the upload limit.'
             : e.response?.data?.message || 'Could not read this file.',
         ),
       );

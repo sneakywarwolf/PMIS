@@ -111,8 +111,9 @@ async function bootstrap() {
 
   const port = process.env.PORT || 4000;
   const server = await app.listen(port);
-  // Bound slow-request exposure (uploads are capped at 25 MB; report generation runs in a queue).
-  server.requestTimeout = 120_000;
+  // Bound slow-request exposure (uploads are capped at 25 MB, Nessus scans at 500 MB, which a slow link needs minutes
+  // to send; report generation runs in a queue).
+  server.requestTimeout = 15 * 60_000;
   server.headersTimeout = 30_000;
   logger.log(`VAPT Command Center API running on port ${port}`);
   if (swaggerOn) logger.log(`Swagger docs available at http://localhost:${port}/api/docs`);

@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
+import { NESSUS_UPLOAD, NessusUploadSizeGuard } from '../common/nessus-upload.storage';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { FindingsService } from './findings.service';
 import { StorageService } from '../reports/storage.service';
@@ -37,7 +38,8 @@ export class FindingsController {
   }
 
   @Post('nessus/preview')
-  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @UseGuards(NessusUploadSizeGuard)
+  @UseInterceptors(FileInterceptor('file', NESSUS_UPLOAD))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Parse a Nessus .nessus/.csv export and list its findings (no data is written)' })
   async previewNessus(
@@ -50,7 +52,8 @@ export class FindingsController {
   }
 
   @Post('nessus/import')
-  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @UseGuards(NessusUploadSizeGuard)
+  @UseInterceptors(FileInterceptor('file', NESSUS_UPLOAD))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Import only the selected findings (by Nessus plugin ID) from a Nessus export' })
   async importNessus(
