@@ -201,7 +201,7 @@
         <tr><td>Word</td><td>Network scope table</td><td>A table whose text contains <code>{IP}</code> and <code>{Purpose}</code> (and <code>{Domain&amp;Hostname}</code>).</td><td>One row per scope entry.</td></tr>
         <tr><td>Word</td><td>Tools used table</td><td>A table containing <code>{Tool Name}</code> and <code>{Tool Version}</code>.</td><td>One row per tool in the project&rsquo;s tools table.</td></tr>
         <tr><td>Word</td><td>Nmap port table</td><td>A table whose text contains &ldquo;nmap&rdquo; and <code>{Port}</code>, plus <code>{Protocol}</code>, <code>{Service}</code>, <code>{Status}</code>.</td><td>One row per imported Nmap record.</td></tr>
-        <tr><td>Word</td><td>Findings tables</td><td>Summary table (<code>{Vulnerability Name}</code> or <code>{Finding Title}</code> with CVE/CWE or score) and detailed table (the same plus description or remediation).</td><td>One row or block per finding; PoC steps and screenshots go in the detailed table&rsquo;s PoC row.</td></tr>
+        <tr><td>Word</td><td>Findings tables</td><td>Summary table (<code>{Vulnerability Name}</code> or <code>{Finding Title}</code> with CVE/CWE or score) and detailed table (the same plus description or remediation).</td><td>One row or block per finding; PoC steps and screenshots go in the detailed table&rsquo;s PoC row. A step with several screenshots prints all of them, in the order set on the finding, each with a thin black border.</td></tr>
         <tr><td>Word</td><td>Contact table</td><td>Rows named Tester, Team Lead and Manager.</td><td>Written into the highlighted run of each cell.</td></tr>
         <tr><td>Excel</td><td>Scope rows</td><td>A row containing placeholders named IP and Purpose (and optionally Domain).</td><td>Row repeats per scope entry; empty values print NA.</td></tr>
         <tr><td>Excel</td><td>Port scan rows</td><td>A row with a Port placeholder and one whose name contains &ldquo;nmap&rdquo;, plus Protocol, Service, Status.</td><td>Row repeats per Nmap record; empty values print NA.</td></tr>
@@ -252,14 +252,14 @@
     <p>Generation is blocked until both of these conditions hold:</p>
     <ul class="plain">
       <li>The project has at least one finding, or its compliance status is <em>Compliant</em>.</li>
-      <li>Every finding is report-ready: each PoC step has a description and a screenshot. Nessus findings on Network projects are exempt.</li>
+      <li>Every finding is report-ready: each PoC step has a description and at least one screenshot. Nessus findings on Network projects are exempt. Findings added manually or imported from a file are not exempt.</li>
     </ul>
     <p>Each completed generation gets the next version number, <code>1.1</code>, <code>1.2</code> and so on. Failed attempts don't use a number. The file is named after the template's file name pattern, with project values filled in. The project status becomes <em>Completed</em>, and its retention countdown starts.</p>
   </section>
 
   <section id="issue-log">
     <h2>Issue Log</h2>
-    <p>From the project, export the Issue Log as CSV: one row per finding. An Admin sets which columns appear, and in what order, under <em>Settings</em>.</p>
+    <p>From the project, export the Issue Log as CSV: one row per finding. An Admin sets which columns appear, and in what order, under <em>Settings</em>. The header row is plain text (no surrounding quotation marks); data cells are quoted, and any cell that starts with <code>=</code>, <code>+</code>, <code>-</code> or <code>@</code> is prefixed so spreadsheets do not run it as a formula. Findings added manually or imported from a file are included like any other finding of the project.</p>
   </section>
 
   <section id="history">

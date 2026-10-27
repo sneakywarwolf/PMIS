@@ -1,6 +1,6 @@
 # PMIS-Project Management for Information Security
 
-A self-hosted, role-based web application for Vulnerability Assessment & Penetration Testing (VAPT) teams: engagements, findings and evidence, a shared vulnerability library, scan imports, and Word/Excel report generation.
+A self-hosted, role-based web application for Vulnerability Assessment & Penetration Testing (VAPT) teams: engagements, findings and evidence (from a shared vulnerability library, entered by hand, or imported from CSV/Excel), scan imports, and Word/Excel report generation.
 
 **Documentation: https://sneakywarwolf.github.io/PMIS/**
 
