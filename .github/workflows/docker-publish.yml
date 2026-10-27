@@ -28,6 +28,12 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      # package.json is the fallback source of the version shown in the app, so it carries the release too.
+      - name: Stamp the release version
+        env:
+          TAG: ${{ github.ref_name }}
+        working-directory: apps/${{ matrix.app }}
+        run: npm pkg set version="${TAG#v}"
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:

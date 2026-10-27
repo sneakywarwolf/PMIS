@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Version: the version on the About page now follows the release automatically. The release workflow also writes the tag into each app's `package.json` before building, and when you build from source with `docker compose build`, `PMIS_VERSION` in `.env` (for example `1.0.10`) is passed to the backend as `APP_VERSION`. Images built before this change still report `1.0.0`; install the next release once and it will show the right number from then on.
 - Settings: every setting now has an effect; none is display-only.
   - Application Name, Logo and Favicon (upload a PNG, JPEG, GIF, WebP or ICO up to 150 KB) set the browser tab title and icon, the sidebar and the login page. The `APP_NAME` environment variable is no longer used for the About page.
   - Table Density changes the row spacing of every table. Default Pagination Size pages the Projects, Vulnerability DB and Users lists (viewers can pick another size for their view).
