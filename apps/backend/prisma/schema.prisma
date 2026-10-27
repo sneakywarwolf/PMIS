@@ -545,7 +545,9 @@ model PocStep {
 
   stepNo      Int      @map("step_no")
   description String   @map("description")
+  // First PoC of the step. Further PoCs follow in `extraImagePaths`, in upload order (see common/poc-images.util.ts).
   imagePath   String?  @map("image_path")
+  extraImagePaths String[] @default([]) @map("extra_image_paths")
 
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")

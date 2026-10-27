@@ -6,6 +6,7 @@ import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { readEffectiveSettings } from '../settings/settings.store';
 
 /**
  * Application updates replace code only. This module never touches operational data: it has no
@@ -54,11 +55,50 @@ export function isNewer(a: string, b: string): boolean {
   return false;
 }
 
+/** Release tags are plain dotted numbers ("1.0.10", "v1.0.10"); anything else is not a version this app can compare or show. */
+const VERSION_RE = /^v?\d+(\.\d+){1,3}$/i;
+
+export function normalizeVersion(v: unknown): string | null {
+  const s = typeof v === 'string' ? v.trim() : '';
+  return VERSION_RE.test(s) ? s.replace(/^v/i, '') : null;
+}
+
+export function resolveVersion(appVersion: string | undefined, packageVersion: () => string): string {
+  return normalizeVersion(appVersion) ?? normalizeVersion(packageVersion()) ?? '0.0.0';
+}
+
+/** Parses the releases endpoint's answer, keeping only well-formed stable releases; the rest is ignored, not trusted. */
+export function parseReleases(body: unknown): Release[] {
+  if (!Array.isArray(body)) throw new Error('Unexpected response from the releases endpoint');
+  const releases: Release[] = [];
+  for (const r of body as any[]) {
+    if (!r || r.draft || r.prerelease) continue;
+    const version = normalizeVersion(r.tag_name);
+    if (!version) continue;
+    let url = '';
+    try {
+      const u = new URL(String(r.html_url));
+      if (u.protocol === 'https:') url = u.toString();
+    } catch {
+      /* no usable link */
+    }
+    releases.push({
+      version,
+      name: String(r.name || r.tag_name).slice(0, 200),
+      notes: typeof r.body === 'string' ? r.body.slice(0, 20000) : '',
+      url,
+      publishedAt: typeof r.published_at === 'string' ? r.published_at : '',
+    });
+  }
+  return releases;
+}
+
 @Injectable()
 export class UpdateService implements OnModuleInit {
   private readonly logger = new Logger(UpdateService.name);
   private cache: { at: number; releases: Release[]; changelog: string; error?: string } | null = null;
-  readonly version = process.env.APP_VERSION || this.readPackageVersion();
+  // The running build's release version: APP_VERSION (set in the image by the release workflow), else package.json.
+  readonly version = resolveVersion(process.env.APP_VERSION, () => this.readPackageVersion());
   private readonly timeoutMs = parseInt(process.env.UPDATE_TIMEOUT_MS || '1800000', 10);
 
   constructor(
@@ -125,15 +165,7 @@ export class UpdateService implements OnModuleInit {
     try {
       const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
       if (!res.ok) throw new Error(`GitHub responded ${res.status}`);
-      const releases: Release[] = (await res.json())
-        .filter((r: any) => !r.draft && !r.prerelease)
-        .map((r: any) => ({
-          version: String(r.tag_name).replace(/^v/i, ''),
-          name: r.name || r.tag_name,
-          notes: r.body || '',
-          url: r.html_url,
-          publishedAt: r.published_at,
-        }));
+      const releases = parseReleases(await res.json());
       this.cache = { at: Date.now(), releases, changelog: (await changelogP) || this.localChangelog() };
     } catch (e: any) {
       // Keep the last good result so a transient outage doesn't hide a known update.
@@ -154,9 +186,10 @@ export class UpdateService implements OnModuleInit {
 
   async getStatus(force = false, isAdmin = false) {
     const [state, { releases, changelog, error }] = await Promise.all([this.getState(), this.fetchReleases(force)]);
+    const appName = (await readEffectiveSettings(this.prisma)).settings.general.appName;
     const latest = releases.find((r, _, all) => all.every((o) => !isNewer(o.version, r.version)));
     return {
-      appName: process.env.APP_NAME || 'PMIS - Project Management for Information Security',
+      appName,
       version: this.version,
       changelog,
       latest: latest ? { ...latest, available: isNewer(latest.version, this.version) } : null,

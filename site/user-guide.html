@@ -62,7 +62,8 @@
         <tr><td>Approve or reject library requests and edits</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
         <tr><td>Edit, delete or bulk upload the library directly</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
         <tr><td>Manage users</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
-        <tr><td>Team dashboard and activity feed</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+        <tr><td>Team dashboard</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+        <tr><td>Activity log (who did what, and when)</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
         <tr><td>Organisation dashboard and Team Lead comparison</td><td>Yes</td><td>Yes</td><td>No</td><td>No</td></tr>
         <tr><td>Live users</td><td>Everyone</td><td>Own Team Leads and their teams</td><td>Own testers</td><td>No</td></tr>
         <tr><td>Settings and software updates</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
@@ -94,9 +95,17 @@
       <li>On a project, add a finding by choosing a vulnerability from the library, so the standard wording is reused.</li>
       <li>Add the project-specific details: affected URLs or hosts, authentication type, dependencies and notes.</li>
       <li>If the library's CVSS score does not fit, set an override score and vector for this finding.</li>
-      <li>Add numbered proof-of-concept steps. Each step has a description and a screenshot (PNG, JPG, GIF or WebP).</li>
+      <li>Add numbered proof-of-concept steps. Each step has a description and one or more screenshots (PNG, JPG, GIF or WebP, up to 20 per step). Screenshots print under their step in the order shown, which you can change with the arrows, and each one gets a thin black border in the Word report.</li>
       <li>On <strong>Network</strong> projects the steps and PoC section is hidden for VA findings: the evidence comes from the Nessus scan output.</li>
     </ol>
+    <h3>Findings that are not in the library</h3>
+    <ul class="plain">
+      <li>Both options below are buttons in the <em>Add Finding</em> dialog, next to Cancel and Continue.</li>
+      <li><strong>Add Manually</strong>: enter the vulnerability yourself: name, severity, CVSS score and vector (a calculator is built in), description, impact, remediation, reference and optional CVE and CWE IDs. The finding is created in this project at once.</li>
+      <li><strong>Sync Vuln DB</strong> (a slider, on by default): also sends the vulnerability to the library as a normal approval request. The finding stays usable whatever the decision, and nothing is published without approval. Switch it off to keep the finding in this project only; there is no later sync for it.</li>
+      <li><strong>Import Project Findings</strong>: add many findings as PT findings (in a Network project they appear under <em>PT Findings</em>) from a <code>.csv</code> or <code>.xlsx</code> file (up to 100 MB and 5,000 rows) using the sample template&rsquo;s exact headers. The <em>i</em> beside the button lists the accepted files and the exact header row. You see a preview first; if any row is invalid, nothing is imported. Rows already in the project are skipped. Imported findings stay in this project only: they never enter the library and have no sync option. Workbooks with formulas, macros or embedded objects are rejected.</li>
+    </ul>
+    <p>Both kinds are treated like findings picked from the library: they need steps and screenshots before a report, and they appear in the project&rsquo;s reports and Issue Log only.</p>
     <div class="note"><strong>Report readiness:</strong> a finding is ready for a report only when it has at least one step, every step has a description, and every step has a screenshot. The finding list shows which findings still need work. Nessus findings on Network projects are exempt, because their evidence comes from the scan output.</div>
   </section>
 
@@ -107,7 +116,7 @@
       <thead><tr><th>Import</th><th>Accepted files</th><th>Result</th></tr></thead>
       <tbody>
         <tr><td>Network scope</td><td><code>.txt</code>, <code>.csv</code>, <code>.xlsx</code></td><td>The list of in-scope hosts. The import button shows the supported formats and column headers.</td></tr>
-        <tr><td>Nessus</td><td><code>.nessus</code>, <code>.csv</code></td><td>A preview of the scan's findings. You choose which plugins to import as VA findings. Re-importing a plugin adds its new hosts to the existing finding. Files up to 500 MB are accepted; the file is read while it uploads and is not stored, only the findings you import are saved.</td></tr>
+        <tr><td>Nessus</td><td><code>.nessus</code>, <code>.csv</code></td><td>A preview of the scan's findings. You choose which plugins to import as VA findings. Re-importing a plugin adds its new hosts to the existing finding. Files up to 500 MB are accepted; the file is read while it uploads and is not stored, only the findings you import are saved. A <code>.csv</code> must be a Nessus export with at least the <em>Plugin ID</em>, <em>Name</em>, <em>Risk</em> and <em>Host</em> columns. Include the <em>Plugin Output</em> column to get each host&rsquo;s output as evidence; an export without it imports with no output. A CSV has no CVSS vector, so one is only proposed from the score, as for any import without a vector.</td></tr>
         <tr><td>Nmap</td><td><code>.xml</code>, <code>.txt</code>, <code>.nmap</code></td><td>Open ports recorded on the project for the report's port tables.</td></tr>
       </tbody>
     </table></div>
@@ -120,6 +129,7 @@
   <section id="library">
     <h2>Vulnerability library</h2>
     <ul class="plain">
+      <li>When someone submits a new vulnerability, Admins, AVPs and Team Leads get a notification. Clicking it opens the <em>Pending Approval</em> tab and highlights that request; if it has already been reviewed you are told so. Only those roles can open the tab or read pending records, whatever the link says.</li>
       <li><strong>Everyone</strong> can search, filter by severity and export the library as CSV.</li>
       <li><strong>New entries</strong>: Testers and Team Leads submit a request. It stays pending until an Admin, AVP or Team Lead approves it. The requester is notified of the decision.</li>
       <li><strong>Edits</strong>: Testers propose changes to an existing entry. The original stays unchanged until the request is approved.</li>
@@ -131,7 +141,7 @@
     <h2>Dashboards, notifications and live users</h2>
     <ul class="plain">
       <li><strong>Dashboard</strong>: Testers see their own work, Team Leads their team, and AVPs and Admins the whole organisation.</li>
-      <li><strong>Notifications</strong>: the bell shows library decisions, new users, assignments and quiz reveals. Selecting a notification opens the related page.</li>
+      <li><strong>Notifications</strong>: the bell shows library decisions, new users, assignments, system updates and quiz reveals. Selecting a notification opens the related page. An Admin chooses, per notification type, which roles (AVP, Team Lead, Tester) receive it under <em>Settings &gt; Notifications</em>. Admins always receive all of them.</li>
       <li><strong>Live users</strong>: the count next to <em>System Online</em>. Admins, AVPs and Team Leads can open a list of active and idle users within their scope.</li>
     </ul>
   </section>
@@ -165,7 +175,7 @@
       <li><strong>Users</strong>: create, edit, bulk upload (CSV or XLSX), reset passwords and reactivate accounts. Reset users must set a new password at next sign-in.</li>
       <li><strong>Deleting a user</strong> deactivates the account immediately. Reactivating within 24 hours restores it with its data. After 24 hours, the data and files of projects the user owns are purged permanently.</li>
       <li><strong>Templates</strong>: see <a href="reports.html#templates">Reports</a>.</li>
-      <li><strong>Settings</strong>: application name and branding, session timeout, password policy, retention periods, Issue Log columns, date formats. Every change is recorded in the settings history.</li>
+      <li><strong>Settings</strong>: application name, logo and favicon (browser tab, sidebar, login page), colours, table density, rows per page, severity names and colours (also printed in reports), session timeout, password policy, retention periods, storage and database size quotas (enforced: uploads are refused at the storage quota; creating or changing data is refused with HTTP 507 at the database quota, while viewing, deleting and Settings keep working), the largest file allowed for each accepted upload format (<em>Attachments</em>), which roles get which notifications, Issue Log columns, and date, time and number formats. Every setting takes effect for everyone once saved. Every change is recorded, with the person&rsquo;s name and role, in the settings history.</li>
       <li><strong>Updates</strong>: the <em>About</em> page shows the running version and newer releases. On a Docker installation, update by following <a href="deployment.html#upgrade">Upgrading</a>.</li>
     </ul>
   </section>

@@ -81,4 +81,83 @@ describe('SettingsService.getSystemHealth', () => {
     await expect(service.update({ easterEgg: { pasteCountsAsAttempt: 'yes' } }, 'a', 'ip', 'ua')).rejects.toThrow(/boolean/);
     await expect(service.update({ easterEgg: { sneaky: true } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown setting/);
   });
+
+  describe('attachment size and notification rules', () => {
+    it('accepts a valid size per format and rejects unknown formats, non-integers and out-of-range values', async () => {
+      (prisma.appSettings as any).upsert = jest.fn();
+      (service as any).auditService = { log: jest.fn() };
+      await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 10 } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 0 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 100/);
+      await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 101 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 100/);
+      await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 2.5 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/whole number/);
+      await expect(service.update({ attachments: { maxSizeMb: { 'nessus.csv': 501 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 500/);
+      await expect(service.update({ attachments: { maxSizeMb: { 'exe.exe': 5 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown file format/);
+      await expect(service.update({ attachments: { maxSizeMb: 'big' } }, 'a', 'ip', 'ua')).rejects.toThrow(/object/);
+    });
+
+    it('the findings import can be lowered but never raised above 100 MB', async () => {
+      (prisma.appSettings as any).upsert = jest.fn();
+      (service as any).auditService = { log: jest.fn() };
+      await expect(service.update({ attachments: { maxSizeMb: { 'findingsImport.csv': 50 } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ attachments: { maxSizeMb: { 'findingsImport.csv': 101 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 100/);
+    });
+
+    it('saving sizes puts them in force for uploads straight away', async () => {
+      const { attachmentLimits } = require('../common/attachment-formats');
+      (prisma.appSettings as any).upsert = jest.fn().mockImplementation(async ({ update }: any) => { prisma.appSettings.findUnique.mockResolvedValue({ data: update.data }); });
+      (service as any).auditService = { log: jest.fn() };
+      await service.update({ attachments: { maxSizeMb: { 'poc.png': 3 } } }, 'a', 'ip', 'ua');
+      expect(attachmentLimits.maxBytes('poc', 'x.png')).toBe(3 * 1024 * 1024);
+      attachmentLimits.set(undefined);
+    });
+
+    it('notification rules: only AVP, Team Lead and Tester can be switched, Admin cannot', async () => {
+      (prisma.appSettings as any).upsert = jest.fn();
+      (service as any).auditService = { log: jest.fn() };
+      await expect(service.update({ notifications: { roleRules: { SYSTEM_UPDATE: { TESTER: false } } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ notifications: { roleRules: { SYSTEM_UPDATE: { ADMIN: false } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Admins always receive/);
+      await expect(service.update({ notifications: { roleRules: { NOT_A_TYPE: { TESTER: false } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown notification type/);
+      await expect(service.update({ notifications: { roleRules: { SYSTEM_UPDATE: { TESTER: 'no' } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/true or false/);
+      await expect(service.update({ notifications: { roleRules: { SYSTEM_UPDATE: { INTERN: false } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown role/);
+    });
+
+    it('get() lists the formats and notification types for the Settings screen', async () => {
+      const res = await service.get();
+      expect(res.attachmentFormats.formats.length).toBeGreaterThan(15);
+      expect(res.notificationTypes.map((n) => n.type)).toContain('SYSTEM_UPDATE');
+      expect(res.settings.attachments.maxSizeMb['poc.png']).toBe(25);
+    });
+  });
+  describe('identity, labels and formats', () => {
+    const ok = () => { (prisma.appSettings as any).upsert = jest.fn(); (service as any).auditService = { log: jest.fn() }; };
+    const png = 'data:image/png;base64,iVBORw0KGgo=';
+
+    it('validates application name, logo and favicon', async () => {
+      ok();
+      await expect(service.update({ general: { appName: 'Acme VAPT', logoUrl: png, faviconUrl: '/favicon.ico' } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ general: { appName: '   ' } }, 'a', 'ip', 'ua')).rejects.toThrow(/appName/);
+      await expect(service.update({ general: { appName: 'x'.repeat(81) } }, 'a', 'ip', 'ua')).rejects.toThrow(/appName/);
+      await expect(service.update({ general: { logoUrl: 'https://evil.example/x.png' } }, 'a', 'ip', 'ua')).rejects.toThrow(/logoUrl/);
+      await expect(service.update({ general: { faviconUrl: 'data:text/html;base64,AAAA' } }, 'a', 'ip', 'ua')).rejects.toThrow(/faviconUrl/);
+      await expect(service.update({ general: { logoUrl: '//evil.example/x.png' } }, 'a', 'ip', 'ua')).rejects.toThrow(/logoUrl/);
+    });
+
+    it('validates severity labels and display formats', async () => {
+      ok();
+      await expect(service.update({ workflow: { severityLabels: { Critical: 'Severe' } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ workflow: { severityLabels: { Critical: '' } } }, 'a', 'ip', 'ua')).rejects.toThrow(/label for Critical/);
+      await expect(service.update({ workflow: { severityLabels: { BOGUS: 'x' } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown severity/);
+      await expect(service.update({ formatting: { dateFormat: 'YYYY-MM-DD', timeFormat: '12h', numberFormat: 'de-DE' } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ formatting: { dateFormat: 'DD.MM' } }, 'a', 'ip', 'ua')).rejects.toThrow(/dateFormat/);
+      await expect(service.update({ formatting: { numberFormat: 'not a locale!!' } }, 'a', 'ip', 'ua')).rejects.toThrow(/numberFormat/);
+    });
+
+    it('getPublicTheme exposes only theme, name, logo and favicon', async () => {
+      prisma.appSettings.findUnique.mockResolvedValue({ data: { general: { appName: 'Acme', logoUrl: png } }, updatedAt: new Date(), updatedById: 'x' });
+      const res = await service.getPublicTheme();
+      expect(Object.keys(res).sort()).toEqual(['appName', 'defaultTheme', 'faviconUrl', 'logoUrl']);
+      expect(res.appName).toBe('Acme');
+      expect(res.logoUrl).toBe(png);
+    });
+  });
 });

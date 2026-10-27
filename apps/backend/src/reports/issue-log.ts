@@ -69,7 +69,11 @@ export function validateIssueLogColumns(columns: any): string | null {
 // Prefix formula-triggering leading characters so Excel doesn't execute finding text.
 const csvCell = (v: string) => `"${(/^[=+\-@\t\r]/.test(v) ? `'${v}` : v).replace(/"/g, '""')}"`;
 
+// Header labels come from the fixed catalog, so they are written as plain text and only quoted when CSV syntax
+// requires it (comma, quote or line break). Data cells always stay quoted, and neutralised, as before.
+const headerCell = (label: string) => (/[",\r\n]/.test(label) ? csvCell(label) : label);
+
 export function buildIssueLogCsv(columns: IssueLogColumnDef[], rows: string[][]): string {
-  const lines = [columns.map((c) => csvCell(c.label)), ...rows].map((r) => r.map(csvCell).join(','));
+  const lines = [columns.map((c) => headerCell(c.label)).join(','), ...rows.map((r) => r.map(csvCell).join(','))];
   return '﻿' + lines.join('\r\n') + '\r\n';
 }

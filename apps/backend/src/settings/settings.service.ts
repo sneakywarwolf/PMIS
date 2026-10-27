@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject, forwardRef, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
@@ -6,8 +6,10 @@ import { StorageService } from '../reports/storage.service';
 import { DEFAULT_SETTINGS } from './settings.defaults';
 import { validateIssueLogColumns } from '../reports/issue-log';
 import { REPORT_DATE_FORMAT_OPTIONS } from '../common/report-date-format';
-
-const SETTINGS_ID = 'singleton';
+import { ATTACHMENT_FORMATS, ATTACHMENT_FORMAT_BY_KEY, ATTACHMENT_PURPOSES, attachmentLimits } from '../common/attachment-formats';
+import { CONFIGURABLE_NOTIFICATION_ROLES, NOTIFICATION_TYPES } from '../notifications/notification-types';
+import { resetQuotaCache } from '../common/quota';
+import { SETTINGS_ID, deepMerge, isPlainObject, pruneUnknown, readEffectiveSettings } from './settings.store';
 
 // Keep in sync with apps/frontend/src/lib/themes.ts (THEME_IDS) — the
 // single source of truth for the actual token values per theme.
@@ -15,38 +17,16 @@ const THEME_OPTIONS = ['dark', 'midnight-azure', 'obsidian-turquoise', 'copper-n
 const DENSITY_OPTIONS = ['compact', 'comfortable', 'spacious'];
 const INACTIVITY_OPTIONS = ['logout', 'warn'];
 const TIME_FORMAT_OPTIONS = ['12h', '24h'];
+const DATE_FORMAT_OPTIONS = ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'];
 
-function isPlainObject(v: any) {
-  return v !== null && typeof v === 'object' && !Array.isArray(v);
-}
-
-/**
- * Drops any key from `data` that no longer exists in `base`, recursively.
- * Prevents settings retired from a past schema version (e.g. an old
- * workflow/system field) from resurfacing via the DB and then being
- * rejected as "unknown" when the client saves them straight back.
- */
-function pruneUnknown(base: any, data: any): any {
-  if (!isPlainObject(data)) return data;
-  const result: any = {};
-  for (const key of Object.keys(data)) {
-    if (!(key in base)) continue;
-    result[key] = isPlainObject(base[key]) ? pruneUnknown(base[key], data[key]) : data[key];
-  }
-  return result;
-}
-
-function deepMerge(base: any, patch: any): any {
-  if (!isPlainObject(patch)) return base;
-  const result = { ...base };
-  for (const key of Object.keys(patch)) {
-    if (isPlainObject(patch[key]) && isPlainObject(base[key])) {
-      result[key] = deepMerge(base[key], patch[key]);
-    } else {
-      result[key] = patch[key];
-    }
-  }
-  return result;
+/** A logo or favicon is empty, a path on this site, or a small embedded image (the page's CSP allows no other source). */
+export function validateImageSource(v: unknown): string | null {
+  if (typeof v !== 'string') return 'must be text';
+  if (v === '') return null;
+  if (v.length > 300_000) return 'is too large (use an image under about 200 KB)';
+  if (/^\/(?!\/)[^\s"'<>]*$/.test(v)) return null;
+  if (/^data:image\/(png|jpeg|gif|webp|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+/=]+$/.test(v)) return null;
+  return 'must be empty, a path on this site such as /logo.png, or an uploaded PNG, JPEG, GIF, WebP or ICO image';
 }
 
 /**
@@ -72,6 +52,26 @@ function validatePatch(patch: any) {
     for (const key of Object.keys(value)) {
       if (!(key in (DEFAULT_SETTINGS as any)[category])) {
         errors.push(`Unknown setting "${category}.${key}"`);
+      }
+    }
+  }
+
+  const general = patch.general;
+  if (general?.appName !== undefined && (typeof general.appName !== 'string' || !general.appName.trim() || general.appName.length > 80)) {
+    errors.push('general.appName must be text of 1 to 80 characters');
+  }
+  for (const key of ['logoUrl', 'faviconUrl'] as const) {
+    const err = general?.[key] !== undefined ? validateImageSource(general[key]) : null;
+    if (err) errors.push(`general.${key} ${err}`);
+  }
+
+  const labels = patch.workflow?.severityLabels;
+  if (labels !== undefined) {
+    if (!isPlainObject(labels)) errors.push('workflow.severityLabels must be an object');
+    else {
+      for (const [sev, label] of Object.entries(labels)) {
+        if (!(sev in DEFAULT_SETTINGS.workflow.severityLabels)) errors.push(`Unknown severity "${sev}" in workflow.severityLabels`);
+        else if (typeof label !== 'string' || !label.trim() || label.length > 30) errors.push(`The label for ${sev} must be text of 1 to 30 characters`);
       }
     }
   }
@@ -105,16 +105,57 @@ function validatePatch(patch: any) {
     if (typeof v !== 'number' || v < 8 || v > 64) errors.push('security.passwordMinLength must be a number between 8 and 64');
   }
 
-  const attachments = patch.attachments;
-  if (attachments?.maxFileSizeMb !== undefined) {
-    const v = attachments.maxFileSizeMb;
-    if (typeof v !== 'number' || v < 1 || v > 500) errors.push('attachments.maxFileSizeMb must be a number between 1 and 500');
+  const sizes = patch.attachments?.maxSizeMb;
+  if (sizes !== undefined) {
+    if (!isPlainObject(sizes)) {
+      errors.push('attachments.maxSizeMb must be an object');
+    } else {
+      for (const [key, v] of Object.entries(sizes)) {
+        const format = ATTACHMENT_FORMAT_BY_KEY.get(key);
+        if (!format) errors.push(`Unknown file format "${key}"`);
+        else if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > format.maxMb) {
+          errors.push(`The size limit for ${format.label} (${format.purpose}) must be a whole number of MB between 1 and ${format.maxMb}`);
+        }
+      }
+    }
   }
-  if (attachments?.allowedFileTypes !== undefined && !Array.isArray(attachments.allowedFileTypes)) {
-    errors.push('attachments.allowedFileTypes must be an array');
+
+  const rules = patch.notifications?.roleRules;
+  if (rules !== undefined) {
+    if (!isPlainObject(rules)) {
+      errors.push('notifications.roleRules must be an object');
+    } else {
+      const known = new Set(NOTIFICATION_TYPES.map((n) => n.type));
+      for (const [type, perRole] of Object.entries(rules)) {
+        if (!known.has(type)) {
+          errors.push(`Unknown notification type "${type}"`);
+        } else if (!isPlainObject(perRole)) {
+          errors.push(`notifications.roleRules.${type} must be an object`);
+        } else {
+          for (const [role, on] of Object.entries(perRole as Record<string, unknown>)) {
+            if (role === 'ADMIN') errors.push('Admins always receive every notification; it cannot be changed');
+            else if (!(CONFIGURABLE_NOTIFICATION_ROLES as readonly string[]).includes(role)) errors.push(`Unknown role "${role}" for ${type}`);
+            else if (typeof on !== 'boolean') errors.push(`notifications.roleRules.${type}.${role} must be true or false`);
+          }
+        }
+      }
+    }
   }
 
   const formatting = patch.formatting;
+  if (formatting?.dateFormat !== undefined && !DATE_FORMAT_OPTIONS.includes(formatting.dateFormat)) {
+    errors.push(`formatting.dateFormat must be one of ${DATE_FORMAT_OPTIONS.join(', ')}`);
+  }
+  if (formatting?.numberFormat !== undefined) {
+    const loc = formatting.numberFormat;
+    let valid = false;
+    try {
+      valid = typeof loc === 'string' && Intl.NumberFormat.supportedLocalesOf([loc]).length > 0;
+    } catch {
+      valid = false;
+    }
+    if (!valid) errors.push('formatting.numberFormat must be a valid locale such as en-IN, en-US or de-DE');
+  }
   if (formatting?.timeFormat !== undefined && !TIME_FORMAT_OPTIONS.includes(formatting.timeFormat)) {
     errors.push(`formatting.timeFormat must be one of ${TIME_FORMAT_OPTIONS.join(', ')}`);
   }
@@ -158,7 +199,7 @@ function validatePatch(patch: any) {
 }
 
 @Injectable()
-export class SettingsService {
+export class SettingsService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private auditService: AuditService,
@@ -166,23 +207,41 @@ export class SettingsService {
     @Inject(forwardRef(() => StorageService)) private storageService: StorageService,
   ) {}
 
+  /** Loads the saved attachment limits so upload checks use them from the first request. */
+  async onModuleInit() {
+    try {
+      attachmentLimits.set((await this.get()).settings.attachments.maxSizeMb);
+    } catch {
+      // The database is not reachable yet: the defaults stay in force until the next settings load.
+    }
+  }
+
   async get() {
-    const row = await this.prisma.appSettings.findUnique({ where: { id: SETTINGS_ID } });
-    const stored = row ? (row.data as any) : {};
+    const { settings, updatedAt, updatedById } = await readEffectiveSettings(this.prisma);
+    attachmentLimits.set(settings.attachments.maxSizeMb);
     return {
-      settings: deepMerge(DEFAULT_SETTINGS, pruneUnknown(DEFAULT_SETTINGS, stored)),
-      updatedAt: row?.updatedAt ?? null,
-      updatedById: row?.updatedById ?? null,
+      settings,
+      updatedAt,
+      updatedById,
+      // What the Settings screen needs to list: the file formats PMIS accepts, and the notifications it sends.
+      attachmentFormats: { purposes: ATTACHMENT_PURPOSES, formats: ATTACHMENT_FORMATS },
+      notificationTypes: NOTIFICATION_TYPES,
     };
   }
 
   /**
-   * Admin-chosen default theme id and nothing else, so the login page can render the right theme
-   * before anyone is authenticated. Deliberately returns no other setting.
+   * The Admin-chosen default theme and the application name, logo and favicon, so the login page can render
+   * them before anyone is authenticated. Deliberately returns no other setting.
    */
-  async getPublicTheme(): Promise<{ defaultTheme: string }> {
+  async getPublicTheme(): Promise<{ defaultTheme: string; appName: string; logoUrl: string; faviconUrl: string }> {
     const { settings } = await this.get();
-    return { defaultTheme: settings.appearance.defaultTheme };
+    return {
+      defaultTheme: settings.appearance.defaultTheme,
+      // Name, logo and favicon are branding, shown on the login page and the browser tab before anyone signs in.
+      appName: settings.general.appName,
+      logoUrl: settings.general.logoUrl,
+      faviconUrl: settings.general.faviconUrl,
+    };
   }
 
   // The idle-timeout lookup runs on every authenticated request, so cache it
@@ -238,6 +297,9 @@ export class SettingsService {
     });
 
     this.timeoutCache = null;
+    // A changed quota applies to the very next request, not after the measurement cache runs out.
+    resetQuotaCache();
+    this.storageService.resetUsage?.();
 
     await this.auditService.log({
       actorId,
@@ -319,7 +381,7 @@ export class SettingsService {
       where: { targetType: 'SETTINGS' },
       orderBy: { timestamp: 'desc' },
       take: limit,
-      include: { actor: { select: { id: true, username: true } } },
+      include: { actor: { select: { id: true, username: true, fullName: true, role: true } } },
     });
   }
 }

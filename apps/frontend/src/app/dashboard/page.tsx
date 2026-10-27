@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
+import { useSeverity } from '@/lib/severity';
 import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
 import { LiveUsersBadge } from '@/components/live-users-badge';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
@@ -25,7 +26,7 @@ import { weeklyDelta, weeklySeries } from '@/lib/trends';
 import { SEVERITY_COLORS, TOOLTIP_STYLE, statusColor, statusKey } from '@/lib/chart-theme';
 import type { Counts } from '@/lib/risk';
 import { api } from '@/contexts/auth-context';
-import { formatDateTime } from '@/lib/datetime';
+import { formatDateTimeSeconds, formatNumber } from '@/lib/datetime';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
@@ -34,6 +35,7 @@ import {
 export default function DashboardPage() {
   const { user } = useAuth();
   const { settings, settingsLoaded } = useBranding();
+  const sev = useSeverity();
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
   const [vulnTrends, setVulnTrends] = useState<any>(null);
@@ -128,9 +130,9 @@ export default function DashboardPage() {
   // Build severity chart data
   const severityData = vulnTrends?.bySeverity
     ? Object.entries(vulnTrends.bySeverity).map(([name, value]) => ({
-        name,
+        name: sev.label(name),
         value: value as number,
-        fill: SEVERITY_COLORS[name] || '#6b7280',
+        fill: settings?.workflow?.severityColors?.[name] || SEVERITY_COLORS[name] || '#6b7280',
       }))
     : [];
 
@@ -436,7 +438,7 @@ export default function DashboardPage() {
 
       <Slot layout={layout} id="activity">
       {/* Activity */}
-      {(isAdmin || user?.role === 'TEAM_LEAD') && <RecentActivity delay={0.2} />}
+      {user?.role === 'ADMIN' && <RecentActivity delay={0.2} />}
       </Slot>
     </div>
   );
@@ -451,7 +453,7 @@ function CountUp({ to }: { to: number }) {
     const controls = animate(0, to, { duration: 0.8, ease: 'easeOut', onUpdate: (v) => setN(Math.round(v)) });
     return () => controls.stop();
   }, [to, reduce]);
-  return <>{n}</>;
+  return <>{formatNumber(n)}</>;
 }
 
 function StatCard({ title, value, icon: Icon, color, href, context, trend }: any) {
@@ -510,11 +512,47 @@ function QuickAction({ href, icon: Icon, label, description }: any) {
   );
 }
 
+const ROLE_LABELS: Record<string, string> = { ADMIN: 'Admin', AVP: 'AVP', TEAM_LEAD: 'Team Lead', TESTER: 'Tester' };
+
+/** What was done, in words; anything not listed falls back to the action name in lower case. */
+const ACTION_TEXT: Record<string, string> = {
+  LOGIN: 'logged in',
+  LOGOUT: 'logged out',
+  PASSWORD_CHANGE: 'changed their password',
+  PASSWORD_RESET: 'reset a password',
+  USER_CREATED: 'created a user',
+  USER_UPDATED: 'updated a user',
+  USER_DELETED: 'deleted a user',
+  TEAM_ASSIGNED: 'assigned a team',
+  PROJECT_CREATED: 'created a project',
+  PROJECT_UPDATED: 'updated a project',
+  PROJECT_REASSIGNED: 'reassigned a project',
+  PROJECT_SUBMITTED: 'submitted a project',
+  PROJECT_APPROVED: 'approved a project',
+  PROJECT_REJECTED: 'rejected a project',
+  PROJECT_DELETED: 'deleted a project',
+  REPORT_GENERATED: 'generated a report',
+  REPORT_DELETED: 'deleted a report',
+  TEMPLATE_UPLOADED: 'uploaded a report template',
+  TEMPLATE_ACTIVATED: 'activated a report template',
+  TEMPLATE_DEACTIVATED: 'deactivated a report template',
+  TEMPLATE_DELETED: 'deleted a report template',
+  TEMPLATE_FIELD_ADDED: 'added a template field',
+  VULNERABILITY_REQUESTED: 'requested a new vulnerability',
+  VULNERABILITY_APPROVED: 'approved a vulnerability',
+  VULNERABILITY_REJECTED: 'rejected a vulnerability',
+  VULNERABILITY_CREATED: 'added a vulnerability',
+  VULNERABILITY_UPDATED: 'updated a vulnerability',
+  VULNERABILITY_DELETED: 'deleted a vulnerability',
+  SETTINGS_UPDATED: 'changed the settings',
+};
+
+/** Admin-only activity log: who (name and role), what they did, and exactly when. */
 function RecentActivity({ delay }: { delay?: number }) {
   const [activity, setActivity] = useState<any[]>([]);
 
   useEffect(() => {
-    api.get('/dashboard/activity?limit=8')
+    api.get('/dashboard/activity?limit=15')
       .then((res) => setActivity(res.data))
       .catch(() => setActivity([]));
   }, []);
@@ -523,24 +561,30 @@ function RecentActivity({ delay }: { delay?: number }) {
 
   return (
     <RevealSection delay={delay}>
-      <SectionHeading>Activity</SectionHeading>
+      <SectionHeading>Activity Log</SectionHeading>
       <div className="glass-card rounded-xl p-6">
         <div className="space-y-3">
-          {activity.map((log: any) => (
-            <div key={log.id} className="flex items-start gap-3 pb-3 border-b border-gray-800 last:border-0 last:pb-0">
-              <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 mt-0.5">
-                <Clock className="w-4 h-4 text-gray-400" />
+          {activity.map((log: any) => {
+            const name = log.actor?.fullName || log.actor?.username || 'Deleted user';
+            const role = log.actor?.role ? ROLE_LABELS[log.actor.role] || log.actor.role : null;
+            return (
+              <div key={log.id} className="flex items-start gap-3 pb-3 border-b border-gray-800 last:border-0 last:pb-0">
+                <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center shrink-0 mt-0.5">
+                  <Clock className="w-4 h-4 text-gray-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-white">
+                    <span className="font-medium">{name}</span>
+                    {role && <span className="text-gray-500"> ({role})</span>}{' '}
+                    <span className="text-gray-300">{ACTION_TEXT[log.action] || String(log.action).replace(/_/g, ' ').toLowerCase()}</span>
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5 tabular-nums">
+                    <time dateTime={new Date(log.timestamp).toISOString()}>{formatDateTimeSeconds(log.timestamp)}</time>
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-sm text-white">
-                  <span className="font-medium">{log.actor?.username || 'Deleted user'}</span>{' '}
-                  <span className="text-gray-400">{log.action.replace(/_/g, ' ').toLowerCase()}</span>
-                  {log.targetType && <span className="text-gray-500"> · {log.targetType.toLowerCase()}</span>}
-                </p>
-                <p className="text-xs text-gray-500 mt-0.5">{formatDateTime(log.timestamp)}</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </RevealSection>

@@ -20,6 +20,10 @@ services:
     image: ${PMIS_IMAGE_REPO:-sneakywarwolf}/pmis-backend:${PMIS_VERSION:-latest}
     build:
       context: ./apps/backend
+      args:
+        # Building from source: PMIS_VERSION (e.g. 1.0.10) becomes the version shown on the About page.
+        # "latest" is not a version and is ignored (package.json is used instead).
+        APP_VERSION: ${PMIS_VERSION:-}
     restart: unless-stopped
     depends_on:
       postgres:

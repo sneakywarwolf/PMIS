@@ -67,16 +67,23 @@ export class VulnerabilitiesService {
     });
   }
 
-  async findOne(id: string) {
-    const vuln = await this.prisma.vulnerability.findUnique({
-      where: { id },
-    });
-
-    if (!vuln) {
-      throw new NotFoundException('Vulnerability not found');
-    }
-
+  /**
+   * Same visibility as the list: Admin / AVP / TL see every record (pending, rejected, deactivated); everyone else
+   * only approved, active records, plus a request they submitted themselves. Anything else answers 404, so a
+   * pending record's existence and content cannot be probed by id.
+   */
+  private async visibleVuln(id: string, viewer?: { id: string; role: UserRole }) {
+    const vuln = await this.prisma.vulnerability.findUnique({ where: { id } });
+    if (!vuln) throw new NotFoundException('Vulnerability not found');
+    if (!viewer) return vuln; // internal callers
+    const reviewer = viewer.role === UserRole.ADMIN || viewer.role === UserRole.AVP || viewer.role === UserRole.TEAM_LEAD;
+    const published = vuln.status === VulnerabilityStatus.APPROVED && vuln.isActive;
+    if (!reviewer && !published && vuln.requestedById !== viewer.id) throw new NotFoundException('Vulnerability not found');
     return vuln;
+  }
+
+  async findOne(id: string, viewer?: { id: string; role: UserRole }) {
+    return this.visibleVuln(id, viewer);
   }
 
   async create(data: {
@@ -325,7 +332,8 @@ export class VulnerabilitiesService {
     return removed;
   }
 
-  async getHistory(id: string) {
+  async getHistory(id: string, viewer?: { id: string; role: UserRole }) {
+    await this.visibleVuln(id, viewer); // history is only as visible as the record itself
     return this.prisma.auditLog.findMany({
       where: { targetType: 'VULNERABILITY', targetId: id },
       orderBy: { timestamp: 'desc' },
@@ -368,19 +376,32 @@ export class VulnerabilitiesService {
     cweId?: string;
     category?: string;
   }, requestedById: string) {
-    const vuln = await this.prisma.vulnerability.create({
+    const vuln = await this.createRequest(this.prisma, data, requestedById);
+    await this.announceRequest(vuln, requestedById);
+    return vuln;
+  }
+
+  /** The PENDING record of a vulnerability request. `db` lets a caller write it inside its own transaction. */
+  createRequest(db: Pick<PrismaService, 'vulnerability'>, data: any, requestedById: string) {
+    return db.vulnerability.create({
       data: {
         ...data,
         status: VulnerabilityStatus.PENDING,
         requestedById,
       } as any,
     });
+  }
 
+  /** Tells admins / TLs about a new request and records it in the audit log. */
+  async announceRequest(vuln: { id: string; name: string; severity: string }, requestedById: string) {
     // Notify admins/TLs about the new request
     await this.notificationsService.notifyAdminsAndTLs({
       type: 'VULNERABILITY_REQUESTED',
       title: 'New Vulnerability Request',
-      message: `"${data.name}" (${data.severity}) has been requested for approval.`,
+      message: `"${vuln.name}" (${vuln.severity}) has been requested for approval.`,
+      // The existing Pending Approval tab of the Vulnerability Database page, focused on this request. The page and
+      // the /vulnerabilities/pending API enforce the roles; the link grants nothing.
+      linkUrl: `/dashboard/vulnerabilities?tab=pending&focus=${encodeURIComponent(vuln.id)}`,
       relatedId: vuln.id,
       excludeUserId: requestedById,
     });
@@ -394,8 +415,6 @@ export class VulnerabilitiesService {
       userAgent: 'unknown',
       details: { name: vuln.name, severity: vuln.severity },
     });
-
-    return vuln;
   }
 
   async approve(id: string, reviewedById: string) {
@@ -518,7 +537,7 @@ export class VulnerabilitiesService {
 
   // ─── Bulk Upload ───
 
-  private readonly EXPECTED_HEADERS = ['S.No', 'Name', 'Severity', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
+  readonly EXPECTED_HEADERS = ['S.No', 'Name', 'Severity', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
 
   getSampleCsv(): string {
     const headers = this.EXPECTED_HEADERS.join(',');

@@ -8,6 +8,7 @@ import { findingPocReadiness } from '../common/poc-validation.util';
 import { NESSUS_POC_MAX, parseNessusFile } from '../common/nessus-parser.util';
 import type { ScanUpload } from '../common/nessus-upload.storage';
 import { assertPocKey, assertPocKeys } from '../common/upload-security.util';
+import { splitPocImagePaths } from '../common/poc-images.util';
 import { StorageService } from '../reports/storage.service';
 
 /** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) · merge: same plugin already imported, but this file adds affected hosts */
@@ -22,7 +23,7 @@ export class FindingsService {
     private storage: StorageService,
   ) {}
 
-  private async checkProjectAccess(projectId: string, user: User) {
+  async checkProjectAccess(projectId: string, user: User) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       include: { tester: true, tl: true },
@@ -541,7 +542,23 @@ export class FindingsService {
     return { message: 'Finding deleted successfully' };
   }
 
-  async addPocStep(findingId: string, data: { stepNo: number; description: string; imagePath?: string }, user: User) {
+  /**
+   * A PoC image belongs to exactly one step: refuse a file already attached to a different step, so evidence
+   * can never be shared across findings or projects through a reused storage key.
+   */
+  private async assertPocImagesUnused(paths: string[], exceptStepId?: string) {
+    if (paths.length === 0) return;
+    const used = await this.prisma.pocStep.findFirst({
+      where: {
+        ...(exceptStepId && { id: { not: exceptStepId } }),
+        OR: [{ imagePath: { in: paths } }, { extraImagePaths: { hasSome: paths } }],
+      },
+      select: { id: true },
+    });
+    if (used) throw new BadRequestException('A PoC image is already attached to another step.');
+  }
+
+  async addPocStep(findingId: string, data: { stepNo: number; description: string; imagePath?: string; imagePaths?: string[] }, user: User) {
     const finding = await this.prisma.finding.findUnique({
       where: { id: findingId },
       include: { project: true },
@@ -557,17 +574,24 @@ export class FindingsService {
       throw new ForbiddenException('Cannot modify this finding');
     }
 
+    // `imagePaths` is the ordered list of PoCs; `imagePath` (one PoC) is still accepted as before.
+    const images = data.imagePaths !== undefined
+      ? splitPocImagePaths(data.imagePaths)
+      : { imagePath: data.imagePath ? assertPocKey(data.imagePath) : null, extraImagePaths: [] as string[] };
+    await this.assertPocImagesUnused([images.imagePath, ...images.extraImagePaths].filter((p): p is string => !!p));
+
     return this.prisma.pocStep.create({
       data: {
         findingId,
         stepNo: data.stepNo,
         description: data.description,
-        imagePath: data.imagePath ? assertPocKey(data.imagePath) : undefined,
+        imagePath: images.imagePath ?? undefined,
+        extraImagePaths: images.extraImagePaths,
       },
     });
   }
 
-  async updatePocStep(findingId: string, stepId: string, data: { stepNo?: number; description?: string; imagePath?: string }, user: User) {
+  async updatePocStep(findingId: string, stepId: string, data: { stepNo?: number; description?: string; imagePath?: string; imagePaths?: string[] }, user: User) {
     const finding = await this.prisma.finding.findUnique({
       where: { id: findingId },
       include: { project: true },
@@ -584,12 +608,24 @@ export class FindingsService {
       throw new NotFoundException('POC step not found');
     }
 
+    // `imagePaths` replaces the whole ordered list (add, remove or reorder PoCs); a single `imagePath` keeps its
+    // old meaning of "replace the first PoC" and leaves the others where they are.
+    let images: { imagePath: string | null; extraImagePaths: string[] } | undefined;
+    if (data.imagePaths !== undefined) {
+      images = splitPocImagePaths(data.imagePaths);
+    } else if (data.imagePath != null) {
+      images = { imagePath: assertPocKey(data.imagePath), extraImagePaths: step.extraImagePaths };
+    }
+    if (images) {
+      await this.assertPocImagesUnused([images.imagePath, ...images.extraImagePaths].filter((p): p is string => !!p), stepId);
+    }
+
     return this.prisma.pocStep.update({
       where: { id: stepId },
       data: {
         ...(data.stepNo !== undefined && { stepNo: data.stepNo }),
         ...(data.description !== undefined && { description: data.description }),
-        ...(data.imagePath != null && { imagePath: assertPocKey(data.imagePath) }),
+        ...(images && { imagePath: images.imagePath, extraImagePaths: images.extraImagePaths }),
       },
     });
   }

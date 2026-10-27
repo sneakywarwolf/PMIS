@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Req, Res, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Req, Res, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Response } from 'express';
 import { UsersService } from './users.service';
-import { parseUploadedFileToCsv, UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
+import { parseUploadedFileToCsv } from '../common/bulk-upload-file.util';
+import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
+import { attachmentLimits } from '../common/attachment-formats';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
@@ -95,7 +97,8 @@ export class UsersController {
 
   @Post('bulk-upload')
   @Roles(UserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @UseGuards(AttachmentSizeGuard('userBulk'))
+  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('userBulk')))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Bulk upload users from a .csv or .xlsx file (Admin only)' })
   async bulkUpload(
@@ -103,7 +106,8 @@ export class UsersController {
     @CurrentUser() user: User,
     @Req() req: any,
   ) {
-    const csv = await parseUploadedFileToCsv(file);
+    assertAttachmentSize('userBulk', file);
+    const csv = await parseUploadedFileToCsv(file, attachmentLimits.maxBytes('userBulk', file?.originalname));
     const ipAddress = req.ip || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
     return this.usersService.bulkUpload(csv, user.id, ipAddress, userAgent);

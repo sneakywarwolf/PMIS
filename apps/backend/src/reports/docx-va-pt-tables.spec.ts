@@ -438,6 +438,9 @@ describe('{Project Status} placeholder text and background', () => {
     ['Compliant', 'Compliant', '92D050'],
     ['Non-Compliant', 'Non-Compliant', 'FF0000'],
     ['non-compliant', 'Non-Compliant', 'FF0000'],
+    ['In-Progress', 'Non-Compliant', 'FF0000'], // the saved status value the UI stores
+    ['In Progress', 'Non-Compliant', 'FF0000'],
+    ['in_progress', 'Non-Compliant', 'FF0000'],
   ])('%s: prints %s with background %s on the cell holding it', async (status, text, fill) => {
     const xml = await run(tableBody, status);
     expect(xml).toContain(`<w:t>${text}</w:t>`);
@@ -446,7 +449,7 @@ describe('{Project Status} placeholder text and background', () => {
     expect(xml).not.toContain('w:fill="DDDDDD"'); // the template's grey is replaced, not stacked
   });
 
-  it.each(['In-Progress', 'In Progress', null, undefined, 'something else'])('%s: empty text and the template background untouched', async (status) => {
+  it.each([null, undefined, '', 'something else'])('%s: empty text and the template background untouched', async (status) => {
     const xml = await run(tableBody, status as string | null | undefined);
     expect(xml).not.toContain('{Project Status}');
     expect(xml).toContain('w:fill="DDDDDD"');

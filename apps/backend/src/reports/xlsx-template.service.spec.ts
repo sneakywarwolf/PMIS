@@ -131,6 +131,8 @@ describe('XlsxTemplateService {Project Status}', () => {
   it.each([
     ['Compliant', 'Compliant', 'FF92D050'],
     ['Non-Compliant', 'Non-Compliant', 'FFFF0000'],
+    ['In-Progress', 'Non-Compliant', 'FFFF0000'],
+    ['In Progress', 'Non-Compliant', 'FFFF0000'],
   ])('%s: prints the text and fills only the status cells, as a copy of their own style', async (status, text, rgb) => {
     const { sheet, styles, shared } = await open(await svc.fill(await book(), resolve, { complianceStatus: status }));
     expect(shared).toContain(`>${text}</t>`);
@@ -150,7 +152,7 @@ describe('XlsxTemplateService {Project Status}', () => {
     expect(xfs[Number(styleOf(sheet, 'D1'))]).toContain('fillId="2"');
   });
 
-  it.each(['In-Progress', null, undefined, 'other'])('%s: empty text, no style or colour change at all', async (status) => {
+  it.each([null, undefined, '', 'other'])('%s: empty text, no style or colour change at all', async (status) => {
     const { sheet, styles, shared } = await open(await svc.fill(await book(), resolve, { complianceStatus: status as string | null | undefined }));
     expect(shared).not.toContain('{Project Status}');
     expect(shared).toMatch(/<si><t[^>]*(\/>|><\/t>)<\/si>/); // empty text, either serialisation

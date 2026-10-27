@@ -9,6 +9,10 @@ import { useToast } from '@/components/toast-provider';
 import { LiveMonitor } from '@/components/easter-egg/live-monitor';
 import { formatDateTime } from '@/lib/datetime';
 import { THEMES } from '@/lib/themes';
+import { PillSwitch } from '@/components/pill-switch';
+import { useBranding } from '@/contexts/branding-context';
+
+const ROLE_LABELS: Record<string, string> = { ADMIN: 'Admin', AVP: 'AVP', TEAM_LEAD: 'Team Lead', TESTER: 'Tester' };
 
 const TABS = [
   { id: 'general', label: 'General & Branding', icon: Palette },
@@ -43,7 +47,10 @@ export default function SettingsPage() {
 
 function SettingsContent() {
   const toast = useToast();
+  const { refreshSettings } = useBranding();
   const [settings, setSettings] = useState<any>(null);
+  // Lists from the server: every file format PMIS accepts, and every notification it sends.
+  const [catalog, setCatalog] = useState<{ attachmentFormats: any; notificationTypes: any[] }>({ attachmentFormats: { purposes: [], formats: [] }, notificationTypes: [] });
   const [meta, setMeta] = useState<{ updatedAt: string | null; updatedById: string | null }>({ updatedAt: null, updatedById: null });
   const [history, setHistory] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('general');
@@ -52,6 +59,7 @@ function SettingsContent() {
   const fetchSettings = async () => {
     const res = await api.get('/settings');
     setSettings(res.data.settings);
+    setCatalog({ attachmentFormats: res.data.attachmentFormats ?? { purposes: [], formats: [] }, notificationTypes: res.data.notificationTypes ?? [] });
     setMeta({ updatedAt: res.data.updatedAt, updatedById: res.data.updatedById });
   };
 
@@ -86,6 +94,7 @@ function SettingsContent() {
       toast(`${TABS.find((t) => t.id === category)?.label} settings saved`);
       fetchSettings();
       fetchHistory();
+      refreshSettings();
     } catch (error: any) {
       toast(error.response?.data?.message || 'Failed to save settings', 'error');
     } finally {
@@ -131,8 +140,8 @@ function SettingsContent() {
         {activeTab === 'appearance' && <AppearanceTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'workflow' && <WorkflowTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'security' && <SecurityTab settings={settings} setCategory={setCategory} />}
-        {activeTab === 'attachments' && <AttachmentsTab settings={settings} setCategory={setCategory} />}
-        {activeTab === 'notifications' && <NotificationsTab settings={settings} setCategory={setCategory} />}
+        {activeTab === 'attachments' && <AttachmentsTab settings={settings} setCategory={setCategory} catalog={catalog.attachmentFormats} />}
+        {activeTab === 'notifications' && <NotificationsTab settings={settings} setCategory={setCategory} types={catalog.notificationTypes} />}
         {activeTab === 'formatting' && <FormattingTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'issueLog' && <IssueLogTab settings={settings} setCategory={setCategory} />}
       {activeTab === 'system' && <SystemTab settings={settings} setCategory={setCategory} />}
@@ -159,7 +168,9 @@ function SettingsContent() {
             {history.map((log: any) => (
               <div key={log.id} className="flex items-start justify-between text-xs p-2 rounded bg-white/5">
                 <div>
-                  <span className="text-white font-medium">{log.actor?.username || 'Deleted user'}</span>
+                  <span className="text-white font-medium">{log.actor?.fullName || log.actor?.username || 'Deleted user'}</span>
+                  {log.actor?.fullName && <span className="text-gray-500"> @{log.actor.username}</span>}
+                  {log.actor?.role && <span className="text-gray-500"> ({ROLE_LABELS[log.actor.role] || log.actor.role})</span>}
                   <span className="text-gray-400"> updated settings</span>
                   {log.details?.changed && (
                     <p className="text-gray-500 mt-0.5">{Object.keys(log.details.changed).join(', ')}</p>
@@ -171,6 +182,35 @@ function SettingsContent() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const MAX_IMAGE_BYTES = 150 * 1024;
+
+// Upload (stored in the settings as a data URL, so no extra file storage is needed) or a path on this site.
+function ImageField({ label, value, onChange, hint }: { label: string; value: string; onChange: (v: string) => void; hint: string }) {
+  const toast = useToast();
+  const pick = (file?: File) => {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|gif|webp|x-icon|vnd\.microsoft\.icon)$/.test(file.type)) { toast('Use a PNG, JPEG, GIF, WebP or ICO image', 'error'); return; }
+    if (file.size > MAX_IMAGE_BYTES) { toast('Image must be 150 KB or smaller', 'error'); return; }
+    const reader = new FileReader();
+    reader.onload = () => onChange(String(reader.result));
+    reader.readAsDataURL(file);
+  };
+  return (
+    <div>
+      <label className={labelCls}>{label}</label>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded bg-gray-800/50 border border-gray-700 flex items-center justify-center overflow-hidden shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {value ? <img src={value} alt="" className="max-w-full max-h-full object-contain" /> : <span className="text-[10px] text-gray-600">none</span>}
+        </div>
+        <input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/x-icon" aria-label={`${label} file`} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} className="text-xs text-gray-400 min-w-0" />
+        {value && <button type="button" onClick={() => onChange('')} className="text-xs text-red-400 shrink-0">Remove</button>}
+      </div>
+      <p className={hintCls}>{hint} PNG, JPEG, GIF, WebP or ICO, up to 150 KB.</p>
     </div>
   );
 }
@@ -187,14 +227,8 @@ function GeneralTab({ settings, setCategory }: any) {
             <label className={labelCls}>Application Name</label>
             <input value={g.appName} onChange={(e) => setCategory('general', { appName: e.target.value })} className={inputCls} />
           </div>
-          <div>
-            <label className={labelCls}>Logo URL</label>
-            <input value={g.logoUrl} onChange={(e) => setCategory('general', { logoUrl: e.target.value })} className={inputCls} placeholder="https://..." />
-          </div>
-          <div>
-            <label className={labelCls}>Favicon URL</label>
-            <input value={g.faviconUrl} onChange={(e) => setCategory('general', { faviconUrl: e.target.value })} className={inputCls} placeholder="https://..." />
-          </div>
+          <ImageField label="Logo" value={g.logoUrl} onChange={(v) => setCategory('general', { logoUrl: v })} hint="Shown in the sidebar and on the login page." />
+          <ImageField label="Favicon" value={g.faviconUrl} onChange={(v) => setCategory('general', { faviconUrl: v })} hint="Shown in the browser tab." />
         </div>
       </div>
 
@@ -400,47 +434,95 @@ function SecurityTab({ settings, setCategory }: any) {
   );
 }
 
-function AttachmentsTab({ settings, setCategory }: any) {
-  const at = settings.attachments;
+function AttachmentsTab({ settings, setCategory, catalog }: any) {
+  const sizes: Record<string, number> = settings.attachments.maxSizeMb ?? {};
+  const setSize = (key: string, value: number) => setCategory('attachments', { maxSizeMb: { ...sizes, [key]: value } });
   return (
-    <div className="space-y-4">
-      <TagListEditor
-        label="Allowed File Types"
-        values={at.allowedFileTypes}
-        onChange={(v) => setCategory('attachments', { allowedFileTypes: v })}
-        hint="Include the leading dot, e.g. .png"
-      />
-      <div>
-        <label className={labelCls}>Max File Size (MB)</label>
-        <input type="number" min={1} max={500} value={at.maxFileSizeMb} onChange={(e) => setCategory('attachments', { maxFileSizeMb: parseInt(e.target.value) || 0 })} className={inputCls} />
-        <p className={hintCls}>Allowed range: 1–500 MB. Not yet enforced at every upload endpoint — stored centrally for future integration.</p>
-      </div>
+    <div className="space-y-6">
+      <p className={hintCls}>
+        Every file format PMIS accepts, with the largest file allowed for it. A change applies to the next upload.
+        Each format has its own highest value; files are also checked by their real content, not only their name.
+      </p>
+      {catalog.purposes.map((purpose: any) => (
+        <div key={purpose.id} className="rounded-lg border border-gray-800 p-4">
+          <h3 className="text-sm font-semibold text-white">{purpose.label}</h3>
+          <p className="text-xs text-gray-500 mt-0.5 mb-3">{purpose.description}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {catalog.formats.filter((f: any) => f.purpose === purpose.id).map((f: any) => (
+              <div key={f.key} className="flex items-center justify-between gap-3 rounded bg-white/5 px-3 py-2">
+                <label htmlFor={`size-${f.key}`} className="text-sm text-gray-300">{f.label}</label>
+                <div className="flex items-center gap-2 shrink-0">
+                  <input
+                    id={`size-${f.key}`}
+                    type="number"
+                    min={1}
+                    max={f.maxMb}
+                    step={1}
+                    value={sizes[f.key] ?? f.defaultMb}
+                    onChange={(e) => setSize(f.key, parseInt(e.target.value) || 0)}
+                    className={`${inputCls} !w-24 text-right`}
+                  />
+                  <span className="text-xs text-gray-500 w-24 whitespace-nowrap">MB (max {f.maxMb})</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-function NotificationsTab({ settings, setCategory }: any) {
-  const n = settings.notifications;
-  const ALL_TYPES = ['VULNERABILITY_REQUESTED', 'VULNERABILITY_APPROVED', 'VULNERABILITY_REJECTED', 'USER_CREATED', 'USER_UPDATED'];
-  const toggle = (type: string) => {
-    const enabled = n.defaultEnabledTypes.includes(type);
-    const next = enabled ? n.defaultEnabledTypes.filter((t: string) => t !== type) : [...n.defaultEnabledTypes, type];
-    setCategory('notifications', { defaultEnabledTypes: next });
-  };
+const ROLE_COLUMNS: { role: string; label: string }[] = [
+  { role: 'AVP', label: 'AVP' },
+  { role: 'TEAM_LEAD', label: 'Team Lead' },
+  { role: 'TESTER', label: 'Tester' },
+];
+
+function NotificationsTab({ settings, setCategory, types }: any) {
+  const rules: Record<string, Record<string, boolean>> = settings.notifications.roleRules ?? {};
+  const on = (type: string, role: string) => rules[type]?.[role] !== false;
+  const toggle = (type: string, role: string, next: boolean) =>
+    setCategory('notifications', { roleRules: { ...rules, [type]: { AVP: on(type, 'AVP'), TEAM_LEAD: on(type, 'TEAM_LEAD'), TESTER: on(type, 'TESTER'), [role]: next } } });
   return (
-    <div className="space-y-2">
-      <p className={hintCls}>Default notification types enabled for new users.</p>
-      {ALL_TYPES.map((type) => (
-        <label key={type} className="flex items-center gap-3 p-2 rounded hover:bg-white/5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={n.defaultEnabledTypes.includes(type)}
-            onChange={() => toggle(type)}
-            className="w-4 h-4 accent-emerald-500"
-          />
-          <span className="text-sm text-gray-300">{type.replace(/_/g, ' ')}</span>
-        </label>
-      ))}
+    <div className="space-y-4">
+      <p className={hintCls}>
+        Choose which notifications each role receives. Admins always receive every notification and this cannot be changed.
+        Switching a type off stops it being created for that role from then on; notifications already sent stay.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-gray-400 border-b border-gray-800">
+              <th className="py-2 pr-4 font-medium">Notification</th>
+              <th className="py-2 px-3 font-medium text-center">Admin</th>
+              {ROLE_COLUMNS.map((c) => <th key={c.role} className="py-2 px-3 font-medium text-center">{c.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {types.map((n: any) => (
+              <tr key={n.type} className="border-b border-gray-800/60 align-top">
+                <td className="py-3 pr-4">
+                  <p id={`notif-${n.type}`} className="text-white">{n.label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5 max-w-xl">{n.description}</p>
+                </td>
+                <td className="py-3 px-3">
+                  <div className="flex justify-center" title="Admins always receive every notification">
+                    <PillSwitch checked disabled onChange={() => undefined} ariaLabel={`${n.label}: Admin (always on)`} />
+                  </div>
+                </td>
+                {ROLE_COLUMNS.map((c) => (
+                  <td key={c.role} className="py-3 px-3">
+                    <div className="flex justify-center">
+                      <PillSwitch checked={on(n.type, c.role)} onChange={(v) => toggle(n.type, c.role, v)} ariaLabel={`${n.label}: ${c.label}`} />
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -526,7 +608,7 @@ function FormattingTab({ settings, setCategory }: any) {
           Applies to reports/files generated after this is changed; already-generated files are unaffected.
         </p>
       </div>
-      <p className={`${hintCls} col-span-2`}>Date Format/Number Format above are not yet wired into rendering across the app — stored centrally so a future pass can consume one source of truth.</p>
+      <p className={`${hintCls} md:col-span-2`}>Date Format, Time Format and Number Format Locale apply to every date, time and number shown in the application.</p>
     </div>
   );
 }
@@ -667,12 +749,12 @@ function SystemTab({ settings, setCategory }: any) {
           <div>
             <label className={labelCls}>Total Storage Quota (MB)</label>
             <input type="number" min={1} value={sys.totalStorageQuotaMb} onChange={(e) => setCategory('system', { totalStorageQuotaMb: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Used against the storage bucket holding reports and PoC attachments.</p>
+            <p className={hintCls}>Enforced: once the storage bucket (reports, PoC attachments, Nessus files) reaches this size, new uploads are refused until files are deleted or the quota is raised.</p>
           </div>
           <div>
             <label className={labelCls}>Total Database Quota (MB)</label>
             <input type="number" min={1} value={sys.totalDatabaseQuotaMb} onChange={(e) => setCategory('system', { totalDatabaseQuotaMb: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Used against live PostgreSQL database size.</p>
+            <p className={hintCls}>Enforced: once the PostgreSQL database reaches this size, requests that create or change data are refused (HTTP 507); viewing, deleting, login and settings still work.</p>
           </div>
         </div>
       </div>

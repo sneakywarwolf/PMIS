@@ -190,7 +190,7 @@
         <tr><td><code class="ph">{Vulnerability Dependency}</code></td><td>Vulnerability dependency note.</td><td>N/A</td></tr>
         <tr><td><code class="ph">{Status}</code> <code class="ph">{Report Status}</code></td><td>Report status of the finding.</td><td>Open</td></tr>
         <tr><td><code class="ph">{VA Vulnerability Name}</code> <code class="ph">{VA Severity}</code> &hellip;</td><td>A <code>VA </code> prefix on any name above gives the same value, but only for scan-imported (VA) findings.</td><td>Left empty for non-VA findings</td></tr>
-        <tr><td><code class="ph">{VA Output}</code></td><td>The finding&rsquo;s Nessus plugin output.</td><td>Empty</td></tr>
+        <tr><td><code class="ph">{VA Output}</code></td><td>The finding&rsquo;s Nessus plugin output, per host and port, from a <code>.nessus</code> file or from the <em>Plugin Output</em> column of a Nessus <code>.csv</code>.</td><td>Empty</td></tr>
       </tbody>
     </table></div>
     <h3>Tables and rows that repeat</h3>
@@ -201,7 +201,7 @@
         <tr><td>Word</td><td>Network scope table</td><td>A table whose text contains <code>{IP}</code> and <code>{Purpose}</code> (and <code>{Domain&amp;Hostname}</code>).</td><td>One row per scope entry.</td></tr>
         <tr><td>Word</td><td>Tools used table</td><td>A table containing <code>{Tool Name}</code> and <code>{Tool Version}</code>.</td><td>One row per tool in the project&rsquo;s tools table.</td></tr>
         <tr><td>Word</td><td>Nmap port table</td><td>A table whose text contains &ldquo;nmap&rdquo; and <code>{Port}</code>, plus <code>{Protocol}</code>, <code>{Service}</code>, <code>{Status}</code>.</td><td>One row per imported Nmap record.</td></tr>
-        <tr><td>Word</td><td>Findings tables</td><td>Summary table (<code>{Vulnerability Name}</code> or <code>{Finding Title}</code> with CVE/CWE or score) and detailed table (the same plus description or remediation).</td><td>One row or block per finding; PoC steps and screenshots go in the detailed table&rsquo;s PoC row.</td></tr>
+        <tr><td>Word</td><td>Findings tables</td><td>Summary table (<code>{Vulnerability Name}</code> or <code>{Finding Title}</code> with CVE/CWE or score) and detailed table (the same plus description or remediation).</td><td>One row or block per finding; PoC steps and screenshots go in the detailed table&rsquo;s PoC row. A step with several screenshots prints all of them, in the order set on the finding, each with a thin black border.</td></tr>
         <tr><td>Word</td><td>Contact table</td><td>Rows named Tester, Team Lead and Manager.</td><td>Written into the highlighted run of each cell.</td></tr>
         <tr><td>Excel</td><td>Scope rows</td><td>A row containing placeholders named IP and Purpose (and optionally Domain).</td><td>Row repeats per scope entry; empty values print NA.</td></tr>
         <tr><td>Excel</td><td>Port scan rows</td><td>A row with a Port placeholder and one whose name contains &ldquo;nmap&rdquo;, plus Protocol, Service, Status.</td><td>Row repeats per Nmap record; empty values print NA.</td></tr>
@@ -210,7 +210,7 @@
       </tbody>
     </table></div>
     <h3>Compliance status</h3>
-    <p><code>{Compliance Status}</code> or <code>{Project Status}</code> (any spacing or underscore form) prints <em>Compliant</em> or <em>Non-Compliant</em> in both Word and Excel. When it is alone in its cell or paragraph, the background is green or red. It stays empty while the project is In-Progress. In Word it also works in headers, footers and the file name.</p>
+    <p><code>{Compliance Status}</code> or <code>{Project Status}</code> (any spacing or underscore form) prints <em>Compliant</em> or <em>Non-Compliant</em> in both Word and Excel, from the project&rsquo;s saved status. A project that is still <em>In Progress</em> prints as <em>Non-Compliant</em>, exactly like one saved as Non-Compliant. When it is alone in its cell or paragraph, the background is green (<code>#92D050</code>) for Compliant and red (<code>#FF0000</code>) for Non-Compliant and In Progress. With no status saved it stays empty and the template background is left as it is. Generating a report never changes the saved status. In Word it also works in headers, footers and the file name.</p>
     <h3>VA and PT sections (Word, Network)</h3>
     <p>Wrap content that applies only to vulnerability assessment or only to penetration testing in marker paragraphs. These are control markers, not parameters: they are never listed as fields. Each marker must be the only text in its paragraph, in any letter case:</p>
 <pre><code>{#VA}
@@ -252,14 +252,14 @@
     <p>Generation is blocked until both of these conditions hold:</p>
     <ul class="plain">
       <li>The project has at least one finding, or its compliance status is <em>Compliant</em>.</li>
-      <li>Every finding is report-ready: each PoC step has a description and a screenshot. Nessus findings on Network projects are exempt.</li>
+      <li>Every finding is report-ready: each PoC step has a description and at least one screenshot. Nessus findings on Network projects are exempt. Findings added manually or imported from a file are not exempt.</li>
     </ul>
     <p>Each completed generation gets the next version number, <code>1.1</code>, <code>1.2</code> and so on. Failed attempts don't use a number. The file is named after the template's file name pattern, with project values filled in. The project status becomes <em>Completed</em>, and its retention countdown starts.</p>
   </section>
 
   <section id="issue-log">
     <h2>Issue Log</h2>
-    <p>From the project, export the Issue Log as CSV: one row per finding. An Admin sets which columns appear, and in what order, under <em>Settings</em>.</p>
+    <p>From the project, export the Issue Log as CSV: one row per finding. An Admin sets which columns appear, and in what order, under <em>Settings</em>. The header row is plain text (no surrounding quotation marks); data cells are quoted, and any cell that starts with <code>=</code>, <code>+</code>, <code>-</code> or <code>@</code> is prefixed so spreadsheets do not run it as a formula. Findings added manually or imported from a file are included like any other finding of the project.</p>
   </section>
 
   <section id="history">

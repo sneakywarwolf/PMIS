@@ -311,7 +311,10 @@ async function referencedFiles(prisma: PrismaClient, scopes: ResetScope[]): Prom
   const keys = new Set<string>();
   if (f.findings) {
     for (const x of await prisma.finding.findMany({ select: { evidencePaths: true } })) x.evidencePaths.forEach((k) => keys.add(k));
-    for (const x of await prisma.pocStep.findMany({ where: { imagePath: { not: null } }, select: { imagePath: true } })) keys.add(x.imagePath!);
+    for (const x of await prisma.pocStep.findMany({ select: { imagePath: true, extraImagePaths: true } })) {
+      if (x.imagePath) keys.add(x.imagePath);
+      x.extraImagePaths.forEach((k) => keys.add(k));
+    }
   }
   if (f.projects) {
     for (const x of await prisma.project.findMany({ select: { reportDocxPath: true, reportPdfPath: true } })) {

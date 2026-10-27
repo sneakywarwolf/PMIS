@@ -39,6 +39,11 @@ RUN apk upgrade --no-cache && apk add --no-cache openssl && npm install -g npm@l
 # Set Node.js to production
 ENV NODE_ENV=production
 
+# The release version this image was built from (the release workflow passes the tag). The About page and the
+# update check read it; without it they fall back to package.json, which is not bumped per release.
+ARG APP_VERSION=
+ENV APP_VERSION=${APP_VERSION}
+
 # Builder's pruned node_modules (prod deps incl. prisma CLI + ts-node for migrate/seed at start)
 COPY package*.json tsconfig.json ./
 COPY --from=builder /app/node_modules ./node_modules

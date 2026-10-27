@@ -79,7 +79,7 @@ const roleLabel = (role: string) => {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, loading } = useAuth();
-  const { primaryColor } = useBranding();
+  const { primaryColor, shortName, logoUrl } = useBranding();
   const router = useRouter();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -146,14 +146,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="h-full flex flex-col">
           {/* Logo */}
           <div className="h-16 flex items-center px-4 border-b border-cyber-border">
-            <Shield className="w-8 h-8 shrink-0" style={{ color: primaryColor }} />
+            {logoUrl
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={logoUrl} alt="" className="w-8 h-8 shrink-0 object-contain" />
+              : <Shield className="w-8 h-8 shrink-0" style={{ color: primaryColor }} />}
             {!slim && (
               <motion.span
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 className="ml-3 font-bold text-white whitespace-nowrap"
               >
-                STT
+                {shortName}
               </motion.span>
             )}
           </div>
@@ -417,8 +420,10 @@ function NotificationBell() {
                     onClick={() => {
                       if (!n.read) markAsRead(n.id);
                       setOpen(false);
+                      // Notifications created before they carried a link: a vulnerability request still opens its approval tab.
+                      const target = n.linkUrl || (n.type === 'VULNERABILITY_REQUESTED' && n.relatedId ? `/dashboard/vulnerabilities?tab=pending&focus=${encodeURIComponent(n.relatedId)}` : undefined);
                       // Only in-app paths (e.g. /dashboard/quiz); never an external or protocol-relative URL.
-                      if (n.linkUrl?.startsWith('/') && !n.linkUrl.startsWith('//')) router.push(n.linkUrl);
+                      if (target?.startsWith('/') && !target.startsWith('//')) router.push(target);
                     }}
                   >
                     <div className="flex items-start justify-between gap-2">

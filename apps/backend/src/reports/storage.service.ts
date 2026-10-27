@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as Minio from 'minio';
+import { PrismaService } from '../prisma/prisma.service';
+import { quotaError } from '../common/quota';
+import { readEffectiveSettings } from '../settings/settings.store';
 
 @Injectable()
 export class StorageService {
@@ -8,7 +11,7 @@ export class StorageService {
   private readonly minioClient: Minio.Client;
   private readonly bucket: string;
 
-  constructor(private configService: ConfigService) {
+  constructor(private configService: ConfigService, private prisma: PrismaService) {
     this.minioClient = new Minio.Client({
       endPoint: configService.get('MINIO_ENDPOINT', 'localhost'),
       port: parseInt(configService.get('MINIO_PORT', '9000')),
@@ -44,7 +47,23 @@ export class StorageService {
     }
   }
 
+  private used: { bytes: number; at: number } | null = null;
+
+  /** Forget the measured size, so the next upload measures again (after the quota setting changes). */
+  resetUsage() {
+    this.used = null;
+  }
+
+  /** Refuses a file that would take the bucket over the storage quota set in Settings > System. */
+  private async assertRoomFor(extraBytes: number) {
+    const quotaMb = (await readEffectiveSettings(this.prisma)).settings.system.totalStorageQuotaMb;
+    if (!this.used || Date.now() - this.used.at > 60_000) this.used = { bytes: await this.getUsedBytes(), at: Date.now() };
+    if (this.used.bytes + extraBytes > quotaMb * 1024 * 1024) throw quotaError('storage', this.used.bytes / (1024 * 1024), quotaMb);
+  }
+
   async uploadFile(objectName: string, buffer: Buffer, contentType: string): Promise<string> {
+    await this.assertRoomFor(buffer.length);
+    if (this.used) this.used.bytes += buffer.length;
     await this.minioClient.putObject(this.bucket, objectName, buffer, buffer.length, {
       'Content-Type': contentType,
     });

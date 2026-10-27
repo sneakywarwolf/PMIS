@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Mascot } from 'page-mascot';
-import { CalendarClock, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
+import { BookOpen, CalendarClock, ExternalLink, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { formatDateTime } from '@/lib/datetime';
 
@@ -157,6 +157,19 @@ export default function AboutPage() {
             </div>
           ))}
         </dl>
+
+        <a
+          href="https://sneakywarwolf.github.io/PMIS/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="glass group flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg shadow-black/20 transition-all hover:border-emerald-500/50 hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+        >
+          <span className="flex items-center gap-3">
+            <BookOpen className="h-5 w-5 text-emerald-400" />
+            Documentation
+          </span>
+          <ExternalLink className="h-4 w-4 text-gray-400 transition-colors group-hover:text-emerald-400" />
+        </a>
 
         {update.status === 'SCHEDULED' && update.scheduledAt && (
           <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-400">

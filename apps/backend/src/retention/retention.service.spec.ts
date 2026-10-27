@@ -65,8 +65,19 @@ describe('RetentionService.runRetentionSweep', () => {
     await service.runRetentionSweep();
 
     expect(storage.deleteFile).toHaveBeenCalledWith('old.png');
-    expect(prisma.pocStep.update).toHaveBeenCalledWith({ where: { id: 'step1' }, data: { imagePath: null } });
+    expect(prisma.pocStep.update).toHaveBeenCalledWith({ where: { id: 'step1' }, data: { imagePath: null, extraImagePaths: [] } });
     expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'ATTACHMENT_RETENTION_DELETED' }));
+  });
+
+  it('also deletes the further PoCs of a step that has several', async () => {
+    prisma.pocStep.findMany.mockResolvedValue([{ id: 'step2', imagePath: 'a.png', extraImagePaths: ['b.png', 'c.png'] }]);
+
+    await service.runRetentionSweep();
+
+    expect(storage.deleteFile).toHaveBeenCalledWith('a.png');
+    expect(storage.deleteFile).toHaveBeenCalledWith('b.png');
+    expect(storage.deleteFile).toHaveBeenCalledWith('c.png');
+    expect(prisma.pocStep.update).toHaveBeenCalledWith({ where: { id: 'step2' }, data: { imagePath: null, extraImagePaths: [] } });
   });
 
   it('purges an expired completed project and logs the deletion', async () => {

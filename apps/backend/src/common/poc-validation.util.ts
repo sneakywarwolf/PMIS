@@ -47,9 +47,12 @@ export function isFindingReportReady(pocSteps: PocStepLike[]): boolean {
  * be report-ready. PT findings and every other project type keep the full requirement.
  */
 export function findingPocReadiness(
-  finding: { projectScoped?: boolean; pocSteps: PocStepLike[] },
+  finding: { projectScoped?: boolean; findingType?: 'VA' | 'PT'; pocSteps: PocStepLike[] },
   projectSubType: string,
 ): PocReadiness {
-  if (projectSubType === 'NETWORK' && finding.projectScoped) return 'ready';
+  // Only scan-imported VA findings are exempt. A project-only PT finding (entered by hand or imported from a file)
+  // is project-scoped too, but keeps the full Steps/PoC requirement.
+  const isVa = finding.findingType !== undefined ? finding.findingType === 'VA' : !!finding.projectScoped;
+  if (projectSubType === 'NETWORK' && isVa) return 'ready';
   return getPocReadiness(finding.pocSteps);
 }

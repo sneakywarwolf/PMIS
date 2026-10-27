@@ -1,6 +1,7 @@
 'use client';
 
-import { Fragment, useEffect, useLayoutEffect, useState, useRef } from 'react';
+import { Fragment, Suspense, useEffect, useLayoutEffect, useState, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw, Clock } from 'lucide-react';
@@ -8,8 +9,11 @@ import { api, useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
+import { usePagination } from '@/lib/pagination';
+import { Pager } from '@/components/pager';
 import { formatDateTime } from '@/lib/datetime';
 import { stripCvssPrefix } from '@/lib/cvss';
+import { useSeverity } from '@/lib/severity';
 
 const DEFAULT_SEVERITY_COLORS: Record<string, string> = {
   Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#3b82f6', Info: '#6b7280',
@@ -42,8 +46,18 @@ type BulkDuplicate = {
   rows: { row: number; severity: string; cvssScore: number | null; cvssVector: string | null; cveId: string | null; cweId: string | null; description: string; impact: string; remediation: string; references: string }[];
 };
 
-export default function VulnerabilitiesPage() {
+export default function VulnerabilitiesPageWithParams() {
+  return (
+    <Suspense fallback={null}>
+      <VulnerabilitiesPage />
+    </Suspense>
+  );
+}
+
+function VulnerabilitiesPage() {
   const { user } = useAuth();
+  const sev = useSeverity();
+  const searchParams = useSearchParams();
   const [vulnerabilities, setVulnerabilities] = useState<any[]>([]);
   const [pendingVulns, setPendingVulns] = useState<any[]>([]);
   const [pendingChangeRequests, setPendingChangeRequests] = useState<any[]>([]);
@@ -112,6 +126,29 @@ export default function VulnerabilitiesPage() {
   const isAdminOrTL = user?.role === 'ADMIN' || user?.role === 'AVP' || user?.role === 'TEAM_LEAD';
   const isAdmin = user?.role === 'ADMIN';
 
+  // A notification link (/dashboard/vulnerabilities?tab=pending&focus=<id>) opens the Pending Approval tab and
+  // highlights that request. Only roles that may see the queue honour it; for anyone else it is ignored, and the
+  // API refuses them regardless.
+  const focusId = searchParams.get('focus');
+  const wantsPending = searchParams.get('tab') === 'pending';
+  const [focusHandled, setFocusHandled] = useState(false);
+  const [pendingLoaded, setPendingLoaded] = useState(false);
+  useEffect(() => {
+    if (wantsPending && isAdminOrTL) setActiveTab('pending');
+  }, [wantsPending, isAdminOrTL]);
+  useEffect(() => setFocusHandled(false), [focusId]);
+  useEffect(() => {
+    if (!wantsPending || !isAdminOrTL || !focusId || focusHandled || activeTab !== 'pending' || !pendingLoaded) return;
+    const row = document.getElementById(`vuln-row-${focusId}`);
+    if (row) {
+      row.scrollIntoView({ block: 'center' });
+      setFocusHandled(true);
+    } else {
+      toast('That request is no longer pending: it has already been reviewed.', 'info');
+      setFocusHandled(true);
+    }
+  }, [wantsPending, isAdminOrTL, focusId, focusHandled, activeTab, pendingLoaded, pendingVulns, pendingChangeRequests]);
+
   useEffect(() => {
     fetchVulnerabilities();
     if (isAdminOrTL) fetchPending();
@@ -151,6 +188,7 @@ export default function VulnerabilitiesPage() {
       ]);
       setPendingVulns(pendingRes.data);
       setPendingChangeRequests(changeRes.data);
+      setPendingLoaded(true);
     } catch (error) {
       console.error('Failed to fetch pending:', error);
     }
@@ -323,6 +361,7 @@ export default function VulnerabilitiesPage() {
   const displayVulns = activeTab === 'pending'
     ? [...pendingVulns, ...pendingChangeRows]
     : vulnerabilities.filter((v) => v.isActive);
+  const pager = usePagination(displayVulns, `${search}|${activeTab}`);
 
   if (loading && displayVulns.length === 0) {
     return (
@@ -436,11 +475,11 @@ export default function VulnerabilitiesPage() {
         <select value={severity} onChange={(e) => setSeverity(e.target.value)}
           className="px-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 transition-all">
           <option value="">All Severities</option>
-          <option value="Critical">Critical</option>
-          <option value="High">High</option>
-          <option value="Medium">Medium</option>
-          <option value="Low">Low</option>
-          <option value="Info">Info</option>
+          <option value="Critical">{sev.label('Critical')}</option>
+          <option value="High">{sev.label('High')}</option>
+          <option value="Medium">{sev.label('Medium')}</option>
+          <option value="Low">{sev.label('Low')}</option>
+          <option value="Info">{sev.label('Info')}</option>
         </select>
         <select value={category} onChange={(e) => setCategory(e.target.value)}
           className="px-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 transition-all">
@@ -474,16 +513,17 @@ export default function VulnerabilitiesPage() {
               </tr>
             </thead>
             <tbody>
-              {displayVulns.map((vuln, i) => (
+              {pager.rows.map((vuln, i) => (
                 <Fragment key={vuln.id}>
                 <motion.tr
+                  id={`vuln-row-${vuln.id}`}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.02 }}
                   onClick={(e: React.MouseEvent) => openVulnDetail(vuln.id, e)}
                   className={`border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer ${
                     expandedId === vuln.id ? 'bg-emerald-500/5' : ''
-                  }`}
+                  } ${activeTab === 'pending' && wantsPending && focusId === vuln.id ? 'bg-amber-500/10 outline outline-1 outline-amber-500/40' : ''}`}
                 >
                   <td className="px-4 py-3">
                     <div>
@@ -493,7 +533,7 @@ export default function VulnerabilitiesPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={severityBadgeStyle(severityColors, vuln.severity)}>
-                      {vuln.severity}
+                      {sev.label(vuln.severity)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-white">{vuln.cvssScore ?? '-'}</td>
@@ -584,6 +624,7 @@ export default function VulnerabilitiesPage() {
             </tbody>
           </table>
         </div>
+        <Pager {...pager} />
 
         {displayVulns.length === 0 && (
           <div className="text-center py-12">
@@ -655,7 +696,7 @@ export default function VulnerabilitiesPage() {
                 <div className="p-6 space-y-4 text-sm">
                   <div className="flex items-center gap-2">
                     <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={severityBadgeStyle(severityColors, vuln.severity)}>
-                      {vuln.severity}
+                      {sev.label(vuln.severity)}
                     </span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${statusColors[vuln.status] || statusColors.PENDING}`}>
                       {vuln.status}
@@ -1003,6 +1044,7 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
   isRequest: boolean;
 }) {
   const toast = useToast();
+  const sev = useSeverity();
   const { user } = useAuth();
   const isTesterEditingExisting = !!vuln && user?.role === 'TESTER';
   const [submitting, setSubmitting] = useState(false);
@@ -1106,11 +1148,11 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
             <div>
               <label className={labelCls}>Severity *</label>
               <select value={form.severity} onChange={(e) => set('severity', e.target.value)} className={inputCls}>
-                <option value="Critical">Critical</option>
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
-                <option value="Info">Info</option>
+                <option value="Critical">{sev.label('Critical')}</option>
+                <option value="High">{sev.label('High')}</option>
+                <option value="Medium">{sev.label('Medium')}</option>
+                <option value="Low">{sev.label('Low')}</option>
+                <option value="Info">{sev.label('Info')}</option>
               </select>
             </div>
           </div>

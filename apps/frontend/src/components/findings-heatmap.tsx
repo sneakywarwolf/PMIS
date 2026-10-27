@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Row, person } from '@/lib/use-engagements';
 import { SEVERITY_KEYS, Counts } from '@/lib/risk';
 import { SEVERITY_COLORS } from '@/lib/chart-theme';
+import { useSeverity } from '@/lib/severity';
 
 const LABEL: Record<keyof Counts, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info' };
 const BY = { tester: (r: Row) => person(r.tester), client: (r: Row) => r.clientName } as const;
@@ -13,6 +14,7 @@ const BY = { tester: (r: Row) => person(r.tester), client: (r: Row) => r.clientN
  * column (so a "Critical" column of 1–2 still reads); the number is always printed.
  */
 export function FindingsHeatmap({ rows, onSelect }: { rows: Row[] | null; onSelect: (severity: keyof Counts) => void }) {
+  const sev = useSeverity();
   const [by, setBy] = useState<keyof typeof BY>('tester');
 
   const grid = new Map<string, Counts>();
@@ -66,7 +68,7 @@ export function FindingsHeatmap({ rows, onSelect }: { rows: Row[] | null; onSele
                       onClick={() => onSelect(k)}
                       className="w-full rounded uppercase tracking-wide hover:text-white focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:outline-none"
                     >
-                      {LABEL[k]}
+                      {sev.label(LABEL[k])}
                     </button>
                   </th>
                 ))}
@@ -79,9 +81,9 @@ export function FindingsHeatmap({ rows, onSelect }: { rows: Row[] | null; onSele
                   {SEVERITY_KEYS.map((k) => (
                     <td
                       key={k}
-                      title={`${name} · ${LABEL[k]}: ${c[k]}`}
+                      title={`${name} · ${sev.label(LABEL[k])}: ${c[k]}`}
                       className="rounded-md px-1 py-1.5 text-center font-mono tabular-nums text-white"
-                      style={{ backgroundColor: c[k] ? withAlpha(SEVERITY_COLORS[LABEL[k]], 0.15 + 0.6 * (c[k] / colMax[k])) : 'rgba(255,255,255,0.03)' }}
+                      style={{ backgroundColor: c[k] ? withAlpha(sev.color(LABEL[k]) || SEVERITY_COLORS[LABEL[k]], 0.15 + 0.6 * (c[k] / colMax[k])) : 'rgba(255,255,255,0.03)' }}
                     >
                       {c[k] || <span className="text-gray-600">0</span>}
                     </td>

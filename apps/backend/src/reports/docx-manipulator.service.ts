@@ -29,6 +29,8 @@ export interface PocStepData {
   stepNo: number;
   description: string;
   imageKey?: string | null;
+  /** Every PoC of the step, in order. `imageKey` alone (older callers) is the same as a one-item list. */
+  imageKeys?: string[];
 }
 
 export interface PocImage {
@@ -84,6 +86,8 @@ export interface FindingData {
   pocText?: string | null;
   /** VA = scan import (project-scoped), PT = Vulnerability DB. Drives the VA/PT table split in Network reports. */
   findingType?: 'VA' | 'PT';
+  /** The Admin's display name for `severity` (Settings > Workflow); printed instead of it when set. */
+  severityLabel?: string;
   pocSteps: PocStepData[];
 }
 
@@ -545,13 +549,14 @@ export class DocxManipulatorService {
 
   /**
    * {Project Status} / {Compliance Status}: the project's saved status as text, with a background colour.
-   * Compliant -> "Compliant" on #92D050; Non-Compliant -> "Non-Compliant" on #FF0000; any other status
-   * (In Progress) -> empty, and the template's own background is left exactly as it is. The colour goes on
+   * Compliant -> "Compliant" on #92D050; Non-Compliant -> "Non-Compliant" on #FF0000; In Progress is reported
+   * exactly like Non-Compliant. Any other or unset status -> empty, and the template's own background is left
+   * exactly as it is. The status is the project's saved one, never changed here. The colour goes on
    * the table cell holding the placeholder, or on the paragraph when it is not in a table.
    */
   private applyComplianceStatus(doc: Document, status?: string | null): void {
     const key = (status || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
-    const look = key === 'compliant' ? { value: 'Compliant', fill: '92D050' } : key === 'non-compliant' ? { value: 'Non-Compliant', fill: 'FF0000' } : null;
+    const look = key === 'compliant' ? { value: 'Compliant', fill: '92D050' } : key === 'non-compliant' || key === 'in-progress' ? { value: 'Non-Compliant', fill: 'FF0000' } : null;
     const NAME_RE = /^(project|compliance)[\s_-]*status$/i;
     const resolver = (n: string) => (/^(project|compliance)_status$/.test(n) ? look?.value ?? '' : undefined);
 
@@ -1229,7 +1234,7 @@ export class DocxManipulatorService {
       for (const para of paragraphs) {
         this.replacePlaceholdersInParagraph(para, resolver);
       }
-      if (this.getElementText(cell).trim() === finding.severity) {
+      if ([finding.severity, finding.severityLabel].includes(this.getElementText(cell).trim())) {
         const color = severityColors[finding.severity];
         if (color) this.setCellShading(cell, color);
       }
@@ -1424,9 +1429,11 @@ export class DocxManipulatorService {
         const cells = Array.from(clone.getElementsByTagNameNS(this.W_NS, 'tc'));
         if (cells[0]) this.setStepCellText(cells[0], step.stepNo, step.description);
         if (cells[1]) {
-          const img = step.imageKey ? imageRegistry.get(step.imageKey) : undefined;
-          if (img) {
-            this.setCellImage(doc, cells[1], img);
+          const imgs = (step.imageKeys ?? (step.imageKey ? [step.imageKey] : []))
+            .map((key) => imageRegistry.get(key))
+            .filter((img): img is RegisteredImage => !!img);
+          if (imgs.length > 0) {
+            this.setCellImages(doc, cells[1], imgs);
           } else if (finding.pocText) {
             this.setCellMultilineText(cells[1], finding.pocText);
           } else {
@@ -1462,7 +1469,7 @@ export class DocxManipulatorService {
       for (const para of paragraphs) {
         this.replacePlaceholdersInParagraph(para, resolver);
       }
-      if (hadSeverity || this.getElementText(cell).trim() === finding.severity) {
+      if (hadSeverity || [finding.severity, finding.severityLabel].includes(this.getElementText(cell).trim())) {
         const color = severityColors[finding.severity];
         if (color) this.setCellShading(cell, color);
       }
@@ -1495,7 +1502,7 @@ export class DocxManipulatorService {
       sno: `${finding.no}.`,
       finding_title: finding.title,
       vulnerability_name: finding.title,
-      severity: finding.severity,
+      severity: finding.severityLabel || finding.severity,
       cvss_score: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
       score_value: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
       cvss_vector: stripCvssPrefix(finding.cvssVector) || 'N/A',
@@ -1640,13 +1647,17 @@ export class DocxManipulatorService {
     return { width: 800, height: 450 };
   }
 
-  private setCellImage(doc: Document, cell: Element, img: RegisteredImage): void {
+  /** Puts every PoC of a step into the cell, one paragraph each, in order. */
+  private setCellImages(doc: Document, cell: Element, imgs: RegisteredImage[]): void {
     // Clear existing paragraphs' text
     const paragraphs = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'p'));
     for (const p of paragraphs) {
       cell.removeChild(p);
     }
+    for (const img of imgs) this.appendCellImage(doc, cell, img);
+  }
 
+  private appendCellImage(doc: Document, cell: Element, img: RegisteredImage): void {
     const para = doc.createElementNS(this.W_NS, 'w:p');
     const run = doc.createElementNS(this.W_NS, 'w:r');
     const drawing = doc.createElementNS(this.W_NS, 'w:drawing');
@@ -1703,6 +1714,16 @@ export class DocxManipulatorService {
     prstGeom.setAttribute('prst', 'rect');
     prstGeom.appendChild(doc.createElementNS(this.A_NS, 'a:avLst'));
     spPr.appendChild(prstGeom);
+    // Solid black 0.75pt outline on every PoC snapshot. It is a line on the picture's own edge, so the picture's
+    // extent, aspect ratio and the page layout are unchanged. Order in spPr: xfrm, geometry, fill, ln.
+    const ln = doc.createElementNS(this.A_NS, 'a:ln');
+    ln.setAttribute('w', '9525');
+    const lnFill = doc.createElementNS(this.A_NS, 'a:solidFill');
+    const lnColor = doc.createElementNS(this.A_NS, 'a:srgbClr');
+    lnColor.setAttribute('val', '000000');
+    lnFill.appendChild(lnColor);
+    ln.appendChild(lnFill);
+    spPr.appendChild(ln);
     pic.appendChild(spPr);
 
     graphicData.appendChild(pic);

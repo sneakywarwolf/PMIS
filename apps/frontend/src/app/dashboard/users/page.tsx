@@ -9,6 +9,8 @@ import { api, useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
+import { usePagination } from '@/lib/pagination';
+import { Pager } from '@/components/pager';
 import { downloadBlob } from '@/lib/download';
 
 interface TeamLead {
@@ -262,6 +264,7 @@ export default function UsersPage() {
     u.email.toLowerCase().includes(search.toLowerCase()) ||
     u.fullName?.toLowerCase().includes(search.toLowerCase())
   );
+  const pager = usePagination(filteredUsers, search);
 
   if (user?.role !== 'ADMIN') {
     return (
@@ -350,7 +353,7 @@ export default function UsersPage() {
             </tr>
           </thead>
           <tbody>
-            {filteredUsers.map((u, i) => (
+            {pager.rows.map((u, i) => (
               <motion.tr
                 key={u.id}
                 initial={{ opacity: 0 }}
@@ -431,6 +434,7 @@ export default function UsersPage() {
             ))}
           </tbody>
         </table>
+        <Pager {...pager} />
       </div>
 
       {/* Add User Modal */}

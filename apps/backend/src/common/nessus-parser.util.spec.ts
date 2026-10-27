@@ -1,4 +1,4 @@
-import { parseNessusFile } from './nessus-parser.util';
+import { NESSUS_POC_MAX, parseNessusFile } from './nessus-parser.util';
 
 const file = (originalname: string, body: string | Buffer) => ({
   originalname,
@@ -66,7 +66,8 @@ describe('parseNessusFile', () => {
       + `</Report></NessusClientData_v2>`;
     const [f] = parseNessusFile(file('o.nessus', xml));
     expect(f.pluginOutputs).toEqual([{ at: '10.0.0.1:443/tcp', text: 'line1\nline2 & x' }, { at: '10.0.0.4:8080/tcp', text: 'second' }]);
-    expect(parseNessusFile(file('c.csv', CSV))[0].pluginOutputs).toEqual([]);
+    // The same column in a .csv export is read per host:port the same way; an empty cell records nothing.
+    expect(parseNessusFile(file('c.csv', CSV))[0].pluginOutputs).toEqual([{ at: '10.0.0.1:443/tcp', text: 'out' }]);
   });
 
   it('parses .csv with quoted multi-line fields and groups by plugin', () => {
@@ -89,3 +90,61 @@ describe('parseNessusFile', () => {
     expect(() => parseNessusFile(f)).toThrow();
   });
 });
+
+// The header row of a real Nessus CSV export (30 columns). The data rows are made up for the test.
+const REAL_HEADER = ['Plugin ID', 'CVE', 'CVSS v2.0 Base Score', 'Risk', 'Host', 'Protocol', 'Port', 'Name', 'Synopsis', 'Description', 'Solution', 'See Also', 'Plugin Output', 'STIG Severity', 'CVSS v4.0 Base Score', 'CVSS v4.0 Base+Threat Score', 'CVSS v3.0 Base Score', 'CVSS v2.0 Temporal Score', 'CVSS v3.0 Temporal Score', 'VPR Score', 'EPSS Score', 'Risk Factor', 'BID', 'XREF', 'MSKB', 'Plugin Publication Date', 'Plugin Modification Date', 'Metasploit', 'Core Impact', 'CANVAS'];
+const q = (v: string) => `"${v.replace(/"/g, '""')}"`;
+function realRow(o: Record<string, string>) {
+  return REAL_HEADER.map((h) => q(o[h] ?? '')).join(',');
+}
+const realCsv = (rows: Record<string, string>[]) => [REAL_HEADER.join(','), ...rows.map(realRow)].join('\r\n') + '\r\n';
+
+describe('Nessus .csv export with the real 30-column header', () => {
+  const base = { 'Plugin ID': '51192', Risk: 'High', Protocol: 'tcp', Name: 'SSL Certificate Cannot Be Trusted', Synopsis: 'The SSL certificate cannot be trusted.', Description: 'The server\'s X.509 certificate\ncannot be trusted.', Solution: 'Purchase a trusted certificate.', 'See Also': 'https://www.itu.int/rec/T-REC-X.509/en https://en.wikipedia.org/wiki/X.509', 'CVSS v2.0 Base Score': '6.4', 'CVSS v3.0 Base Score': '6.5', 'CVSS v3.0 Temporal Score': '5.9', 'CVSS v4.0 Base Score': '7.1', 'Risk Factor': 'Medium', XREF: 'CWE:295', CVE: '' };
+
+  it('reads each host\'s Plugin Output (multi-line, quoted, with commas) and keeps hosts and outputs paired', () => {
+    const f = parseNessusFile(file('real.csv', realCsv([
+      { ...base, Host: '10.0.0.1', Port: '443', 'Plugin Output': 'The following certificate was at the top of the certificate\nchain sent by the remote host, but it is signed by an unknown\ncertificate authority :\n\n|-Subject : CN=a, O="Acme"' },
+      { ...base, Host: '10.0.0.2', Port: '8443', 'Plugin Output': 'second host output' },
+      { ...base, Host: '10.0.0.3', Port: '443', 'Plugin Output': '' },
+    ])));
+    expect(f).toHaveLength(1);
+    expect(f[0].affected).toEqual(['10.0.0.1:443/tcp', '10.0.0.2:8443/tcp', '10.0.0.3:443/tcp']);
+    expect(f[0].pluginOutputs).toEqual([
+      { at: '10.0.0.1:443/tcp', text: 'The following certificate was at the top of the certificate\nchain sent by the remote host, but it is signed by an unknown\ncertificate authority :\n\n|-Subject : CN=a, O="Acme"' },
+      { at: '10.0.0.2:8443/tcp', text: 'second host output' },
+    ]);
+  });
+
+  it('takes the Base scores by exact header (not the Temporal or v4.0 columns) and invents no vector', () => {
+    const [f] = parseNessusFile(file('real.csv', realCsv([{ ...base, Host: '10.0.0.1', Port: '443' }])));
+    expect(f).toMatchObject({ key: '51192', severity: 'High', cvssScore: 6.5, cvssVersion: '3', cvssVector: null, impact: 'The SSL certificate cannot be trusted.', remediation: 'Purchase a trusted certificate.', cweId: 'CWE-295' });
+    // XREF without a CWE entry gives no CWE; nothing is guessed.
+    expect(parseNessusFile(file('x.csv', realCsv([{ ...base, XREF: 'IAVB:2008-B-0001', Host: '10.0.0.1', Port: '443' }])))[0].cweId).toBeNull();
+    expect(f.references).toBe('https://www.itu.int/rec/T-REC-X.509/en\nhttps://en.wikipedia.org/wiki/X.509');
+    expect(f.pluginOutputs).toEqual([]); // an empty Plugin Output cell records nothing
+  });
+
+  it('gives the same plugin output as the equivalent .nessus file', () => {
+    const output = 'line1\nline2';
+    const xml = `<?xml version="1.0"?><NessusClientData_v2><Report name="r"><ReportHost name="10.0.0.1"><ReportItem port="443" protocol="tcp" severity="3" pluginID="51192" pluginName="SSL Certificate Cannot Be Trusted"><plugin_output>${output}</plugin_output></ReportItem></ReportHost></Report></NessusClientData_v2>`;
+    const fromXml = parseNessusFile(file('a.nessus', xml))[0];
+    const fromCsv = parseNessusFile(file('a.csv', realCsv([{ ...base, Host: '10.0.0.1', Port: '443', 'Plugin Output': output }])))[0];
+    expect(fromCsv.pluginOutputs).toEqual(fromXml.pluginOutputs);
+    expect(fromCsv.affected).toEqual(fromXml.affected);
+  });
+
+  it('caps a very long output like the XML reader does', () => {
+    const [f] = parseNessusFile(file('big.csv', realCsv([{ ...base, Host: '10.0.0.1', Port: '443', 'Plugin Output': 'x'.repeat(NESSUS_POC_MAX + 5000) }])));
+    expect(f.pluginOutputs[0].text.length).toBe(NESSUS_POC_MAX + 1);
+  });
+
+  it('still imports an export made without the Plugin Output column', () => {
+    const header = REAL_HEADER.filter((h) => h !== 'Plugin Output');
+    const row = header.map((h) => q(({ ...base, Host: '10.0.0.1', Port: '443' } as Record<string, string>)[h] ?? '')).join(',');
+    const [f] = parseNessusFile(file('no-output.csv', `${header.join(',')}\n${row}\n`));
+    expect(f.pluginOutputs).toEqual([]);
+    expect(f.affected).toEqual(['10.0.0.1:443/tcp']);
+  });
+});
+
