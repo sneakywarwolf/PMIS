@@ -26,17 +26,54 @@
 - A step can now hold several PoC screenshots, kept in order and printed in order in the report. Every PoC image in the Word report has a black border.
 - Issue Log CSV: the header row is written without surrounding quotation marks.
 - Nessus imports accept `.nessus` and `.csv` files up to 500 MB. The file is read while it uploads and is never stored; only the findings you import are saved. Behind your own reverse proxy, raise its body limit to at least 512 MB (the docs example is updated).
+
+## 1.0.10 (2026-10-25)
+- The RustFS web console is disabled in the production compose file (`RUSTFS_CONSOLE_ENABLE=false`); PMIS uses only the S3 API. The docs explain how to check this.
+- Documentation: the Report Engine spec (`docs/REPORT-ENGINE-SPEC.md`) now lists what changed since the original draft (automatic document versioning, Excel for Network projects, queued generation, signed downloads, automatic template selection, generation gate, Client SPOC, Issue Log).
+- Reset-database messages now say "object storage" instead of MinIO.
+- Documentation: upgrade notes point to the MinIO to RustFS migration steps.
+
+## 1.0.9 (2026-10-25)
+- Object storage is now RustFS (S3-compatible) instead of MinIO. Existing installs must copy their files across once: see https://sneakywarwolf.github.io/PMIS/deployment.html#migrate-minio. New installs need no extra setup, and the MINIO_IMAGE setting is gone.
+- Docker images are now built natively for linux/amd64 and linux/arm64, instead of emulating arm64.
+- Security: the Docker images were rebuilt to fix Docker Scout findings (backend dev dependencies pruned, Alpine packages and npm upgraded, dependency audit fixes).
+
+## 1.0.8 (2026-10-24)
+- Security: patched dependencies; images on Node 22.
+- Report templates: activating a template replaces the previous one atomically under a lock, and replaced templates that existing reports refer to are kept.
+- Documentation: the documentation site and README were rebuilt and checked against the report code. Corrected: Word placeholders do not need yellow highlighting, and the template activation behaviour.
+- Documentation site: dark mode, search, contents sidebar, copy buttons, parameter table for every mappable report placeholder, glossary, error finder, architecture and report-flow diagrams, and a link checker and search index in CI.
+- Installation page: two self-contained routes (build from GitHub, or pull from Docker Hub) with troubleshooting. Header has GitHub, LinkedIn and theme buttons.
+
+## 1.0.7 (2026-10-24)
+- CI: the security workflow runs Trivy from a digest-pinned container image.
+
+## 1.0.6 (2026-10-24)
+- Documentation: GitHub Pages site published from `site/` (overview, user guide, reports, security, deployment, API pages); README trimmed to point to it. The Pages workflow is named `github-webpage` and deploys on pushes to master.
+- Setup scripts and `.env.example` updated.
+
+## 1.0.5 (2026-10-24, includes 1.0.2 to 1.0.5)
+- Reports: Network projects can use Excel templates (templates are marked Word or Excel); VA and PT findings are in separate tables with severity charts per group; `{VA Output}` is filled; `{#VA}` / `{#PT}` blocks follow the Network Activity Type; `{Project Status}` / `{Compliance Status}` print Compliant / Non-Compliant with a green / red background; `{Client SPOC ...}` placeholders; no double underscore in a file name when a value is empty; Nessus stock disclaimers are stripped from VA descriptions.
 - Network Excel reports repeat rows per scope entry, port and finding; `{VA Output}` maps to Nessus plugin output.
 - Network Word reports start Scope and Detail Findings on a new page.
 - Network VA findings hide the PoC steps section.
 - Report templates are selected automatically from category and Testing Type.
-- Security: patched dependencies; images on Node 22.
-- Documentation: the documentation site and README were rebuilt and checked against the report code. Corrected: Word placeholders do not need yellow highlighting, and the template activation behaviour.
-- Documentation: the Report Engine spec (`docs/REPORT-ENGINE-SPEC.md`) now lists what changed since the original draft (automatic document versioning, Excel for Network projects, queued generation, signed downloads, automatic template selection, generation gate, Client SPOC, Issue Log).
-- Reset-database messages now say "object storage" instead of MinIO.
-- Object storage is now RustFS (S3-compatible) instead of MinIO. Existing installs must copy their files across once: see https://sneakywarwolf.github.io/PMIS/deployment.html#migrate-minio. New installs need no extra setup, and the MINIO_IMAGE setting is gone.
-- The RustFS web console is disabled in the production compose file (`RUSTFS_CONSOLE_ENABLE=false`); PMIS uses only the S3 API. The docs explain how to check this.
-- Docker images are now built natively for linux/amd64 and linux/arm64, instead of emulating arm64.
+- Templates: several Activity Types in one template, category filter buttons, Word or Excel type.
+- Network projects: Network Scope import (.txt, .csv, .xlsx) with an info tooltip for the supported formats, Nmap Ports, Network Activity Type (VA / PT / VAPT), bulk delete of Nessus VA findings, a caution under Testing Limitation, and VA / PT filters.
+- Nessus import: plugin output becomes the PoC with an "Observe the output." step; the scan's CVSS vector is kept (or a candidate is calculated); CVSS vectors are shown without the version prefix.
+- Reports can be generated when the project has findings or is Compliant; downloads are served through the API with signed, expiring links; one generation at a time per project.
+- Vulnerability bulk upload: Replace or Merge mode, and repeated names in the file can be resolved by choosing which version to keep.
+- Projects: completed projects can be edited with change history; long values wrap; optional Client SPOC fields for Cert-IN projects.
+- Dashboard: live user count beside System Online, with a scoped list of active and idle users (default inactivity threshold 2 minutes).
+- Quiz: every question still inside its 24-hour answer window is shown; late answers are unscored; revealed questions get Recently Revealed cards and notifications.
+- Updates: an Admin's "Check for updates" starts the update when a newer version exists. The application is named PMIS - Project Management for Information Security.
+- Security: stricter file and storage-key checks for evidence and templates, DOCX package validation, CSV / XLSX parser limits, CSRF origin check, security headers and CSP, report, retention and activity endpoints scoped to the team, sessions revoked on admin password reset, Swagger off and HSTS in production, rate limits on heavy endpoints, `POST /auth/refresh` without a cookie returns 401, and a security CI workflow (tests, dependency audit, gitleaks, semgrep, trivy, SBOM).
 
-## 1.0.0
+## 1.0.1 (2026-10-09 to 2026-10-14)
+- About page with version, release notes and admin-scheduled updates; update source defaults to `sneakywarwolf/PMIS`; forced version checks are rate limited.
+- Nessus import for VA findings on Network projects: summary counts, findings with a CVSS score preselected, informational plugins listed separately, findings kept in the project only.
+- Project reassignment: an Admin can pick any tester, a Team Lead only within the team, and the new tester is notified.
+- Production hardening: production builds in `start.bat`, scripts wait for healthy containers before migrating, configurable API proxy.
+
+## 1.0.0 (2026-10-08)
 - First public release.
