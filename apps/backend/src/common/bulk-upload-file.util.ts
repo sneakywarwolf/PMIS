@@ -24,12 +24,12 @@ const DANGEROUS_ENTRY_PATTERNS = [
  * Never evaluates file content — formulas, macros, and embedded objects are
  * treated as reasons to reject, not to execute.
  */
-export async function parseUploadedFileToCsv(file?: Express.Multer.File): Promise<string> {
+export async function parseUploadedFileToCsv(file?: Express.Multer.File, maxBytes: number = MAX_UPLOAD_BYTES): Promise<string> {
   if (!file || !file.buffer || file.buffer.length === 0) {
     throw new BadRequestException('No file uploaded, or the file is empty.');
   }
-  if (file.buffer.length > MAX_UPLOAD_BYTES) {
-    throw new BadRequestException('File is too large. Maximum upload size is 10MB.');
+  if (file.buffer.length > maxBytes) {
+    throw new BadRequestException(`File is too large. Maximum upload size is ${Math.round(maxBytes / (1024 * 1024))}MB.`);
   }
 
   const name = (file.originalname || '').toLowerCase();

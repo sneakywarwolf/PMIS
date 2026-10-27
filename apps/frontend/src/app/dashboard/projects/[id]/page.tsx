@@ -33,6 +33,7 @@ import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
 import { PasswordGeneratorButton } from '@/components/password-generator-button';
 import { NessusImportDialog } from '@/components/nessus-import-dialog';
+import { ProjectFindingsImportDialog, IMPORT_MAX_BYTES } from '@/components/project-findings-import-dialog';
 import { stripCvssPrefix } from '@/lib/cvss';
 import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
 import { formatReportDate } from '@/lib/report-date';
@@ -82,7 +83,16 @@ interface PocStep {
   stepNo: number;
   description: string;
   imagePath?: string | null;
+  // Further PoCs of the step, in order; `imagePath` is the first.
+  extraImagePaths?: string[];
 }
+
+/** A step's PoC images in order: the first one, then the rest. */
+const stepImages = (s: PocStep): string[] => [s.imagePath, ...(s.extraImagePaths ?? [])].filter((p): p is string => !!p);
+const withStepImages = (s: PocStep, list: string[]): PocStep => ({ ...s, imagePath: list[0] ?? null, extraImagePaths: list.slice(1) });
+const MAX_POC_IMAGES = 20;
+/** `poc/<uuid>_name.png` -> `name.png` */
+const pocFileLabel = (path: string) => path.replace(/^poc\/[0-9a-f-]{36}_/, '');
 
 interface Finding {
   id: string;
@@ -308,6 +318,23 @@ export default function ProjectDetailPage() {
 
   const nessusInputRef = useRef<HTMLInputElement>(null);
   const [nessusFile, setNessusFile] = useState<File | null>(null);
+  // Import Project Findings (.csv / .xlsx): project-only findings, never added to the Vulnerability DB.
+  const findingsImportRef = useRef<HTMLInputElement>(null);
+  const [findingsImportFile, setFindingsImportFile] = useState<File | null>(null);
+  const handleFindingsImportSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/\.(csv|xlsx)$/i.test(file.name)) {
+      showToast('Choose a .csv or .xlsx file.', 'error');
+      return;
+    }
+    if (file.size > IMPORT_MAX_BYTES) {
+      showToast('This file is larger than 100 MB, the upload limit.', 'error');
+      return;
+    }
+    setFindingsImportFile(file);
+  };
   const handleNessusFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -679,6 +706,33 @@ export default function ProjectDetailPage() {
                 <Plus className="w-4 h-4" />
                 Add Finding
               </button>
+            )}
+            {canEditFindings && (
+              <>
+                <input
+                  ref={findingsImportRef}
+                  type="file"
+                  accept=".csv,.xlsx"
+                  className="hidden"
+                  onChange={handleFindingsImportSelected}
+                />
+                <button
+                  onClick={() => findingsImportRef.current?.click()}
+                  title="Import findings for this project from a .csv or .xlsx file (project only; not added to the Vulnerability Database)"
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm"
+                >
+                  <Upload className="w-4 h-4" />
+                  Import Project Findings
+                </button>
+                {findingsImportFile && (
+                  <ProjectFindingsImportDialog
+                    projectId={project.id}
+                    file={findingsImportFile}
+                    onClose={() => setFindingsImportFile(null)}
+                    onImported={fetchProject}
+                  />
+                )}
+              </>
             )}
             {canEditFindings && project.subType === 'NETWORK' && (
               <>
@@ -1491,8 +1545,10 @@ function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, 
                         </span>
                         <div className="flex-1">
                           <p className="text-sm text-gray-300">{step.description}</p>
-                          {step.imagePath && (
-                            <p className="text-xs text-cyan-400 mt-1">Screenshot: {step.imagePath}</p>
+                          {stepImages(step).length > 0 && (
+                            <p className="text-xs text-cyan-400 mt-1">
+                              {stepImages(step).length === 1 ? 'Screenshot' : `Screenshots (${stepImages(step).length})`}: {stepImages(step).map(pocFileLabel).join(', ')}
+                            </p>
                           )}
                         </div>
                       </div>
@@ -1547,24 +1603,47 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
   );
   const [uploadingStep, setUploadingStep] = useState<number | null>(null);
   const [showCvssCalc, setShowCvssCalc] = useState(false);
+  // "Add Manually": a vulnerability that is not in the Vulnerability DB, created for this project only.
+  const [showManual, setShowManual] = useState(false);
 
-  const uploadStepImage = async (index: number, file: File) => {
+  const uploadStepImages = async (index: number, files: File[]) => {
     setUploadingStep(index);
     try {
-      const data = new FormData();
-      data.append('file', file);
-      const res = await api.post('/findings/upload-poc-image', data, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      const updated = [...pocSteps];
-      updated[index] = { ...updated[index], imagePath: res.data.path };
-      setPocSteps(updated);
+      let list = stepImages(pocSteps[index]);
+      for (const file of files) {
+        if (list.length >= MAX_POC_IMAGES) {
+          alert(`A step can have at most ${MAX_POC_IMAGES} PoC images.`);
+          break;
+        }
+        const data = new FormData();
+        data.append('file', file);
+        const res = await api.post('/findings/upload-poc-image', data, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        list = [...list, res.data.path];
+        setPocSteps((prev) => prev.map((s, i) => (i === index ? withStepImages(s, list) : s)));
+      }
     } catch (error: any) {
       alert(error.response?.data?.message || 'Image upload failed');
     } finally {
       setUploadingStep(null);
     }
   };
+
+  const removeStepImage = (index: number, imageIndex: number) =>
+    setPocSteps((prev) => prev.map((s, i) => (i === index ? withStepImages(s, stepImages(s).filter((_, j) => j !== imageIndex)) : s)));
+
+  const moveStepImage = (index: number, imageIndex: number, delta: -1 | 1) =>
+    setPocSteps((prev) =>
+      prev.map((s, i) => {
+        if (i !== index) return s;
+        const list = stepImages(s);
+        const to = imageIndex + delta;
+        if (to < 0 || to >= list.length) return s;
+        [list[imageIndex], list[to]] = [list[to], list[imageIndex]];
+        return withStepImages(s, list);
+      }),
+    );
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -1670,13 +1749,13 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
             await api.put(`/findings/${finding.id}/poc-steps/${step.id}`, {
               stepNo: step.stepNo,
               description: step.description,
-              imagePath: step.imagePath ?? undefined,
+              imagePaths: stepImages(step),
             });
           } else {
             await api.post(`/findings/${finding.id}/poc-steps`, {
               stepNo: step.stepNo,
               description: step.description,
-              imagePath: step.imagePath ?? undefined,
+              imagePaths: stepImages(step),
             });
           }
         }
@@ -1687,7 +1766,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
           await api.post(`/findings/${newFindingId}/poc-steps`, {
             stepNo: step.stepNo,
             description: step.description,
-            imagePath: step.imagePath ?? undefined,
+            imagePaths: stepImages(step),
           });
         }
       }
@@ -1866,7 +1945,17 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                   </div>
                 )}
 
-                <div className="flex justify-end gap-3 pt-2">
+                <div className="flex items-center justify-between gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowManual(true)}
+                    title="Create a finding for a vulnerability that is not in the Vulnerability Database"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 border border-cyan-500/20 text-sm"
+                  >
+                    <Pencil className="w-4 h-4" />
+                    Add Manually
+                  </button>
+                  <div className="flex justify-end gap-3">
                   <button
                     type="button"
                     onClick={onClose}
@@ -1893,6 +1982,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                       Continue
                     </button>
                   )}
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -2069,23 +2159,37 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                           ) : (
                             <ImageIcon className="w-3 h-3" />
                           )}
-                          {step.imagePath ? 'Replace Screenshot' : 'Upload Screenshot'}
+                          {stepImages(step).length > 0 ? 'Add Screenshots' : 'Upload Screenshots'}
                           <input
                             type="file"
                             accept="image/*"
+                            multiple
                             className="hidden"
-                            disabled={uploadingStep !== null}
+                            disabled={uploadingStep !== null || stepImages(step).length >= MAX_POC_IMAGES}
                             onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) uploadStepImage(index, file);
+                              const files = Array.from(e.target.files ?? []);
+                              if (files.length > 0) uploadStepImages(index, files);
                               e.target.value = '';
                             }}
                           />
                         </label>
-                        {step.imagePath && (
-                          <span className="text-xs text-cyan-400">Screenshot attached</span>
+                        {stepImages(step).length > 0 && (
+                          <span className="text-xs text-cyan-400">{stepImages(step).length} screenshot{stepImages(step).length === 1 ? '' : 's'} attached</span>
                         )}
                       </div>
+                      {stepImages(step).length > 0 && (
+                        <ol className="space-y-1" aria-label={`Screenshots of step ${step.stepNo}, in report order`}>
+                          {stepImages(step).map((path, imageIndex, list) => (
+                            <li key={path} className="flex items-center gap-2 text-xs text-gray-300 bg-gray-900/50 rounded px-2 py-1">
+                              <span className="w-5 text-gray-500 tabular-nums">{imageIndex + 1}.</span>
+                              <span className="flex-1 truncate" title={pocFileLabel(path)}>{pocFileLabel(path)}</span>
+                              <button type="button" onClick={() => moveStepImage(index, imageIndex, -1)} disabled={imageIndex === 0} aria-label="Move up" className="px-1 text-gray-400 hover:text-white disabled:opacity-30">↑</button>
+                              <button type="button" onClick={() => moveStepImage(index, imageIndex, 1)} disabled={imageIndex === list.length - 1} aria-label="Move down" className="px-1 text-gray-400 hover:text-white disabled:opacity-30">↓</button>
+                              <button type="button" onClick={() => removeStepImage(index, imageIndex)} aria-label="Remove screenshot" className="px-1 text-gray-400 hover:text-red-400">✕</button>
+                            </li>
+                          ))}
+                        </ol>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -2122,6 +2226,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
           </AnimatePresence>
         </form>
       </motion.div>
+      {showManual && <ManualFindingModal projectId={projectId} onClose={() => setShowManual(false)} onSaved={onSaved} />}
     </div>,
     document.body
   );
@@ -2239,6 +2344,185 @@ function CvssCalculator({ initialVector, onApply }: {
       </div>
       <p className="text-xs text-gray-500 font-mono break-all">{stripCvssPrefix(vector)}</p>
     </div>
+  );
+}
+
+const MANUAL_EMPTY = {
+  name: '', severity: 'Medium', cvssScore: '', cvssVector: '', description: '', impact: '', remediation: '',
+  references: '', cveId: '', cweId: '', affectedInstances: '', testerNotes: '',
+};
+
+/**
+ * Add Manually: a vulnerability that is not in the Vulnerability Database. It is always created in this project.
+ * With "Sync Vuln DB" on (the default) a separate request is also sent through the existing approval flow; the
+ * project finding is saved either way and is not affected by the decision.
+ */
+function ManualFindingModal({ projectId, onClose, onSaved }: { projectId: string; onClose: () => void; onSaved: () => void }) {
+  const showToast = useToast();
+  const [form, setForm] = useState(MANUAL_EMPTY);
+  const [syncVulnDb, setSyncVulnDb] = useState(true);
+  const [showCvssCalc, setShowCvssCalc] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
+  const set = (key: keyof typeof MANUAL_EMPTY) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const input = 'w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 text-sm text-white';
+  const label = 'block text-xs text-gray-400 mb-1';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setErrors([]);
+    try {
+      const res = await api.post('/findings/manual', {
+        projectId,
+        name: form.name,
+        severity: form.severity,
+        cvssScore: form.cvssScore === '' ? undefined : form.cvssScore,
+        cvssVector: form.cvssVector || undefined,
+        description: form.description,
+        impact: form.impact,
+        remediation: form.remediation,
+        references: form.references,
+        cveId: form.cveId || undefined,
+        cweId: form.cweId || undefined,
+        affectedInstances: form.affectedInstances.split('\n').filter((x) => x.trim()),
+        testerNotes: form.testerNotes,
+        syncVulnDb,
+      });
+      const sync = res.data.sync?.status;
+      const note: Record<string, string> = {
+        requested: ' A Vulnerability Database request was sent for approval.',
+        already_pending: ' The Vulnerability Database already has a pending request for it.',
+        already_exists: ' It is already in the Vulnerability Database.',
+        not_permitted: ' Your role cannot send Vulnerability Database requests, so none was sent.',
+        failed: ' The Vulnerability Database request could not be created; the finding is saved in this project.',
+      };
+      showToast(`Finding added to this project.${note[sync] ?? ''}`, sync === 'failed' ? 'error' : 'success');
+      onSaved();
+    } catch (error: any) {
+      const msg = error.response?.data?.message;
+      setErrors(Array.isArray(msg) ? msg : [msg || 'Failed to add the finding']);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="manual-finding-title" className="bg-gray-900 rounded-2xl border border-gray-700 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b border-gray-700 sticky top-0 bg-gray-900 z-10">
+          <h2 id="manual-finding-title" className="text-lg font-semibold text-white">Add Finding Manually</h2>
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded-lg hover:bg-gray-800 text-gray-400">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label htmlFor="mf-name" className={label}>Vulnerability Name *</label>
+            <input id="mf-name" required maxLength={300} value={form.name} onChange={set('name')} className={input} />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label htmlFor="mf-severity" className={label}>Severity *</label>
+              <select id="mf-severity" value={form.severity} onChange={set('severity')} className={input}>
+                {Object.keys(severityColors).map((sev) => <option key={sev} value={sev}>{sev}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="mf-score" className={label}>CVSS Score</label>
+              <input id="mf-score" type="number" step="0.1" min="0" max="10" value={form.cvssScore} onChange={set('cvssScore')} className={input} />
+            </div>
+            <div>
+              <label htmlFor="mf-vector" className={label}>CVSS Vector</label>
+              <input id="mf-vector" value={form.cvssVector} onChange={set('cvssVector')} placeholder="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N" className={`${input} font-mono text-xs`} />
+            </div>
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowCvssCalc(!showCvssCalc)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-cyan-600/20 text-cyan-400 text-xs hover:bg-cyan-600/30 transition-all"
+            >
+              <ShieldAlert className="w-3 h-3" />
+              {showCvssCalc ? 'Hide Calculator' : 'CVSS Calculator'}
+            </button>
+            {showCvssCalc && (
+              <div className="mt-2">
+                <CvssCalculator
+                  initialVector={form.cvssVector}
+                  onApply={(score, vector) => setForm((f) => ({ ...f, cvssScore: score.toString(), cvssVector: vector, severity: cvssSeverity(score) in severityColors ? cvssSeverity(score) : f.severity }))}
+                />
+              </div>
+            )}
+          </div>
+
+          {([
+            ['description', 'Description *', 'mf-description'],
+            ['impact', 'Impact *', 'mf-impact'],
+            ['remediation', 'Remediation *', 'mf-remediation'],
+            ['references', 'Reference *', 'mf-references'],
+          ] as const).map(([key, text, id]) => (
+            <div key={key}>
+              <label htmlFor={id} className={label}>{text}</label>
+              <textarea id={id} required rows={key === 'references' ? 2 : 3} value={form[key]} onChange={set(key)} className={input} />
+            </div>
+          ))}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="mf-cve" className={label}>CVE ID (optional)</label>
+              <input id="mf-cve" value={form.cveId} onChange={set('cveId')} placeholder="CVE-2024-12345" className={input} />
+            </div>
+            <div>
+              <label htmlFor="mf-cwe" className={label}>CWE ID (optional)</label>
+              <input id="mf-cwe" value={form.cweId} onChange={set('cweId')} placeholder="CWE-79" className={input} />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="mf-affected" className={label}>Affected URLs / hosts (optional, one per line)</label>
+            <textarea id="mf-affected" rows={2} value={form.affectedInstances} onChange={set('affectedInstances')} className={input} />
+          </div>
+          <div>
+            <label htmlFor="mf-notes" className={label}>Tester notes (optional)</label>
+            <textarea id="mf-notes" rows={2} value={form.testerNotes} onChange={set('testerNotes')} className={input} />
+          </div>
+
+          <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" role="switch" aria-checked={syncVulnDb} checked={syncVulnDb} onChange={(e) => setSyncVulnDb(e.target.checked)} className="mt-1" />
+              <span>
+                <span className="block text-sm text-white font-medium">Sync Vuln DB</span>
+                <span className="block text-xs text-gray-400 mt-0.5">
+                  {syncVulnDb
+                    ? 'On: the finding is added to this project now, and a separate request to add the vulnerability to the Vulnerability Database is sent for approval. The finding stays usable whatever the decision.'
+                    : 'Off: the finding exists only in this project. Nothing is sent to the Vulnerability Database.'}
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {errors.length > 0 && (
+            <div role="alert" className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-300 space-y-1">
+              {errors.map((m, i) => <p key={i}>{m}</p>)}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm">Cancel</button>
+            <button type="submit" disabled={submitting} className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50 flex items-center gap-2">
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {submitting ? 'Saving...' : 'Add Finding'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

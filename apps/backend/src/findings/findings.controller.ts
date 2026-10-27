@@ -3,7 +3,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
 import { NESSUS_UPLOAD, NessusUploadSizeGuard } from '../common/nessus-upload.storage';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
+import { Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { FindingsService } from './findings.service';
+import { IMPORT_MAX_BYTES, ProjectFindingsService } from './project-findings.service';
 import { StorageService } from '../reports/storage.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '@prisma/client';
@@ -15,6 +18,7 @@ import { sniffImageType } from '../common/upload-security.util';
 export class FindingsController {
   constructor(
     private readonly findingsService: FindingsService,
+    private readonly projectFindings: ProjectFindingsService,
     private readonly storageService: StorageService,
   ) {}
 
@@ -76,6 +80,48 @@ export class FindingsController {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
     return this.findingsService.importNessus(projectId, file, selected as string[], user, ipAddress, userAgent);
+  }
+
+  // ─── Project-only findings (not from the Vulnerability DB) ───
+  // Declared before the ':id' routes so these paths are never taken for a finding id.
+
+  @Post('manual')
+  @ApiOperation({ summary: 'Add a finding by hand. With syncVulnDb (default true) a separate Vulnerability DB approval request is also created' })
+  async createManual(@Body() body: any, @CurrentUser() user: User, @Req() request: any) {
+    const ipAddress = request.ip || 'unknown';
+    const userAgent = request.headers['user-agent'] || 'unknown';
+    return this.projectFindings.createManual(body, user, ipAddress, userAgent);
+  }
+
+  @Get('import/sample')
+  @ApiOperation({ summary: 'Sample CSV with the exact headers expected by Import Project Findings' })
+  getImportSample(@Res() response: Response) {
+    response.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    response.setHeader('Content-Disposition', 'attachment; filename="project-findings-sample.csv"');
+    response.send(this.projectFindings.getSampleCsv());
+  }
+
+  @Post('import/preview')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: IMPORT_MAX_BYTES, files: 1 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Validate a .csv/.xlsx findings file and list what an import would do (nothing is written)' })
+  async previewImport(@UploadedFile() file: Express.Multer.File, @Body('projectId') projectId: string, @CurrentUser() user: User) {
+    return this.projectFindings.previewImport(projectId, file, user);
+  }
+
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: IMPORT_MAX_BYTES, files: 1 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Import project-only findings from a .csv/.xlsx file, all or nothing. Never touches the Vulnerability DB' })
+  async importFindings(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('projectId') projectId: string,
+    @CurrentUser() user: User,
+    @Req() request: any,
+  ) {
+    const ipAddress = request.ip || 'unknown';
+    const userAgent = request.headers['user-agent'] || 'unknown';
+    return this.projectFindings.importFindings(projectId, file, user, ipAddress, userAgent);
   }
 
   @Get('project/:projectId')
@@ -165,7 +211,7 @@ export class FindingsController {
   @ApiOperation({ summary: 'Add POC step to finding' })
   async addPocStep(
     @Param('id') findingId: string,
-    @Body() body: { stepNo: number; description: string; imagePath?: string },
+    @Body() body: { stepNo: number; description: string; imagePath?: string; imagePaths?: string[] },
     @CurrentUser() user: User,
   ) {
     return this.findingsService.addPocStep(findingId, body, user);
@@ -176,7 +222,7 @@ export class FindingsController {
   async updatePocStep(
     @Param('id') findingId: string,
     @Param('stepId') stepId: string,
-    @Body() body: { stepNo?: number; description?: string; imagePath?: string },
+    @Body() body: { stepNo?: number; description?: string; imagePath?: string; imagePaths?: string[] },
     @CurrentUser() user: User,
   ) {
     return this.findingsService.updatePocStep(findingId, stepId, body, user);

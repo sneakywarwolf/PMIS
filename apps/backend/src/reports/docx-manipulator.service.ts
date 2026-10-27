@@ -29,6 +29,8 @@ export interface PocStepData {
   stepNo: number;
   description: string;
   imageKey?: string | null;
+  /** Every PoC of the step, in order. `imageKey` alone (older callers) is the same as a one-item list. */
+  imageKeys?: string[];
 }
 
 export interface PocImage {
@@ -1424,9 +1426,11 @@ export class DocxManipulatorService {
         const cells = Array.from(clone.getElementsByTagNameNS(this.W_NS, 'tc'));
         if (cells[0]) this.setStepCellText(cells[0], step.stepNo, step.description);
         if (cells[1]) {
-          const img = step.imageKey ? imageRegistry.get(step.imageKey) : undefined;
-          if (img) {
-            this.setCellImage(doc, cells[1], img);
+          const imgs = (step.imageKeys ?? (step.imageKey ? [step.imageKey] : []))
+            .map((key) => imageRegistry.get(key))
+            .filter((img): img is RegisteredImage => !!img);
+          if (imgs.length > 0) {
+            this.setCellImages(doc, cells[1], imgs);
           } else if (finding.pocText) {
             this.setCellMultilineText(cells[1], finding.pocText);
           } else {
@@ -1640,13 +1644,17 @@ export class DocxManipulatorService {
     return { width: 800, height: 450 };
   }
 
-  private setCellImage(doc: Document, cell: Element, img: RegisteredImage): void {
+  /** Puts every PoC of a step into the cell, one paragraph each, in order. */
+  private setCellImages(doc: Document, cell: Element, imgs: RegisteredImage[]): void {
     // Clear existing paragraphs' text
     const paragraphs = Array.from(cell.getElementsByTagNameNS(this.W_NS, 'p'));
     for (const p of paragraphs) {
       cell.removeChild(p);
     }
+    for (const img of imgs) this.appendCellImage(doc, cell, img);
+  }
 
+  private appendCellImage(doc: Document, cell: Element, img: RegisteredImage): void {
     const para = doc.createElementNS(this.W_NS, 'w:p');
     const run = doc.createElementNS(this.W_NS, 'w:r');
     const drawing = doc.createElementNS(this.W_NS, 'w:drawing');
@@ -1703,6 +1711,16 @@ export class DocxManipulatorService {
     prstGeom.setAttribute('prst', 'rect');
     prstGeom.appendChild(doc.createElementNS(this.A_NS, 'a:avLst'));
     spPr.appendChild(prstGeom);
+    // Solid black 0.75pt outline on every PoC snapshot. It is a line on the picture's own edge, so the picture's
+    // extent, aspect ratio and the page layout are unchanged. Order in spPr: xfrm, geometry, fill, ln.
+    const ln = doc.createElementNS(this.A_NS, 'a:ln');
+    ln.setAttribute('w', '9525');
+    const lnFill = doc.createElementNS(this.A_NS, 'a:solidFill');
+    const lnColor = doc.createElementNS(this.A_NS, 'a:srgbClr');
+    lnColor.setAttribute('val', '000000');
+    lnFill.appendChild(lnColor);
+    ln.appendChild(lnFill);
+    spPr.appendChild(ln);
     pic.appendChild(spPr);
 
     graphicData.appendChild(pic);

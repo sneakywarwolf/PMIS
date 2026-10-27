@@ -1,3 +1,4 @@
+import { pocStepImagePaths } from './poc-images.util';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../reports/storage.service';
@@ -7,7 +8,7 @@ export type PurgeableProject = {
   reportDocxPath: string | null;
   reportPdfPath: string | null;
   reportGenerations: { docxPath: string | null; pdfPath: string | null }[];
-  findings: { evidencePaths: string[]; pocSteps: { imagePath: string | null }[] }[];
+  findings: { evidencePaths: string[]; pocSteps: { imagePath: string | null; extraImagePaths?: string[] }[] }[];
 };
 
 /**
@@ -37,7 +38,7 @@ export class ProjectPurgeService {
     for (const finding of project.findings) {
       filesToDelete.push(...finding.evidencePaths);
       for (const step of finding.pocSteps) {
-        if (step.imagePath) filesToDelete.push(step.imagePath);
+        filesToDelete.push(...pocStepImagePaths(step));
       }
     }
 

@@ -1,3 +1,4 @@
+import { pocStepImagePaths } from '../common/poc-images.util';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ProjectStatus, UserRole } from '@prisma/client';
@@ -101,18 +102,19 @@ export class RetentionService {
     const cutoff = new Date(Date.now() - retentionDays * DAY_MS);
 
     const expiredSteps = await this.prisma.pocStep.findMany({
-      where: { imagePath: { not: null }, createdAt: { lt: cutoff } },
-      select: { id: true, imagePath: true },
+      where: { OR: [{ imagePath: { not: null } }, { extraImagePaths: { isEmpty: false } }], createdAt: { lt: cutoff } },
+      select: { id: true, imagePath: true, extraImagePaths: true },
     });
 
     for (const step of expiredSteps) {
-      if (!step.imagePath) continue;
-      try {
-        await this.storage.deleteFile(step.imagePath);
-      } catch (error) {
-        this.logger.error(`Failed to delete PoC attachment ${step.imagePath}`, error as Error);
+      for (const path of pocStepImagePaths(step)) {
+        try {
+          await this.storage.deleteFile(path);
+        } catch (error) {
+          this.logger.error(`Failed to delete PoC attachment ${path}`, error as Error);
+        }
       }
-      await this.prisma.pocStep.update({ where: { id: step.id }, data: { imagePath: null } });
+      await this.prisma.pocStep.update({ where: { id: step.id }, data: { imagePath: null, extraImagePaths: [] } });
     }
 
     if (expiredSteps.length > 0) {

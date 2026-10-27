@@ -43,6 +43,21 @@ describe('ProjectPurgeService.purgeProject', () => {
     expect(result.filesDeleted).toBe(5);
   });
 
+  it('also deletes every further PoC of a step that has several', async () => {
+    const project = {
+      id: 'p1',
+      reportDocxPath: null,
+      reportPdfPath: null,
+      reportGenerations: [],
+      findings: [{ evidencePaths: [], pocSteps: [{ imagePath: 'a.png', extraImagePaths: ['b.png', 'c.png'] }] }],
+    };
+
+    const result = await service.purgeProject(project);
+
+    expect(storage.deleteFile.mock.calls.map((c) => c[0])).toEqual(['a.png', 'b.png', 'c.png']);
+    expect(result.filesDeleted).toBe(3);
+  });
+
   it('continues deleting the project even if a file delete throws', async () => {
     storage.deleteFile.mockRejectedValueOnce(new Error('storage unreachable'));
     const project = {

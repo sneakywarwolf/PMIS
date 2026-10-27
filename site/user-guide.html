@@ -94,9 +94,16 @@
       <li>On a project, add a finding by choosing a vulnerability from the library, so the standard wording is reused.</li>
       <li>Add the project-specific details: affected URLs or hosts, authentication type, dependencies and notes.</li>
       <li>If the library's CVSS score does not fit, set an override score and vector for this finding.</li>
-      <li>Add numbered proof-of-concept steps. Each step has a description and a screenshot (PNG, JPG, GIF or WebP).</li>
+      <li>Add numbered proof-of-concept steps. Each step has a description and one or more screenshots (PNG, JPG, GIF or WebP, up to 20 per step). Screenshots print under their step in the order shown, which you can change with the arrows, and each one gets a thin black border in the Word report.</li>
       <li>On <strong>Network</strong> projects the steps and PoC section is hidden for VA findings: the evidence comes from the Nessus scan output.</li>
     </ol>
+    <h3>Findings that are not in the library</h3>
+    <ul class="plain">
+      <li><strong>Add Manually</strong> (in <em>Add Finding</em>): enter the vulnerability yourself: name, severity, CVSS score and vector (a calculator is built in), description, impact, remediation, reference and optional CVE and CWE IDs. The finding is created in this project at once.</li>
+      <li><strong>Sync Vuln DB</strong> (on by default): also sends the vulnerability to the library as a normal approval request. The finding stays usable whatever the decision, and nothing is published without approval. Switch it off to keep the finding in this project only; there is no later sync for it.</li>
+      <li><strong>Import Project Findings</strong>: add many findings from a <code>.csv</code> or <code>.xlsx</code> file (up to 100 MB and 5,000 rows) using the sample template&rsquo;s exact headers. You see a preview first; if any row is invalid, nothing is imported. Rows already in the project are skipped. Imported findings stay in this project only: they never enter the library and have no sync option. Workbooks with formulas, macros or embedded objects are rejected.</li>
+    </ul>
+    <p>Both kinds are treated like findings picked from the library: they need steps and screenshots before a report, and they appear in the project&rsquo;s reports and Issue Log only.</p>
     <div class="note"><strong>Report readiness:</strong> a finding is ready for a report only when it has at least one step, every step has a description, and every step has a screenshot. The finding list shows which findings still need work. Nessus findings on Network projects are exempt, because their evidence comes from the scan output.</div>
   </section>
 

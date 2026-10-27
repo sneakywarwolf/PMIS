@@ -14,6 +14,7 @@ import { User, UserRole, TemplateCategory, TemplateSubType, ProjectStatus, Repor
 import * as crypto from 'crypto';
 import { REPORT_GENERATION_QUEUE, ReportGenerationJobData } from './report-generation.types';
 import { findingPocReadiness } from '../common/poc-validation.util';
+import { pocStepImagePaths } from '../common/poc-images.util';
 import { LINE_SEP, nessusTextForReport, stripNessusBoilerplate } from '../common/nessus-text.util';
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
 import { canAccessProject } from '../common/project-access.util';
@@ -768,18 +769,20 @@ export class ReportsService {
 
         const pocSteps = [] as FindingData['pocSteps'];
         for (const step of f.pocSteps || []) {
-          let imageKey: string | null = null;
-          if (step.imagePath) {
+          // Every PoC of the step, in its stored order; a file that can no longer be read is skipped, not fatal.
+          const imageKeys: string[] = [];
+          for (const [position, imagePath] of pocStepImagePaths(step).entries()) {
             try {
-              const buffer = await this.storage.getFile(step.imagePath);
-              imageKey = `finding_${f.id}_step_${step.stepNo}`;
-              const ext = (step.imagePath.split('.').pop() || 'png').toLowerCase();
+              const buffer = await this.storage.getFile(imagePath);
+              const imageKey = `finding_${f.id}_step_${step.stepNo}_${position}`;
+              const ext = (imagePath.split('.').pop() || 'png').toLowerCase();
               images.push({ key: imageKey, buffer, extension: ext === 'jpeg' ? 'jpg' : ext });
+              imageKeys.push(imageKey);
             } catch (error) {
-              this.logger.warn(`POC image not found in storage: ${step.imagePath}`);
+              this.logger.warn(`POC image not found in storage: ${imagePath}`);
             }
           }
-          pocSteps.push({ stepNo: step.stepNo, description: step.description, imageKey });
+          pocSteps.push({ stepNo: step.stepNo, description: step.description, imageKey: imageKeys[0] ?? null, imageKeys });
         }
 
         findingsData.push(this.toFindingData(f, index + 1, pocSteps));

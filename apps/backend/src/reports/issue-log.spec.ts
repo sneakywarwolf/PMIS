@@ -18,4 +18,26 @@ describe('issue-log', () => {
     const csv = buildIssueLogCsv(resolveIssueLogColumns(undefined).slice(0, 1), [['=cmd"x']]);
     expect(csv).toContain(`"'=cmd""x"`);
   });
+
+  it('writes header labels without surrounding quotes and keeps the column order', () => {
+    const csv = buildIssueLogCsv(resolveIssueLogColumns(undefined), []);
+    const header = csv.replace(/^\uFEFF/, '').split('\r\n')[0];
+    expect(header).toBe(
+      'S. No,Vulnerability Name,Affected URL,Risk Rating,CVSS Base Score,CVSS Vector,Status,Description,Impact,Remediation,Panacea Remarks,Client Remarks',
+    );
+    expect(header).not.toMatch(/["“”]/);
+  });
+
+  it('still quotes data cells, including legitimate quotation marks in the data', () => {
+    const cols = resolveIssueLogColumns(undefined).slice(0, 2);
+    const csv = buildIssueLogCsv(cols, [['1', 'He said "hi", twice']]);
+    const lines = csv.replace(/^\uFEFF/, '').split('\r\n');
+    expect(lines[0]).toBe('S. No,Vulnerability Name');
+    expect(lines[1]).toBe('"1","He said ""hi"", twice"');
+  });
+
+  it('quotes a header label only when CSV syntax requires it', () => {
+    const csv = buildIssueLogCsv([{ key: 'x', label: 'A, B' }, { key: 'y', label: 'C' }], []);
+    expect(csv.replace(/^\uFEFF/, '').split('\r\n')[0]).toBe('"A, B",C');
+  });
 });

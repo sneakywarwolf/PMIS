@@ -368,19 +368,29 @@ export class VulnerabilitiesService {
     cweId?: string;
     category?: string;
   }, requestedById: string) {
-    const vuln = await this.prisma.vulnerability.create({
+    const vuln = await this.createRequest(this.prisma, data, requestedById);
+    await this.announceRequest(vuln, requestedById);
+    return vuln;
+  }
+
+  /** The PENDING record of a vulnerability request. `db` lets a caller write it inside its own transaction. */
+  createRequest(db: Pick<PrismaService, 'vulnerability'>, data: any, requestedById: string) {
+    return db.vulnerability.create({
       data: {
         ...data,
         status: VulnerabilityStatus.PENDING,
         requestedById,
       } as any,
     });
+  }
 
+  /** Tells admins / TLs about a new request and records it in the audit log. */
+  async announceRequest(vuln: { id: string; name: string; severity: string }, requestedById: string) {
     // Notify admins/TLs about the new request
     await this.notificationsService.notifyAdminsAndTLs({
       type: 'VULNERABILITY_REQUESTED',
       title: 'New Vulnerability Request',
-      message: `"${data.name}" (${data.severity}) has been requested for approval.`,
+      message: `"${vuln.name}" (${vuln.severity}) has been requested for approval.`,
       relatedId: vuln.id,
       excludeUserId: requestedById,
     });
@@ -394,8 +404,6 @@ export class VulnerabilitiesService {
       userAgent: 'unknown',
       details: { name: vuln.name, severity: vuln.severity },
     });
-
-    return vuln;
   }
 
   async approve(id: string, reviewedById: string) {
@@ -518,7 +526,7 @@ export class VulnerabilitiesService {
 
   // ─── Bulk Upload ───
 
-  private readonly EXPECTED_HEADERS = ['S.No', 'Name', 'Severity', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
+  readonly EXPECTED_HEADERS = ['S.No', 'Name', 'Severity', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
 
   getSampleCsv(): string {
     const headers = this.EXPECTED_HEADERS.join(',');

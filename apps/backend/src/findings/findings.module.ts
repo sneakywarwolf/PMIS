@@ -4,11 +4,14 @@ import { FindingsController } from './findings.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { ReportsModule } from '../reports/reports.module';
+import { VulnerabilitiesModule } from '../vulnerabilities/vulnerabilities.module';
+import { SettingsModule } from '../settings/settings.module';
+import { ProjectFindingsService } from './project-findings.service';
 
 @Module({
-  imports: [PrismaModule, AuditModule, ReportsModule],
+  imports: [PrismaModule, AuditModule, ReportsModule, VulnerabilitiesModule, SettingsModule],
   controllers: [FindingsController],
-  providers: [FindingsService],
+  providers: [FindingsService, ProjectFindingsService],
   exports: [FindingsService],
 })
 export class FindingsModule {}

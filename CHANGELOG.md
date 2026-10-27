@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Add Finding > Add Manually: create a finding for a vulnerability that is not in the Vulnerability DB. With Sync Vuln DB on (default) a separate approval request is also sent; the project finding is unaffected by the decision. With it off the finding stays in the project only.
+- Import Project Findings: add findings from a .csv or .xlsx file (up to 100 MB, 5,000 rows) with preview and all-or-nothing validation. They stay in the project and are never synced to the Vulnerability DB.
+- A step can now hold several PoC screenshots, kept in order and printed in order in the report. Every PoC image in the Word report has a black border.
+- Issue Log CSV: the header row is written without surrounding quotation marks.
 - Nessus imports accept `.nessus` and `.csv` files up to 500 MB. The file is read while it uploads and is never stored; only the findings you import are saved. Behind your own reverse proxy, raise its body limit to at least 512 MB (the docs example is updated).
 - Network Excel reports repeat rows per scope entry, port and finding; `{VA Output}` maps to Nessus plugin output.
 - Network Word reports start Scope and Detail Findings on a new page.
