@@ -84,9 +84,8 @@ export function NessusImportDialog({
       })
       .catch((e) =>
         setError(
-          e.response?.status === 413
-            ? 'This file is larger than 500 MB, the upload limit.'
-            : e.response?.data?.message || 'Could not read this file.',
+          e.response?.data?.message ||
+            (e.response?.status === 413 ? 'This file is larger than the upload limit set by your Admin.' : 'Could not read this file.'),
         ),
       );
     // eslint-disable-next-line react-hooks/exhaustive-deps

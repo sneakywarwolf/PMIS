@@ -1,12 +1,12 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
+import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
 import { NESSUS_UPLOAD, NessusUploadSizeGuard } from '../common/nessus-upload.storage';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { FindingsService } from './findings.service';
-import { IMPORT_MAX_BYTES, ProjectFindingsService } from './project-findings.service';
+import { ProjectFindingsService } from './project-findings.service';
 import { StorageService } from '../reports/storage.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '@prisma/client';
@@ -23,7 +23,8 @@ export class FindingsController {
   ) {}
 
   @Post('upload-poc-image')
-  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @UseGuards(AttachmentSizeGuard('poc'))
+  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('poc')))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a POC screenshot, returns the storage path for use in a POC step' })
   async uploadPocImage(@UploadedFile() file: Express.Multer.File) {
@@ -35,6 +36,8 @@ export class FindingsController {
     if (!type) {
       throw new BadRequestException('Only image files (png, jpg, gif, webp) are allowed');
     }
+    // The limit is the one set for the image's real format, not for whatever its name says.
+    assertAttachmentSize('poc', file, `image.${type === 'image/jpeg' ? 'jpg' : type.slice(6)}`);
     const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(-100);
     const objectName = `poc/${randomUUID()}_${safeName}`;
     await this.storageService.uploadFile(objectName, file.buffer, type);
@@ -102,15 +105,18 @@ export class FindingsController {
   }
 
   @Post('import/preview')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: IMPORT_MAX_BYTES, files: 1 } }))
+  @UseGuards(AttachmentSizeGuard('findingsImport'))
+  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('findingsImport')))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Validate a .csv/.xlsx findings file and list what an import would do (nothing is written)' })
   async previewImport(@UploadedFile() file: Express.Multer.File, @Body('projectId') projectId: string, @CurrentUser() user: User) {
+    assertAttachmentSize('findingsImport', file);
     return this.projectFindings.previewImport(projectId, file, user);
   }
 
   @Post('import')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: IMPORT_MAX_BYTES, files: 1 } }))
+  @UseGuards(AttachmentSizeGuard('findingsImport'))
+  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('findingsImport')))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Import project-only findings from a .csv/.xlsx file, all or nothing. Never touches the Vulnerability DB' })
   async importFindings(
@@ -119,6 +125,7 @@ export class FindingsController {
     @CurrentUser() user: User,
     @Req() request: any,
   ) {
+    assertAttachmentSize('findingsImport', file);
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
     return this.projectFindings.importFindings(projectId, file, user, ipAddress, userAgent);

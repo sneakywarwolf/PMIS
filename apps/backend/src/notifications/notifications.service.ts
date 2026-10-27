@@ -1,11 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationType } from '@prisma/client';
+import { readEffectiveSettings } from '../settings/settings.store';
+import { roleReceives } from './notification-types';
 
 @Injectable()
 export class NotificationsService {
   constructor(private prisma: PrismaService) {}
 
+  /** The Admin's per-role notification switches, read fresh so a change applies to the very next notification. */
+  private async roleRules() {
+    return (await readEffectiveSettings(this.prisma)).settings.notifications.roleRules;
+  }
+
+  /**
+   * Creates one notification, unless the Admin has switched this type off for the recipient's role (an Admin
+   * recipient always gets it). Returns null when it was skipped.
+   */
   async create(data: {
     userId: string;
     type: NotificationType;
@@ -14,6 +25,8 @@ export class NotificationsService {
     linkUrl?: string;
     relatedId?: string;
   }) {
+    const user = await this.prisma.user.findUnique({ where: { id: data.userId }, select: { role: true } });
+    if (!user || !roleReceives(await this.roleRules(), data.type, user.role)) return null;
     return this.prisma.notification.create({ data });
   }
 
@@ -62,10 +75,11 @@ export class NotificationsService {
         role: { in: ['ADMIN', 'AVP', 'TEAM_LEAD'] },
         ...(data.excludeUserId ? { id: { not: data.excludeUserId } } : {}),
       },
-      select: { id: true },
+      select: { id: true, role: true },
     });
+    const rules = await this.roleRules();
 
-    const notifications = adminsAndTLs.map((user) =>
+    const notifications = adminsAndTLs.filter((user) => roleReceives(rules, data.type, user.role)).map((user) =>
       this.prisma.notification.create({
         data: {
           userId: user.id,
@@ -90,10 +104,11 @@ export class NotificationsService {
   }) {
     const activeUsers = await this.prisma.user.findMany({
       where: { isActive: true },
-      select: { id: true },
+      select: { id: true, role: true },
     });
+    const rules = await this.roleRules();
 
-    const notifications = activeUsers.map((user) =>
+    const notifications = activeUsers.filter((user) => roleReceives(rules, data.type, user.role)).map((user) =>
       this.prisma.notification.create({
         data: {
           userId: user.id,

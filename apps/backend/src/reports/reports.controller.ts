@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Req, Res, UseInterceptors, UploadedFile, Query, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Req, Res, UseGuards, UseInterceptors, UploadedFile, Query, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
+import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -15,7 +15,8 @@ export class ReportsController {
   // Template Management
   @Post('templates')
   @Roles(UserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @UseGuards(AttachmentSizeGuard('template'))
+  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('template')))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload report template with field extraction' })
   async uploadTemplate(
@@ -33,6 +34,7 @@ export class ReportsController {
     @CurrentUser('id') adminId: string,
     @Req() request: any,
   ) {
+    assertAttachmentSize('template', file);
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
     return this.reportsService.uploadTemplate(

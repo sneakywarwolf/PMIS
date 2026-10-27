@@ -1,9 +1,15 @@
 import { CanActivate, ExecutionContext, Injectable, PayloadTooLargeException } from '@nestjs/common';
 import type { StorageEngine } from 'multer';
 import { NessusFinding, scanStreamFor } from './nessus-parser.util';
+import { attachmentLimits, tooLargeMessage } from './attachment-formats';
 
-/** Largest scan file accepted. Nothing of it is kept, so this only bounds how long one request may run. */
+/**
+ * Largest scan file accepted: the limit Admins set for Nessus files (Settings > Attachments), 500 MB unless
+ * changed. Nothing of the file is kept, so this only bounds how long one request may run.
+ */
+/** The default (and highest allowed) limit; the limit in force is `nessusMaxBytes()`. */
 export const NESSUS_MAX_BYTES = 500 * 1024 * 1024;
+export const nessusMaxBytes = () => attachmentLimits.largestBytes('nessus');
 /** Room for the other form fields (project id, the list of selected plugin ids) and the multipart framing. */
 const FORM_OVERHEAD_BYTES = 4 * 1024 * 1024;
 
@@ -16,8 +22,8 @@ const FORM_OVERHEAD_BYTES = 4 * 1024 * 1024;
 export class NessusUploadSizeGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const declared = Number(context.switchToHttp().getRequest().headers['content-length']);
-    if (Number.isFinite(declared) && declared > NESSUS_MAX_BYTES + FORM_OVERHEAD_BYTES) {
-      throw new PayloadTooLargeException(`This file is larger than ${NESSUS_MAX_BYTES / (1024 * 1024)} MB, the upload limit.`);
+    if (Number.isFinite(declared) && declared > nessusMaxBytes() + FORM_OVERHEAD_BYTES) {
+      throw new PayloadTooLargeException(tooLargeMessage(undefined, nessusMaxBytes()));
     }
     return true;
   }
@@ -49,10 +55,13 @@ export const nessusScanStorage: StorageEngine = {
       return fail(err);
     }
 
+    // The limit of this file's own format (.nessus or .csv), checked as it streams in.
+    const limit = attachmentLimits.maxBytes('nessus', file.originalname);
     let size = 0;
     stream.on('data', (chunk: Buffer) => {
       if (failed) return;
       size += chunk.length;
+      if (size > limit) return fail(new PayloadTooLargeException(tooLargeMessage(file.originalname, limit)));
       try {
         reader.write(chunk);
       } catch (err) {
@@ -74,4 +83,6 @@ export const nessusScanStorage: StorageEngine = {
   },
 };
 
+// Multer fixes this when the route is set up: the highest value the Admin can set. The limit in force is checked
+// by the guard above and, per format, while the file streams in (see _handleFile).
 export const NESSUS_UPLOAD = { storage: nessusScanStorage, limits: { fileSize: NESSUS_MAX_BYTES, files: 1 } };

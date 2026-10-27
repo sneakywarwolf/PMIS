@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Settings: per-format attachment size limits (enforced on all uploads) and per-role notification switches (Admin always receives everything). The old attachments and notifications fields are replaced.
+- The settings history includes the actor's name and role.
 - The dashboard activity endpoint is Admin only and returns each actor's name and role.
 - Nessus CSV import reads Plugin Output (so `{VA Output}` is filled) and a CWE in the XREF column.
 - In Progress projects print as Non-Compliant (red) for the project status placeholder in Word and Excel reports.

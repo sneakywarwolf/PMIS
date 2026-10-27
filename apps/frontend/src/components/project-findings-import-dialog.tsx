@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { X, Loader2, Download } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { X, Loader2, Download, Info } from 'lucide-react';
+import { useBranding } from '@/contexts/branding-context';
 import { api } from '@/contexts/auth-context';
 import { downloadBlob } from '@/lib/download';
 
@@ -37,14 +39,78 @@ const STATUS: Record<RowStatus, { label: string; cls: string }> = {
 
 /** The server answers with a string, a list of strings, or { message, errors: [{ row, name, errors }] }. */
 function errorText(e: any, fallback: string): string {
-  if (e?.response?.status === 413) return 'This file is larger than 100 MB, the upload limit.';
   const data = e?.response?.data;
+  if (e?.response?.status === 413) return data?.message || 'This file is larger than the upload limit set by your Admin.';
   const msg = data?.message;
   const lines: string[] = Array.isArray(msg) ? msg : msg ? [msg] : [];
   if (Array.isArray(data?.errors)) {
     for (const r of data.errors.slice(0, 20)) lines.push(`Row ${r.row}${r.name ? ` (${r.name})` : ''}: ${(r.errors || []).join(' ')}`);
   }
   return lines.length > 0 ? lines.join('\n') : fallback;
+}
+
+/** The header row the file must start with, exactly and in this order (same as the sample template). */
+export const IMPORT_HEADERS = ['S.No', 'Name', 'Severity', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
+
+/**
+ * The "i" beside Import Project Findings: which files are accepted, the header row they need, and what each column
+ * must hold. Opens on click, hover or keyboard focus; Escape closes it.
+ */
+export function ImportFormatInfo() {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const { settings } = useBranding();
+  // The tip is drawn outside the dialog (which scrolls and clips), under the button, or above it when there is no room.
+  const show = () => {
+    const r = button.current?.getBoundingClientRect();
+    if (!r) return;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - 416 - 8));
+    setPos(window.innerHeight - r.bottom > 430 ? { left, top: r.bottom + 8 } : { left, bottom: window.innerHeight - r.top + 8 });
+    setOpen(true);
+  };
+  const sizes = settings?.attachments?.maxSizeMb ?? {};
+  const limit = Math.max(sizes['findingsImport.csv'] ?? 100, sizes['findingsImport.xlsx'] ?? 100);
+  const severities = Object.keys(settings?.workflow?.severityColors ?? { Critical: 1, High: 1, Medium: 1, Low: 1, Info: 1 });
+  return (
+    <span className="relative inline-flex" onMouseEnter={show} onMouseLeave={() => setOpen(false)}>
+      <button
+        ref={button}
+        type="button"
+        aria-label="Supported formats and required header row for Import Project Findings"
+        aria-expanded={open}
+        aria-describedby={open ? 'import-format-info' : undefined}
+        onClick={() => (open ? setOpen(false) : show())}
+        onFocus={show}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
+        className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-700 text-gray-200 hover:bg-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60"
+      >
+        <Info className="h-4 w-4" aria-hidden="true" />
+      </button>
+      {open && pos && createPortal(
+        <div
+          id="import-format-info"
+          role="tooltip"
+          style={{ position: 'fixed', left: pos.left, top: pos.top, bottom: pos.bottom }}
+          className="z-[80] w-[26rem] max-w-[85vw] rounded-lg border border-gray-600 bg-gray-950 p-4 text-left text-xs leading-relaxed text-gray-300 shadow-2xl"
+        >
+          <p className="mb-2 text-sm font-semibold text-white">Import Project Findings</p>
+          <p><span className="text-gray-400">Supported files:</span> <code className="text-violet-300">.csv</code> and <code className="text-violet-300">.xlsx</code> (first sheet), up to {limit} MB and 5,000 rows. Workbooks with formulas, macros or embedded objects are rejected.</p>
+          <p className="mt-2 text-gray-400">First row must be exactly, in this order:</p>
+          <p className="mt-1 break-words rounded bg-gray-900 p-2 font-mono text-[11px] text-emerald-300">{IMPORT_HEADERS.join(', ')}</p>
+          <ul className="mt-2 list-disc space-y-0.5 pl-4">
+            <li><b className="text-white">Required:</b> Name, Severity ({severities.join(', ')}), Description, Impact, Remediation, Reference.</li>
+            <li><b className="text-white">Optional:</b> CVSS (0.0 to 10.0), CVSS-VEC (e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N), CVE ID (CVE-2024-12345), CWE ID (CWE-79). S.No is ignored.</li>
+            <li>One row per finding; a name must be unique in the file and in the project.</li>
+            <li>If any row is invalid nothing is imported. Findings are added to this project only.</li>
+          </ul>
+          <p className="mt-2 text-gray-400">The sample template at the bottom of the import window has these headers.</p>
+        </div>,
+        document.body,
+      )}
+    </span>
+  );
 }
 
 export function downloadImportSample() {

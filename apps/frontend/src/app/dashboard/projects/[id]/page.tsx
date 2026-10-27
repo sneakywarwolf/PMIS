@@ -33,7 +33,8 @@ import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
 import { PasswordGeneratorButton } from '@/components/password-generator-button';
 import { NessusImportDialog } from '@/components/nessus-import-dialog';
-import { ProjectFindingsImportDialog, IMPORT_MAX_BYTES } from '@/components/project-findings-import-dialog';
+import { PillSwitch } from '@/components/pill-switch';
+import { ProjectFindingsImportDialog, ImportFormatInfo, IMPORT_MAX_BYTES } from '@/components/project-findings-import-dialog';
 import { stripCvssPrefix } from '@/lib/cvss';
 import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
 import { formatReportDate } from '@/lib/report-date';
@@ -1937,6 +1938,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                     >
                       Import Project Findings
                     </button>
+                    <ImportFormatInfo />
                   </div>
                   <div className="flex justify-end gap-3">
                   <button
@@ -2478,19 +2480,7 @@ function ManualFindingModal({ projectId, onClose, onSaved }: { projectId: string
 
           <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700">
             <div className="flex items-start gap-3">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={syncVulnDb}
-                aria-labelledby="mf-sync-label"
-                onClick={() => setSyncVulnDb((v) => !v)}
-                className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors duration-300 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 ${syncVulnDb ? 'bg-emerald-500' : 'bg-gray-600'}`}
-              >
-                <span
-                  aria-hidden="true"
-                  className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-300 ease-in-out ${syncVulnDb ? 'translate-x-5' : 'translate-x-0'}`}
-                />
-              </button>
+              <div className="mt-0.5"><PillSwitch checked={syncVulnDb} onChange={setSyncVulnDb} labelledBy="mf-sync-label" /></div>
               <div>
                 <span id="mf-sync-label" className="block text-sm text-white font-medium">Sync Vuln DB</span>
                 <span className="block text-xs text-gray-400 mt-0.5">

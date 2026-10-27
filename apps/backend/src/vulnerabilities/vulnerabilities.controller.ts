@@ -1,9 +1,11 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, Res, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, Res, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Response } from 'express';
 import { VulnerabilitiesService } from './vulnerabilities.service';
-import { parseUploadedFileToCsv, UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
+import { parseUploadedFileToCsv } from '../common/bulk-upload-file.util';
+import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
+import { attachmentLimits } from '../common/attachment-formats';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User, UserRole } from '@prisma/client';
@@ -100,7 +102,8 @@ export class VulnerabilitiesController {
 
   @Post('bulk-upload')
   @Roles(UserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @UseGuards(AttachmentSizeGuard('vulnBulk'))
+  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('vulnBulk')))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Bulk upload vulnerabilities from a .csv or .xlsx file (Admin only)' })
   async bulkUpload(
@@ -111,7 +114,8 @@ export class VulnerabilitiesController {
     @Body('resolutions') resolutions?: string,
     @Body('mode') mode?: string,
   ) {
-    const csv = await parseUploadedFileToCsv(file);
+    assertAttachmentSize('vulnBulk', file);
+    const csv = await parseUploadedFileToCsv(file, attachmentLimits.maxBytes('vulnBulk', file?.originalname));
     const ipAddress = req.ip || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
     let chosen: Record<string, number> = {};

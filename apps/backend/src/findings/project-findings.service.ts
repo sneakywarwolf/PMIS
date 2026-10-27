@@ -6,12 +6,11 @@ import { SettingsService } from '../settings/settings.service';
 import { VulnerabilitiesService, normalizeVulnName } from '../vulnerabilities/vulnerabilities.service';
 import { FindingsService } from './findings.service';
 import { parseUploadedFileToCsv } from '../common/bulk-upload-file.util';
+import { attachmentLimits } from '../common/attachment-formats';
 import { parseCsv, validateExactCsvHeaders } from '../common/csv-validation.util';
 import { ProjectFindingFields, validateProjectFindingFields } from '../common/project-finding-fields.util';
 import { VULN_INCLUDE, withVulnerability } from '../common/finding-vulnerability.util';
 
-/** Largest findings file accepted (.csv / .xlsx). */
-export const IMPORT_MAX_BYTES = 100 * 1024 * 1024;
 /** Most data rows one import may carry. */
 export const IMPORT_MAX_ROWS = 5000;
 const ERROR_LIST_LIMIT = 200;
@@ -271,7 +270,7 @@ export class ProjectFindingsService {
 
   /** Reads and validates the whole file. Nothing is written. */
   private async parseImport(file: Express.Multer.File | undefined) {
-    const csv = await parseUploadedFileToCsv(file, IMPORT_MAX_BYTES);
+    const csv = await parseUploadedFileToCsv(file, attachmentLimits.maxBytes('findingsImport', file?.originalname));
     const all = parseCsv(csv.trim());
     if (all.length < 2) throw new BadRequestException('The file has no data rows. Use the sample template: it has a header row followed by one row per finding.');
     const headers = all[0].map((h) => h.replace(/^﻿/, '').trim());

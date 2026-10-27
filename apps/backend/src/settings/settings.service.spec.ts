@@ -81,4 +81,51 @@ describe('SettingsService.getSystemHealth', () => {
     await expect(service.update({ easterEgg: { pasteCountsAsAttempt: 'yes' } }, 'a', 'ip', 'ua')).rejects.toThrow(/boolean/);
     await expect(service.update({ easterEgg: { sneaky: true } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown setting/);
   });
+
+  describe('attachment size and notification rules', () => {
+    it('accepts a valid size per format and rejects unknown formats, non-integers and out-of-range values', async () => {
+      (prisma.appSettings as any).upsert = jest.fn();
+      (service as any).auditService = { log: jest.fn() };
+      await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 10 } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 0 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 100/);
+      await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 101 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 100/);
+      await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 2.5 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/whole number/);
+      await expect(service.update({ attachments: { maxSizeMb: { 'nessus.csv': 501 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 500/);
+      await expect(service.update({ attachments: { maxSizeMb: { 'exe.exe': 5 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown file format/);
+      await expect(service.update({ attachments: { maxSizeMb: 'big' } }, 'a', 'ip', 'ua')).rejects.toThrow(/object/);
+    });
+
+    it('the findings import can be lowered but never raised above 100 MB', async () => {
+      (prisma.appSettings as any).upsert = jest.fn();
+      (service as any).auditService = { log: jest.fn() };
+      await expect(service.update({ attachments: { maxSizeMb: { 'findingsImport.csv': 50 } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ attachments: { maxSizeMb: { 'findingsImport.csv': 101 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 100/);
+    });
+
+    it('saving sizes puts them in force for uploads straight away', async () => {
+      const { attachmentLimits } = require('../common/attachment-formats');
+      (prisma.appSettings as any).upsert = jest.fn().mockImplementation(async ({ update }: any) => { prisma.appSettings.findUnique.mockResolvedValue({ data: update.data }); });
+      (service as any).auditService = { log: jest.fn() };
+      await service.update({ attachments: { maxSizeMb: { 'poc.png': 3 } } }, 'a', 'ip', 'ua');
+      expect(attachmentLimits.maxBytes('poc', 'x.png')).toBe(3 * 1024 * 1024);
+      attachmentLimits.set(undefined);
+    });
+
+    it('notification rules: only AVP, Team Lead and Tester can be switched, Admin cannot', async () => {
+      (prisma.appSettings as any).upsert = jest.fn();
+      (service as any).auditService = { log: jest.fn() };
+      await expect(service.update({ notifications: { roleRules: { SYSTEM_UPDATE: { TESTER: false } } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ notifications: { roleRules: { SYSTEM_UPDATE: { ADMIN: false } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Admins always receive/);
+      await expect(service.update({ notifications: { roleRules: { NOT_A_TYPE: { TESTER: false } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown notification type/);
+      await expect(service.update({ notifications: { roleRules: { SYSTEM_UPDATE: { TESTER: 'no' } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/true or false/);
+      await expect(service.update({ notifications: { roleRules: { SYSTEM_UPDATE: { INTERN: false } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown role/);
+    });
+
+    it('get() lists the formats and notification types for the Settings screen', async () => {
+      const res = await service.get();
+      expect(res.attachmentFormats.formats.length).toBeGreaterThan(15);
+      expect(res.notificationTypes.map((n) => n.type)).toContain('SYSTEM_UPDATE');
+      expect(res.settings.attachments.maxSizeMb['poc.png']).toBe(25);
+    });
+  });
 });

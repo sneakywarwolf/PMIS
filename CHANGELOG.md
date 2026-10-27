@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Import Project Findings: an "i" beside the button lists the accepted file types, size and row limits, and the exact header row with which columns are required.
+- Settings > Attachments now lists every accepted upload format (20, in 8 groups) with its own size limit, which the Admin can change (each format has a highest value; the findings import cannot go above 100 MB). Limits are enforced on every upload and apply at once. The defaults are the limits that applied before.
+- Settings > Notifications: the Admin can switch each of the 13 notification types on or off for AVP, Team Lead and Tester. Admins always receive every notification and that cannot be changed. This replaces the old, unused "default enabled types" list.
+- Settings change history shows the person's name, username and role.
 - Add Finding: Import Project Findings moved into the dialog, beside Add Manually (both styled like Cancel and Continue). Imported findings are PT findings, which in a Network project means they are listed under PT Findings. Sync Vuln DB is now a sliding switch.
 - Activity log (dashboard): each entry shows the person's name, their role in brackets, what they did, and the date and time to the second. It is now visible to Admins only; the API refuses everyone else.
 - Nessus CSV import now reads the Plugin Output column (per host and port, like a .nessus file), so `{VA Output}` and the finding's evidence are filled for CSV imports. A CWE listed only in the XREF column is picked up as the CWE ID.

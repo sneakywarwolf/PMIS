@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject, forwardRef, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
@@ -6,8 +6,9 @@ import { StorageService } from '../reports/storage.service';
 import { DEFAULT_SETTINGS } from './settings.defaults';
 import { validateIssueLogColumns } from '../reports/issue-log';
 import { REPORT_DATE_FORMAT_OPTIONS } from '../common/report-date-format';
-
-const SETTINGS_ID = 'singleton';
+import { ATTACHMENT_FORMATS, ATTACHMENT_FORMAT_BY_KEY, ATTACHMENT_PURPOSES, attachmentLimits } from '../common/attachment-formats';
+import { CONFIGURABLE_NOTIFICATION_ROLES, NOTIFICATION_TYPES } from '../notifications/notification-types';
+import { SETTINGS_ID, deepMerge, isPlainObject, pruneUnknown, readEffectiveSettings } from './settings.store';
 
 // Keep in sync with apps/frontend/src/lib/themes.ts (THEME_IDS) — the
 // single source of truth for the actual token values per theme.
@@ -15,39 +16,6 @@ const THEME_OPTIONS = ['dark', 'midnight-azure', 'obsidian-turquoise', 'copper-n
 const DENSITY_OPTIONS = ['compact', 'comfortable', 'spacious'];
 const INACTIVITY_OPTIONS = ['logout', 'warn'];
 const TIME_FORMAT_OPTIONS = ['12h', '24h'];
-
-function isPlainObject(v: any) {
-  return v !== null && typeof v === 'object' && !Array.isArray(v);
-}
-
-/**
- * Drops any key from `data` that no longer exists in `base`, recursively.
- * Prevents settings retired from a past schema version (e.g. an old
- * workflow/system field) from resurfacing via the DB and then being
- * rejected as "unknown" when the client saves them straight back.
- */
-function pruneUnknown(base: any, data: any): any {
-  if (!isPlainObject(data)) return data;
-  const result: any = {};
-  for (const key of Object.keys(data)) {
-    if (!(key in base)) continue;
-    result[key] = isPlainObject(base[key]) ? pruneUnknown(base[key], data[key]) : data[key];
-  }
-  return result;
-}
-
-function deepMerge(base: any, patch: any): any {
-  if (!isPlainObject(patch)) return base;
-  const result = { ...base };
-  for (const key of Object.keys(patch)) {
-    if (isPlainObject(patch[key]) && isPlainObject(base[key])) {
-      result[key] = deepMerge(base[key], patch[key]);
-    } else {
-      result[key] = patch[key];
-    }
-  }
-  return result;
-}
 
 /**
  * Validates only the fields present in the patch (partial updates are
@@ -105,13 +73,41 @@ function validatePatch(patch: any) {
     if (typeof v !== 'number' || v < 8 || v > 64) errors.push('security.passwordMinLength must be a number between 8 and 64');
   }
 
-  const attachments = patch.attachments;
-  if (attachments?.maxFileSizeMb !== undefined) {
-    const v = attachments.maxFileSizeMb;
-    if (typeof v !== 'number' || v < 1 || v > 500) errors.push('attachments.maxFileSizeMb must be a number between 1 and 500');
+  const sizes = patch.attachments?.maxSizeMb;
+  if (sizes !== undefined) {
+    if (!isPlainObject(sizes)) {
+      errors.push('attachments.maxSizeMb must be an object');
+    } else {
+      for (const [key, v] of Object.entries(sizes)) {
+        const format = ATTACHMENT_FORMAT_BY_KEY.get(key);
+        if (!format) errors.push(`Unknown file format "${key}"`);
+        else if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > format.maxMb) {
+          errors.push(`The size limit for ${format.label} (${format.purpose}) must be a whole number of MB between 1 and ${format.maxMb}`);
+        }
+      }
+    }
   }
-  if (attachments?.allowedFileTypes !== undefined && !Array.isArray(attachments.allowedFileTypes)) {
-    errors.push('attachments.allowedFileTypes must be an array');
+
+  const rules = patch.notifications?.roleRules;
+  if (rules !== undefined) {
+    if (!isPlainObject(rules)) {
+      errors.push('notifications.roleRules must be an object');
+    } else {
+      const known = new Set(NOTIFICATION_TYPES.map((n) => n.type));
+      for (const [type, perRole] of Object.entries(rules)) {
+        if (!known.has(type)) {
+          errors.push(`Unknown notification type "${type}"`);
+        } else if (!isPlainObject(perRole)) {
+          errors.push(`notifications.roleRules.${type} must be an object`);
+        } else {
+          for (const [role, on] of Object.entries(perRole as Record<string, unknown>)) {
+            if (role === 'ADMIN') errors.push('Admins always receive every notification; it cannot be changed');
+            else if (!(CONFIGURABLE_NOTIFICATION_ROLES as readonly string[]).includes(role)) errors.push(`Unknown role "${role}" for ${type}`);
+            else if (typeof on !== 'boolean') errors.push(`notifications.roleRules.${type}.${role} must be true or false`);
+          }
+        }
+      }
+    }
   }
 
   const formatting = patch.formatting;
@@ -158,7 +154,7 @@ function validatePatch(patch: any) {
 }
 
 @Injectable()
-export class SettingsService {
+export class SettingsService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private auditService: AuditService,
@@ -166,13 +162,25 @@ export class SettingsService {
     @Inject(forwardRef(() => StorageService)) private storageService: StorageService,
   ) {}
 
+  /** Loads the saved attachment limits so upload checks use them from the first request. */
+  async onModuleInit() {
+    try {
+      attachmentLimits.set((await this.get()).settings.attachments.maxSizeMb);
+    } catch {
+      // The database is not reachable yet: the defaults stay in force until the next settings load.
+    }
+  }
+
   async get() {
-    const row = await this.prisma.appSettings.findUnique({ where: { id: SETTINGS_ID } });
-    const stored = row ? (row.data as any) : {};
+    const { settings, updatedAt, updatedById } = await readEffectiveSettings(this.prisma);
+    attachmentLimits.set(settings.attachments.maxSizeMb);
     return {
-      settings: deepMerge(DEFAULT_SETTINGS, pruneUnknown(DEFAULT_SETTINGS, stored)),
-      updatedAt: row?.updatedAt ?? null,
-      updatedById: row?.updatedById ?? null,
+      settings,
+      updatedAt,
+      updatedById,
+      // What the Settings screen needs to list: the file formats PMIS accepts, and the notifications it sends.
+      attachmentFormats: { purposes: ATTACHMENT_PURPOSES, formats: ATTACHMENT_FORMATS },
+      notificationTypes: NOTIFICATION_TYPES,
     };
   }
 
@@ -319,7 +327,7 @@ export class SettingsService {
       where: { targetType: 'SETTINGS' },
       orderBy: { timestamp: 'desc' },
       take: limit,
-      include: { actor: { select: { id: true, username: true } } },
+      include: { actor: { select: { id: true, username: true, fullName: true, role: true } } },
     });
   }
 }

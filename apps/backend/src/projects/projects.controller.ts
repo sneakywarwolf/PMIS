@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { UPLOAD_LIMITS } from '../common/bulk-upload-file.util';
+import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -88,10 +88,12 @@ export class ProjectsController {
 
   // Stateless: validates and returns rows; the caller adds them to its scope table and saves with the project as usual.
   @Post('network-scope/parse')
-  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @UseGuards(AttachmentSizeGuard('scope'))
+  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('scope')))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Parse a Network Scope import file (.txt, .csv, .xlsx)' })
   async parseNetworkScope(@UploadedFile() file: Express.Multer.File, @Body('existing') existing?: string) {
+    assertAttachmentSize('scope', file);
     let current: any[] = [];
     try {
       current = existing ? JSON.parse(existing) : [];
@@ -105,7 +107,8 @@ export class ProjectsController {
   }
 
   @Post(':id/nmap-import')
-  @UseInterceptors(FileInterceptor('file', UPLOAD_LIMITS))
+  @UseGuards(AttachmentSizeGuard('nmap'))
+  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('nmap')))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Import an Nmap XML port scan into a Network project' })
   async importNmapScan(
@@ -113,6 +116,7 @@ export class ProjectsController {
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: User,
   ) {
+    assertAttachmentSize('nmap', file);
     return this.projectsService.importNmapScan(id, file, user);
   }
 }

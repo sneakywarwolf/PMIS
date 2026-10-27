@@ -1,4 +1,6 @@
 import { ISSUE_LOG_DEFAULT_COLUMNS } from '../reports/issue-log';
+import { DEFAULT_ATTACHMENT_SIZES_MB } from '../common/attachment-formats';
+import { DEFAULT_NOTIFICATION_RULES } from '../notifications/notification-types';
 
 export const DEFAULT_SETTINGS = {
   general: {
@@ -37,12 +39,13 @@ export const DEFAULT_SETTINGS = {
     passwordMinLength: 14,
     passwordRequireComplexity: true,
   },
+  // Size limit in MB for every file format PMIS accepts, keyed "<purpose>.<extension>" (see common/attachment-formats.ts).
   attachments: {
-    allowedFileTypes: ['.png', '.jpg', '.jpeg', '.pdf', '.docx'],
-    maxFileSizeMb: 10,
+    maxSizeMb: DEFAULT_ATTACHMENT_SIZES_MB,
   },
+  // Which notifications each role receives, per notification type. Admins always receive all of them.
   notifications: {
-    defaultEnabledTypes: ['VULNERABILITY_REQUESTED', 'VULNERABILITY_APPROVED', 'VULNERABILITY_REJECTED', 'USER_CREATED'],
+    roleRules: DEFAULT_NOTIFICATION_RULES,
   },
   formatting: {
     dateFormat: 'DD/MM/YYYY',
@@ -72,8 +75,9 @@ export type AppSettingsShape = typeof DEFAULT_SETTINGS;
  * Enforcement varies by setting — some are already wired into real behavior
  * (documented per-field below); others are persisted and available via
  * GET /settings for the frontend to read, but not yet actively enforced
- * everywhere they'd apply (e.g. attachment size/type limits at every upload
- * call site, password policy inside auth's own validators). Wiring every
+ * everywhere they'd apply (e.g. password policy inside auth's own validators).
+ * Attachment size limits and notification role rules ARE enforced: see common/attachment-formats.ts and
+ * notifications.service.ts. Wiring every
  * setting into every code path it could affect is a larger follow-up, not
  * something to fake here.
  */
