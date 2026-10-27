@@ -86,6 +86,8 @@ export interface FindingData {
   pocText?: string | null;
   /** VA = scan import (project-scoped), PT = Vulnerability DB. Drives the VA/PT table split in Network reports. */
   findingType?: 'VA' | 'PT';
+  /** The Admin's display name for `severity` (Settings > Workflow); printed instead of it when set. */
+  severityLabel?: string;
   pocSteps: PocStepData[];
 }
 
@@ -1232,7 +1234,7 @@ export class DocxManipulatorService {
       for (const para of paragraphs) {
         this.replacePlaceholdersInParagraph(para, resolver);
       }
-      if (this.getElementText(cell).trim() === finding.severity) {
+      if ([finding.severity, finding.severityLabel].includes(this.getElementText(cell).trim())) {
         const color = severityColors[finding.severity];
         if (color) this.setCellShading(cell, color);
       }
@@ -1467,7 +1469,7 @@ export class DocxManipulatorService {
       for (const para of paragraphs) {
         this.replacePlaceholdersInParagraph(para, resolver);
       }
-      if (hadSeverity || this.getElementText(cell).trim() === finding.severity) {
+      if (hadSeverity || [finding.severity, finding.severityLabel].includes(this.getElementText(cell).trim())) {
         const color = severityColors[finding.severity];
         if (color) this.setCellShading(cell, color);
       }
@@ -1500,7 +1502,7 @@ export class DocxManipulatorService {
       sno: `${finding.no}.`,
       finding_title: finding.title,
       vulnerability_name: finding.title,
-      severity: finding.severity,
+      severity: finding.severityLabel || finding.severity,
       cvss_score: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
       score_value: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
       cvss_vector: stripCvssPrefix(finding.cvssVector) || 'N/A',

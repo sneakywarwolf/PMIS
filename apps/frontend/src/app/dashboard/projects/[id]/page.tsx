@@ -34,6 +34,7 @@ import { useToast } from '@/components/toast-provider';
 import { PasswordGeneratorButton } from '@/components/password-generator-button';
 import { NessusImportDialog } from '@/components/nessus-import-dialog';
 import { PillSwitch } from '@/components/pill-switch';
+import { useSeverity } from '@/lib/severity';
 import { ProjectFindingsImportDialog, ImportFormatInfo, IMPORT_MAX_BYTES } from '@/components/project-findings-import-dialog';
 import { stripCvssPrefix } from '@/lib/cvss';
 import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
@@ -1326,6 +1327,7 @@ function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, 
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const sev = useSeverity();
   const [expanded, setExpanded] = useState(false);
   const cvss = finding.cvssScoreOverride ?? finding.vulnerability.cvssScore ?? '-';
 
@@ -1355,8 +1357,8 @@ function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             <h3 className="text-sm font-medium text-white truncate">{finding.vulnerability.name}</h3>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[finding.vulnerability.severity] || severityColors.Info}`}>
-              {finding.vulnerability.severity}
+            <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={sev.badgeStyle(finding.vulnerability.severity)}>
+              {sev.label(finding.vulnerability.severity)}
             </span>
             {!network && finding.classification && (
               <span className="px-2 py-0.5 rounded-full text-xs font-medium border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
@@ -1527,6 +1529,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const sev = useSeverity();
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchCategory, setSearchCategory] = useState<'BOTH' | 'APPLICATION_API' | 'NETWORK'>('BOTH');
@@ -1847,8 +1850,8 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                                   <span className="px-1.5 py-0.5 rounded text-xs border border-gray-600 text-gray-400">
                                     {vuln.category === 'NETWORK' ? 'Network' : 'App/API'}
                                   </span>
-                                  <span className={`px-1.5 py-0.5 rounded text-xs ${severityColors[vuln.severity] || severityColors.Info}`}>
-                                    {vuln.severity}
+                                  <span className="px-1.5 py-0.5 rounded text-xs border" style={sev.badgeStyle(vuln.severity)}>
+                                    {sev.label(vuln.severity)}
                                   </span>
                                 </div>
                               </div>
@@ -1905,7 +1908,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                     <div className="grid grid-cols-3 gap-3 text-xs">
                       <div className="p-2 rounded bg-gray-800/50">
                         <span className="text-gray-500">Severity</span>
-                        <p className="text-white">{selectedVuln.severity}</p>
+                        <p className="text-white">{sev.label(selectedVuln.severity)}</p>
                       </div>
                       <div className="p-2 rounded bg-gray-800/50">
                         <span className="text-gray-500">CVSS</span>
@@ -1997,8 +2000,8 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
             <div className="flex items-center justify-between p-3 rounded-lg bg-gray-800/50 border border-gray-700">
               <div>
                 <p className="text-sm text-white font-medium">{selectedVuln.name}</p>
-                <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-xs ${severityColors[selectedVuln.severity] || severityColors.Info}`}>
-                  {selectedVuln.severity}
+                <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-xs border" style={sev.badgeStyle(selectedVuln.severity)}>
+                  {sev.label(selectedVuln.severity)}
                 </span>
               </div>
               <button
@@ -2345,6 +2348,7 @@ const MANUAL_EMPTY = {
  */
 function ManualFindingModal({ projectId, onClose, onSaved }: { projectId: string; onClose: () => void; onSaved: () => void }) {
   const showToast = useToast();
+  const sev = useSeverity();
   const [form, setForm] = useState(MANUAL_EMPTY);
   const [syncVulnDb, setSyncVulnDb] = useState(true);
   const [showCvssCalc, setShowCvssCalc] = useState(false);
@@ -2415,7 +2419,7 @@ function ManualFindingModal({ projectId, onClose, onSaved }: { projectId: string
             <div>
               <label htmlFor="mf-severity" className={label}>Severity *</label>
               <select id="mf-severity" value={form.severity} onChange={set('severity')} className={input}>
-                {Object.keys(severityColors).map((sev) => <option key={sev} value={sev}>{sev}</option>)}
+                {Object.keys(severityColors).map((key) => <option key={key} value={key}>{sev.label(key)}</option>)}
               </select>
             </div>
             <div>

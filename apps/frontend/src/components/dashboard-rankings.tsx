@@ -1,5 +1,6 @@
 'use client';
 
+import { formatNumber } from '@/lib/datetime';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
@@ -62,7 +63,7 @@ function Board({ title, unit, icon: Icon, accent, href, rows, meId, extra, foote
             {teamOf?.[r.id] && <span className={TEAM_CHIP}>{teamOf[r.id]}</span>}
             {me && <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-white/60">you</span>}
           </span>
-          <span className={`font-mono text-sm font-semibold tabular-nums ${accent.text}`}>{r.score.toLocaleString()}</span>
+          <span className={`font-mono text-sm font-semibold tabular-nums ${accent.text}`}>{formatNumber(r.score)}</span>
         </div>
       </motion.li>
     );

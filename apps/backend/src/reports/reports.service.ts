@@ -763,6 +763,8 @@ export class ReportsService {
 
       const images: PocImage[] = [];
       const findingsData: FindingData[] = [];
+      const { settings } = await this.settingsService.get();
+      const severityLabels = settings.workflow.severityLabels as Record<string, string>;
       for (let index = 0; index < sortedFindings.length; index++) {
         const f = sortedFindings[index];
         const effectiveScore = f.cvssScoreOverride ?? f.vulnerability.cvssScore;
@@ -785,10 +787,10 @@ export class ReportsService {
           pocSteps.push({ stepNo: step.stepNo, description: step.description, imageKey: imageKeys[0] ?? null, imageKeys });
         }
 
-        findingsData.push(this.toFindingData(f, index + 1, pocSteps));
+        findingsData.push(this.toFindingData(f, index + 1, pocSteps, severityLabels));
       }
 
-      const { settings } = await this.settingsService.get();
+
       const reportDate = formatReportDateByPattern(new Date(), settings.formatting?.reportDateFormat || DEFAULT_REPORT_DATE_FORMAT);
 
       // File naming: the template's own file name as a pattern; older templates without one use {Testing-Type}_{Client}_{App}_{Version}_{ReportDate}_{Status}-Report.docx
@@ -1008,14 +1010,15 @@ export class ReportsService {
   }
 
   /** One finding as the report engines read it. VA (scan-imported) text is tidied for print; stored data is untouched. */
-  private toFindingData(f: any, no: number, pocSteps: FindingData['pocSteps']): FindingData {
+  private toFindingData(f: any, no: number, pocSteps: FindingData['pocSteps'], severityLabels?: Record<string, string>): FindingData {
     const isVa = f.findingType === 'VA';
+    const severity = f.cvssScoreOverride != null ? this.severityFromScore(f.cvssScoreOverride) : f.vulnerability.severity;
     return {
       no,
       title: f.vulnerability.name,
-      severity: f.cvssScoreOverride != null
-        ? this.severityFromScore(f.cvssScoreOverride)
-        : f.vulnerability.severity,
+      severity,
+      // Settings > Workflow: the name the Admin gave this severity, printed in place of the stored one.
+      severityLabel: severityLabels?.[severity],
       cvssScore: f.cvssScoreOverride ?? f.vulnerability.cvssScore,
       cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
       description: isVa ? nessusTextForReport(stripNessusBoilerplate(f.vulnerability.description)) : f.vulnerability.description,
@@ -1041,7 +1044,7 @@ export class ReportsService {
    * kept apart in Network projects, as in Word). Values come from the same sources as the Word report:
    * the finding-level Application Parameter Registry and the project's saved scope / scan data.
    */
-  private excelRowSets(template: any, project: any): RowSet[] {
+  private excelRowSets(template: any, project: any, severityLabels?: Record<string, string>): RowSet[] {
     const certIn = template.category === TemplateCategory.CERT_IN;
     const sorted = project.findings
       .map((f: any) => ({ f, score: f.cvssScoreOverride ?? f.vulnerability.cvssScore ?? 0 }))
@@ -1050,7 +1053,7 @@ export class ReportsService {
     const split = project.subType === 'NETWORK';
     const resolversFor = (list: any[]) =>
       list.map((f, i) => {
-        const data = this.toFindingData(f, i + 1, []);
+        const data = this.toFindingData(f, i + 1, [], severityLabels);
         // Excel cells take real line breaks; Word's line-separator marker becomes one here.
         return (raw: string) => this.docxManipulator.resolveFindingParameter(this.slugifyFieldName(raw).substring(0, 100), data)?.split(LINE_SEP).join('\n');
       });
@@ -1095,7 +1098,7 @@ export class ReportsService {
 
     this.logger.log(`Generating Excel report ${reportGenerationId} for project ${project.id} using template ${template.name}`);
     const resolver = this.excelResolver(template, project, version, reportDate, fileName);
-    const buffer = await this.xlsxTemplate.fill(templateBuffer, resolver, { complianceStatus: project.complianceStatus, rowSets: this.excelRowSets(template, project) });
+    const buffer = await this.xlsxTemplate.fill(templateBuffer, resolver, { complianceStatus: project.complianceStatus, rowSets: this.excelRowSets(template, project, settings.workflow.severityLabels as Record<string, string>) });
 
     const objectName = `reports/${project.id}/${Date.now()}_${fileName}`;
     await this.storage.uploadFile(objectName, buffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -1140,6 +1143,7 @@ export class ReportsService {
           no: i + 1,
           title: f.vulnerability.name,
           severity: f.cvssScoreOverride != null ? this.severityFromScore(f.cvssScoreOverride) : f.vulnerability.severity,
+          severityLabel: (settings.workflow.severityLabels as Record<string, string>)[f.cvssScoreOverride != null ? this.severityFromScore(f.cvssScoreOverride) : f.vulnerability.severity],
           cvssScore: f.cvssScoreOverride ?? f.vulnerability.cvssScore,
           cvssVector: f.cvssVectorOverride ?? f.vulnerability.cvssVector,
           description: f.vulnerability.description,

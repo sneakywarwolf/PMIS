@@ -11,6 +11,8 @@ import { NetworkLimitationCaution } from '@/components/network-limitation-cautio
 import { triggerDownload } from '@/lib/download';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
+import { usePagination } from '@/lib/pagination';
+import { Pager } from '@/components/pager';
 
 const statusColors: Record<string, string> = {
   NOT_STARTED: 'bg-gray-700 text-gray-300',
@@ -178,6 +180,7 @@ function ProjectsPageContent() {
     const matchesTl = !tlFilter || p.tl?.id === tlFilter;
     return matchesSearch && matchesStatus && matchesTl;
   });
+  const pager = usePagination(filteredProjects, `${search}|${statusFilter}|${tlFilter}|${viewMode}`);
 
   if (loading) {
     return (
@@ -293,7 +296,7 @@ function ProjectsPageContent() {
       {/* Grid View */}
       {viewMode === 'grid' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredProjects.map((project, index) => (
+          {pager.rows.map((project, index) => (
             <motion.div
               key={project.id}
               initial={{ opacity: 0, y: 20 }}
@@ -398,7 +401,7 @@ function ProjectsPageContent() {
                 </tr>
               </thead>
               <tbody>
-                {filteredProjects.map((project, i) => (
+                {pager.rows.map((project, i) => (
                   <motion.tr
                     key={project.id}
                     initial={{ opacity: 0 }}
@@ -477,6 +480,7 @@ function ProjectsPageContent() {
               </tbody>
             </table>
           </div>
+          <Pager {...pager} />
           {filteredProjects.length === 0 && (
             <div className="text-center py-12">
               <FolderKanban className="w-12 h-12 text-gray-600 mx-auto mb-3" />
@@ -485,6 +489,8 @@ function ProjectsPageContent() {
           )}
         </div>
       )}
+
+      {viewMode === 'grid' && <Pager {...pager} />}
 
       {viewMode === 'grid' && filteredProjects.length === 0 && (
         <div className="text-center py-12">

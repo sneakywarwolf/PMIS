@@ -9,8 +9,11 @@ import { api, useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
+import { usePagination } from '@/lib/pagination';
+import { Pager } from '@/components/pager';
 import { formatDateTime } from '@/lib/datetime';
 import { stripCvssPrefix } from '@/lib/cvss';
+import { useSeverity } from '@/lib/severity';
 
 const DEFAULT_SEVERITY_COLORS: Record<string, string> = {
   Critical: '#ef4444', High: '#f97316', Medium: '#eab308', Low: '#3b82f6', Info: '#6b7280',
@@ -53,6 +56,7 @@ export default function VulnerabilitiesPageWithParams() {
 
 function VulnerabilitiesPage() {
   const { user } = useAuth();
+  const sev = useSeverity();
   const searchParams = useSearchParams();
   const [vulnerabilities, setVulnerabilities] = useState<any[]>([]);
   const [pendingVulns, setPendingVulns] = useState<any[]>([]);
@@ -357,6 +361,7 @@ function VulnerabilitiesPage() {
   const displayVulns = activeTab === 'pending'
     ? [...pendingVulns, ...pendingChangeRows]
     : vulnerabilities.filter((v) => v.isActive);
+  const pager = usePagination(displayVulns, `${search}|${activeTab}`);
 
   if (loading && displayVulns.length === 0) {
     return (
@@ -470,11 +475,11 @@ function VulnerabilitiesPage() {
         <select value={severity} onChange={(e) => setSeverity(e.target.value)}
           className="px-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 transition-all">
           <option value="">All Severities</option>
-          <option value="Critical">Critical</option>
-          <option value="High">High</option>
-          <option value="Medium">Medium</option>
-          <option value="Low">Low</option>
-          <option value="Info">Info</option>
+          <option value="Critical">{sev.label('Critical')}</option>
+          <option value="High">{sev.label('High')}</option>
+          <option value="Medium">{sev.label('Medium')}</option>
+          <option value="Low">{sev.label('Low')}</option>
+          <option value="Info">{sev.label('Info')}</option>
         </select>
         <select value={category} onChange={(e) => setCategory(e.target.value)}
           className="px-4 py-2 rounded-lg bg-gray-800/50 border border-gray-700 focus:border-emerald-500 transition-all">
@@ -508,7 +513,7 @@ function VulnerabilitiesPage() {
               </tr>
             </thead>
             <tbody>
-              {displayVulns.map((vuln, i) => (
+              {pager.rows.map((vuln, i) => (
                 <Fragment key={vuln.id}>
                 <motion.tr
                   id={`vuln-row-${vuln.id}`}
@@ -528,7 +533,7 @@ function VulnerabilitiesPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={severityBadgeStyle(severityColors, vuln.severity)}>
-                      {vuln.severity}
+                      {sev.label(vuln.severity)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-white">{vuln.cvssScore ?? '-'}</td>
@@ -619,6 +624,7 @@ function VulnerabilitiesPage() {
             </tbody>
           </table>
         </div>
+        <Pager {...pager} />
 
         {displayVulns.length === 0 && (
           <div className="text-center py-12">
@@ -690,7 +696,7 @@ function VulnerabilitiesPage() {
                 <div className="p-6 space-y-4 text-sm">
                   <div className="flex items-center gap-2">
                     <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={severityBadgeStyle(severityColors, vuln.severity)}>
-                      {vuln.severity}
+                      {sev.label(vuln.severity)}
                     </span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${statusColors[vuln.status] || statusColors.PENDING}`}>
                       {vuln.status}
@@ -1038,6 +1044,7 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
   isRequest: boolean;
 }) {
   const toast = useToast();
+  const sev = useSeverity();
   const { user } = useAuth();
   const isTesterEditingExisting = !!vuln && user?.role === 'TESTER';
   const [submitting, setSubmitting] = useState(false);
@@ -1141,11 +1148,11 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
             <div>
               <label className={labelCls}>Severity *</label>
               <select value={form.severity} onChange={(e) => set('severity', e.target.value)} className={inputCls}>
-                <option value="Critical">Critical</option>
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
-                <option value="Info">Info</option>
+                <option value="Critical">{sev.label('Critical')}</option>
+                <option value="High">{sev.label('High')}</option>
+                <option value="Medium">{sev.label('Medium')}</option>
+                <option value="Low">{sev.label('Low')}</option>
+                <option value="Info">{sev.label('Info')}</option>
               </select>
             </div>
           </div>

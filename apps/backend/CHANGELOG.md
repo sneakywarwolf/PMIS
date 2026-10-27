@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Settings: Application Name, Logo, Favicon, Table Density, Pagination Size, Date/Time/Number formats, Severity Labels and the Storage/Database quotas are now applied (validation added for each). `GET /settings/public-theme` also returns the application name, logo and favicon.
+- Quotas: `DatabaseQuotaGuard` (HTTP 507 for POST/PUT/PATCH at the database quota, except auth, settings, presence, notifications and update) and a storage quota check before every upload.
+- Reports and Issue Log print the Admin's severity labels.
 - Settings: per-format attachment size limits (enforced on all uploads) and per-role notification switches (Admin always receives everything). The old attachments and notifications fields are replaced.
 - The settings history includes the actor's name and role.
 - The dashboard activity endpoint is Admin only and returns each actor's name and role.

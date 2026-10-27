@@ -10,6 +10,7 @@ import { LiveMonitor } from '@/components/easter-egg/live-monitor';
 import { formatDateTime } from '@/lib/datetime';
 import { THEMES } from '@/lib/themes';
 import { PillSwitch } from '@/components/pill-switch';
+import { useBranding } from '@/contexts/branding-context';
 
 const ROLE_LABELS: Record<string, string> = { ADMIN: 'Admin', AVP: 'AVP', TEAM_LEAD: 'Team Lead', TESTER: 'Tester' };
 
@@ -46,6 +47,7 @@ export default function SettingsPage() {
 
 function SettingsContent() {
   const toast = useToast();
+  const { refreshSettings } = useBranding();
   const [settings, setSettings] = useState<any>(null);
   // Lists from the server: every file format PMIS accepts, and every notification it sends.
   const [catalog, setCatalog] = useState<{ attachmentFormats: any; notificationTypes: any[] }>({ attachmentFormats: { purposes: [], formats: [] }, notificationTypes: [] });
@@ -92,6 +94,7 @@ function SettingsContent() {
       toast(`${TABS.find((t) => t.id === category)?.label} settings saved`);
       fetchSettings();
       fetchHistory();
+      refreshSettings();
     } catch (error: any) {
       toast(error.response?.data?.message || 'Failed to save settings', 'error');
     } finally {
@@ -183,6 +186,35 @@ function SettingsContent() {
   );
 }
 
+const MAX_IMAGE_BYTES = 150 * 1024;
+
+// Upload (stored in the settings as a data URL, so no extra file storage is needed) or a path on this site.
+function ImageField({ label, value, onChange, hint }: { label: string; value: string; onChange: (v: string) => void; hint: string }) {
+  const toast = useToast();
+  const pick = (file?: File) => {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|gif|webp|x-icon|vnd\.microsoft\.icon)$/.test(file.type)) { toast('Use a PNG, JPEG, GIF, WebP or ICO image', 'error'); return; }
+    if (file.size > MAX_IMAGE_BYTES) { toast('Image must be 150 KB or smaller', 'error'); return; }
+    const reader = new FileReader();
+    reader.onload = () => onChange(String(reader.result));
+    reader.readAsDataURL(file);
+  };
+  return (
+    <div>
+      <label className={labelCls}>{label}</label>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded bg-gray-800/50 border border-gray-700 flex items-center justify-center overflow-hidden shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {value ? <img src={value} alt="" className="max-w-full max-h-full object-contain" /> : <span className="text-[10px] text-gray-600">none</span>}
+        </div>
+        <input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/x-icon" aria-label={`${label} file`} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} className="text-xs text-gray-400 min-w-0" />
+        {value && <button type="button" onClick={() => onChange('')} className="text-xs text-red-400 shrink-0">Remove</button>}
+      </div>
+      <p className={hintCls}>{hint} PNG, JPEG, GIF, WebP or ICO, up to 150 KB.</p>
+    </div>
+  );
+}
+
 function GeneralTab({ settings, setCategory }: any) {
   const g = settings.general;
   const b = settings.branding;
@@ -195,14 +227,8 @@ function GeneralTab({ settings, setCategory }: any) {
             <label className={labelCls}>Application Name</label>
             <input value={g.appName} onChange={(e) => setCategory('general', { appName: e.target.value })} className={inputCls} />
           </div>
-          <div>
-            <label className={labelCls}>Logo URL</label>
-            <input value={g.logoUrl} onChange={(e) => setCategory('general', { logoUrl: e.target.value })} className={inputCls} placeholder="https://..." />
-          </div>
-          <div>
-            <label className={labelCls}>Favicon URL</label>
-            <input value={g.faviconUrl} onChange={(e) => setCategory('general', { faviconUrl: e.target.value })} className={inputCls} placeholder="https://..." />
-          </div>
+          <ImageField label="Logo" value={g.logoUrl} onChange={(v) => setCategory('general', { logoUrl: v })} hint="Shown in the sidebar and on the login page." />
+          <ImageField label="Favicon" value={g.faviconUrl} onChange={(v) => setCategory('general', { faviconUrl: v })} hint="Shown in the browser tab." />
         </div>
       </div>
 
@@ -582,7 +608,7 @@ function FormattingTab({ settings, setCategory }: any) {
           Applies to reports/files generated after this is changed; already-generated files are unaffected.
         </p>
       </div>
-      <p className={`${hintCls} col-span-2`}>Date Format/Number Format above are not yet wired into rendering across the app — stored centrally so a future pass can consume one source of truth.</p>
+      <p className={`${hintCls} md:col-span-2`}>Date Format, Time Format and Number Format Locale apply to every date, time and number shown in the application.</p>
     </div>
   );
 }
@@ -723,12 +749,12 @@ function SystemTab({ settings, setCategory }: any) {
           <div>
             <label className={labelCls}>Total Storage Quota (MB)</label>
             <input type="number" min={1} value={sys.totalStorageQuotaMb} onChange={(e) => setCategory('system', { totalStorageQuotaMb: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Used against the storage bucket holding reports and PoC attachments.</p>
+            <p className={hintCls}>Enforced: once the storage bucket (reports, PoC attachments, Nessus files) reaches this size, new uploads are refused until files are deleted or the quota is raised.</p>
           </div>
           <div>
             <label className={labelCls}>Total Database Quota (MB)</label>
             <input type="number" min={1} value={sys.totalDatabaseQuotaMb} onChange={(e) => setCategory('system', { totalDatabaseQuotaMb: parseInt(e.target.value) || 0 })} className={inputCls} />
-            <p className={hintCls}>Used against live PostgreSQL database size.</p>
+            <p className={hintCls}>Enforced: once the PostgreSQL database reaches this size, requests that create or change data are refused (HTTP 507); viewing, deleting, login and settings still work.</p>
           </div>
         </div>
       </div>

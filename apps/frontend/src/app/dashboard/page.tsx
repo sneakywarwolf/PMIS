@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { useBranding } from '@/contexts/branding-context';
+import { useSeverity } from '@/lib/severity';
 import { DashboardGreetingHero } from '@/components/dashboard-greeting-hero';
 import { LiveUsersBadge } from '@/components/live-users-badge';
 import { RevealSection, SectionHeading } from '@/components/reveal-section';
@@ -25,7 +26,7 @@ import { weeklyDelta, weeklySeries } from '@/lib/trends';
 import { SEVERITY_COLORS, TOOLTIP_STYLE, statusColor, statusKey } from '@/lib/chart-theme';
 import type { Counts } from '@/lib/risk';
 import { api } from '@/contexts/auth-context';
-import { formatDateTimeSeconds } from '@/lib/datetime';
+import { formatDateTimeSeconds, formatNumber } from '@/lib/datetime';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
@@ -34,6 +35,7 @@ import {
 export default function DashboardPage() {
   const { user } = useAuth();
   const { settings, settingsLoaded } = useBranding();
+  const sev = useSeverity();
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
   const [vulnTrends, setVulnTrends] = useState<any>(null);
@@ -128,9 +130,9 @@ export default function DashboardPage() {
   // Build severity chart data
   const severityData = vulnTrends?.bySeverity
     ? Object.entries(vulnTrends.bySeverity).map(([name, value]) => ({
-        name,
+        name: sev.label(name),
         value: value as number,
-        fill: SEVERITY_COLORS[name] || '#6b7280',
+        fill: settings?.workflow?.severityColors?.[name] || SEVERITY_COLORS[name] || '#6b7280',
       }))
     : [];
 
@@ -451,7 +453,7 @@ function CountUp({ to }: { to: number }) {
     const controls = animate(0, to, { duration: 0.8, ease: 'easeOut', onUpdate: (v) => setN(Math.round(v)) });
     return () => controls.stop();
   }, [to, reduce]);
-  return <>{n}</>;
+  return <>{formatNumber(n)}</>;
 }
 
 function StatCard({ title, value, icon: Icon, color, href, context, trend }: any) {

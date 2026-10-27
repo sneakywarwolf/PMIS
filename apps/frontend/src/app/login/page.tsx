@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Shield, Lock, User, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
 
 export default function LoginPage() {
   return (
@@ -20,6 +21,7 @@ function LoginForm() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
+  const { shortName, logoUrl } = useBranding();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -62,9 +64,12 @@ function LoginForm() {
         <div className="glass-card rounded-2xl p-8 shadow-2xl">
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-xl bg-emerald-500/10 mb-4">
-              <Shield className="w-8 h-8 text-emerald-400" />
+              {logoUrl
+                // eslint-disable-next-line @next/next/no-img-element
+                ? <img src={logoUrl} alt="" className="w-8 h-8 object-contain" />
+                : <Shield className="w-8 h-8 text-emerald-400" />}
             </div>
-            <h1 className="text-2xl font-bold text-white mb-2">STT Login</h1>
+            <h1 className="text-2xl font-bold text-white mb-2">{shortName} Login</h1>
             <p className="text-gray-400 text-sm">by a Lazy Tester For Lazy Testers</p>
           </div>
 

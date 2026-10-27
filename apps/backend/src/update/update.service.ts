@@ -6,6 +6,7 @@ import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { readEffectiveSettings } from '../settings/settings.store';
 
 /**
  * Application updates replace code only. This module never touches operational data: it has no
@@ -185,9 +186,10 @@ export class UpdateService implements OnModuleInit {
 
   async getStatus(force = false, isAdmin = false) {
     const [state, { releases, changelog, error }] = await Promise.all([this.getState(), this.fetchReleases(force)]);
+    const appName = (await readEffectiveSettings(this.prisma)).settings.general.appName;
     const latest = releases.find((r, _, all) => all.every((o) => !isNewer(o.version, r.version)));
     return {
-      appName: process.env.APP_NAME || 'PMIS - Project Management for Information Security',
+      appName,
       version: this.version,
       changelog,
       latest: latest ? { ...latest, available: isNewer(latest.version, this.version) } : null,

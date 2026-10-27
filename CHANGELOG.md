@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- Settings: every setting now has an effect; none is display-only.
+  - Application Name, Logo and Favicon (upload a PNG, JPEG, GIF, WebP or ICO up to 150 KB) set the browser tab title and icon, the sidebar and the login page. The `APP_NAME` environment variable is no longer used for the About page.
+  - Table Density changes the row spacing of every table. Default Pagination Size pages the Projects, Vulnerability DB and Users lists (viewers can pick another size for their view).
+  - Date Format, Time Format and Number Format Locale apply to every date, time and number shown.
+  - Severity Labels are shown everywhere in the app and printed in Word, Excel and Issue Log reports; Severity Colors are used for badges, charts and the heatmap. The stored severity value does not change.
+  - Storage and Database quotas are enforced: uploads that would pass the storage quota are refused, and while the database is at its quota, requests that create or change data are refused with HTTP 507 (viewing, deleting, sign-in and Settings still work so space can be freed).
+- Tests: a settings audit fails the build if a setting is added that nothing reads.
 - Import Project Findings: an "i" beside the button lists the accepted file types, size and row limits, and the exact header row with which columns are required.
 - Settings > Attachments now lists every accepted upload format (20, in 8 groups) with its own size limit, which the Admin can change (each format has a highest value; the findings import cannot go above 100 MB). Limits are enforced on every upload and apply at once. The defaults are the limits that applied before.
 - Settings > Notifications: the Admin can switch each of the 13 notification types on or off for AVP, Team Lead and Tester. Admins always receive every notification and that cannot be changed. This replaces the old, unused "default enabled types" list.

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Loader2, Search } from 'lucide-react';
 import { api } from '@/contexts/auth-context';
 import { stripCvssPrefix } from '@/lib/cvss';
+import { useSeverity } from '@/lib/severity';
 
 type Status = 'new' | 'duplicate' | 'refresh' | 'merge';
 
@@ -58,6 +59,7 @@ export function NessusImportDialog({
   onClose: () => void;
   onImported: () => void;
 }) {
+  const sev = useSeverity();
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -156,7 +158,7 @@ export function NessusImportDialog({
           <p className="text-xs text-gray-500 font-mono">Plugin {i.key}{i.cveId && ` · ${i.cveId}`}</p>
         </td>
         <td className="p-3">
-          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${severityColors[i.severity] || severityColors.Info}`}>{i.severity}</span>
+          <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={sev.badgeStyle(i.severity)}>{sev.label(i.severity)}</span>
         </td>
         <td className="p-3 font-mono tabular-nums text-gray-300" title={stripCvssPrefix(i.cvssVector) || undefined}>{i.cvssScore ?? '—'}</td>
         <td className="p-3 text-gray-300" title={i.affected.join('\n')}>{i.affected.length} host{i.affected.length === 1 ? '' : 's'}</td>

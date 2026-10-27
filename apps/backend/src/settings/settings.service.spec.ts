@@ -128,4 +128,36 @@ describe('SettingsService.getSystemHealth', () => {
       expect(res.settings.attachments.maxSizeMb['poc.png']).toBe(25);
     });
   });
+  describe('identity, labels and formats', () => {
+    const ok = () => { (prisma.appSettings as any).upsert = jest.fn(); (service as any).auditService = { log: jest.fn() }; };
+    const png = 'data:image/png;base64,iVBORw0KGgo=';
+
+    it('validates application name, logo and favicon', async () => {
+      ok();
+      await expect(service.update({ general: { appName: 'Acme VAPT', logoUrl: png, faviconUrl: '/favicon.ico' } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ general: { appName: '   ' } }, 'a', 'ip', 'ua')).rejects.toThrow(/appName/);
+      await expect(service.update({ general: { appName: 'x'.repeat(81) } }, 'a', 'ip', 'ua')).rejects.toThrow(/appName/);
+      await expect(service.update({ general: { logoUrl: 'https://evil.example/x.png' } }, 'a', 'ip', 'ua')).rejects.toThrow(/logoUrl/);
+      await expect(service.update({ general: { faviconUrl: 'data:text/html;base64,AAAA' } }, 'a', 'ip', 'ua')).rejects.toThrow(/faviconUrl/);
+      await expect(service.update({ general: { logoUrl: '//evil.example/x.png' } }, 'a', 'ip', 'ua')).rejects.toThrow(/logoUrl/);
+    });
+
+    it('validates severity labels and display formats', async () => {
+      ok();
+      await expect(service.update({ workflow: { severityLabels: { Critical: 'Severe' } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ workflow: { severityLabels: { Critical: '' } } }, 'a', 'ip', 'ua')).rejects.toThrow(/label for Critical/);
+      await expect(service.update({ workflow: { severityLabels: { BOGUS: 'x' } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown severity/);
+      await expect(service.update({ formatting: { dateFormat: 'YYYY-MM-DD', timeFormat: '12h', numberFormat: 'de-DE' } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ formatting: { dateFormat: 'DD.MM' } }, 'a', 'ip', 'ua')).rejects.toThrow(/dateFormat/);
+      await expect(service.update({ formatting: { numberFormat: 'not a locale!!' } }, 'a', 'ip', 'ua')).rejects.toThrow(/numberFormat/);
+    });
+
+    it('getPublicTheme exposes only theme, name, logo and favicon', async () => {
+      prisma.appSettings.findUnique.mockResolvedValue({ data: { general: { appName: 'Acme', logoUrl: png } }, updatedAt: new Date(), updatedById: 'x' });
+      const res = await service.getPublicTheme();
+      expect(Object.keys(res).sort()).toEqual(['appName', 'defaultTheme', 'faviconUrl', 'logoUrl']);
+      expect(res.appName).toBe('Acme');
+      expect(res.logoUrl).toBe(png);
+    });
+  });
 });
