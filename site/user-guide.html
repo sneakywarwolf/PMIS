@@ -114,7 +114,7 @@
       <thead><tr><th>Import</th><th>Accepted files</th><th>Result</th></tr></thead>
       <tbody>
         <tr><td>Network scope</td><td><code>.txt</code>, <code>.csv</code>, <code>.xlsx</code></td><td>The list of in-scope hosts. The import button shows the supported formats and column headers.</td></tr>
-        <tr><td>Nessus</td><td><code>.nessus</code>, <code>.csv</code></td><td>A preview of the scan's findings. You choose which plugins to import as VA findings. Re-importing a plugin adds its new hosts to the existing finding. Files up to 500 MB are accepted; the file is read while it uploads and is not stored, only the findings you import are saved.</td></tr>
+        <tr><td>Nessus</td><td><code>.nessus</code>, <code>.csv</code></td><td>A preview of the scan's findings. You choose which plugins to import as VA findings. Re-importing a plugin adds its new hosts to the existing finding. Files up to 500 MB are accepted; the file is read while it uploads and is not stored, only the findings you import are saved. A <code>.csv</code> must be a Nessus export with at least the <em>Plugin ID</em>, <em>Name</em>, <em>Risk</em> and <em>Host</em> columns. Include the <em>Plugin Output</em> column to get each host&rsquo;s output as evidence; an export without it imports with no output. A CSV has no CVSS vector, so one is only proposed from the score, as for any import without a vector.</td></tr>
         <tr><td>Nmap</td><td><code>.xml</code>, <code>.txt</code>, <code>.nmap</code></td><td>Open ports recorded on the project for the report's port tables.</td></tr>
       </tbody>
     </table></div>

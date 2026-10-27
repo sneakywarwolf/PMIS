@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Nessus CSV import now reads the Plugin Output column (per host and port, like a .nessus file), so `{VA Output}` and the finding's evidence are filled for CSV imports. A CWE listed only in the XREF column is picked up as the CWE ID.
 - Reports: a project whose saved status is In Progress now prints `{Project Status}` / `{Compliance Status}` as Non-Compliant on the red background, in Word and Excel, like a Non-Compliant project. File names and report eligibility are unchanged.
 - Notifications: a new-vulnerability request now opens the Pending Approval tab, focused on that request. Older unread requests open it too.
 - Security: a Vulnerability DB record that is pending, rejected or deactivated, and its audit history, can no longer be read by id by Testers other than the requester.

@@ -23,7 +23,7 @@ export interface NessusFinding {
   cveId: string | null;
   cweId: string | null;
   affected: string[];
-  /** <plugin_output> per host:port the plugin fired on (empty/missing outputs are not recorded). .nessus only. */
+  /** <plugin_output> per host:port the plugin fired on (empty/missing outputs are not recorded). From <plugin_output> in .nessus, or the Plugin Output column in .csv. */
   pluginOutputs: { at: string; text: string }[];
 }
 
@@ -270,7 +270,7 @@ export function parseNessusXml(xml: string): NessusFinding[] {
 /** Reader for a Nessus .csv export: one row per plugin per host, folded into one finding per plugin. */
 export class NessusCsvStream extends ScanStream {
   private readonly rows = new CsvRowStream((row) => this.row(row), { maxFieldChars: MAX_CSV_FIELD_CHARS });
-  private idx: Record<'plugin' | 'name' | 'risk' | 'host' | 'port' | 'protocol' | 'cve' | 'cwe' | 'v3' | 'v2' | 'synopsis' | 'description' | 'solution' | 'seeAlso', number> | null = null;
+  private idx: Record<'plugin' | 'name' | 'risk' | 'host' | 'port' | 'protocol' | 'cve' | 'cwe' | 'v3' | 'v2' | 'synopsis' | 'description' | 'solution' | 'seeAlso' | 'pluginOutput' | 'xref', number> | null = null;
   private dataRows = 0;
 
   protected consume(text: string) {
@@ -290,6 +290,10 @@ export class NessusCsvStream extends ScanStream {
       port: col('Port'), protocol: col('Protocol'), cve: col('CVE'), cwe: col('CWE'),
       v3: col('CVSS v3.0 Base Score', 'CVSS v3 Base Score'), v2: col('CVSS v2.0 Base Score', 'CVSS Base Score'),
       synopsis: col('Synopsis'), description: col('Description'), solution: col('Solution'), seeAlso: col('See Also'),
+      // Optional: an export made without the Plugin Output column simply has none, as before.
+      pluginOutput: col('Plugin Output'),
+      // Exports without a CWE column carry the CWE only inside XREF ("CWE:295"), as .nessus <xref> does.
+      xref: col('XREF'),
     };
     const missing = (['plugin', 'name', 'risk', 'host'] as const).filter((k) => idx[k] < 0);
     if (missing.length) {
@@ -315,8 +319,10 @@ export class NessusCsvStream extends ScanStream {
     if (!key || !name) return;
     const at = endpoint(get(idx.host), get(idx.port), get(idx.protocol));
 
-    // A CSV export carries no plugin output, and the first row of a plugin supplies everything but its endpoints.
-    this.hit(key, at, '', () => {
+    // The row's Plugin Output is read exactly as the .nessus <plugin_output> is (trimmed, capped), per host:port, so
+    // {VA Output} and the finding's PoC come out the same for both formats. An empty cell records nothing.
+    // The first row of a plugin supplies everything but its endpoints and outputs.
+    this.hit(key, at, get(idx.pluginOutput).slice(0, NESSUS_POC_MAX + 1), () => {
       const v3 = toScore(get(idx.v3));
       const v2 = toScore(get(idx.v2));
       return {
@@ -331,7 +337,7 @@ export class NessusCsvStream extends ScanStream {
         remediation: get(idx.solution),
         references: dedupe(get(idx.seeAlso).split(/\s+/)).join('\n'),
         cveId: dedupe(get(idx.cve).split(/[,\s]+/)).join(', ') || null,
-        cweId: get(idx.cwe) || null,
+        cweId: get(idx.cwe) || dedupe([...get(idx.xref).matchAll(/\bCWE[\s:#-]*(\d+)/gi)].map((m) => `CWE-${m[1]}`)).join(', ') || null,
       };
     });
   }
