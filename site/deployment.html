@@ -175,6 +175,15 @@ docker compose up -d</code></pre>
     <p>Use the same <code>.env</code> that was in place when the backup was taken.</p>
   </section>
 
+  <section id="version">
+    <h2>Versions and the About page</h2>
+    <ul class="plain">
+      <li><strong>Installed version.</strong> The backend reports <code>APP_VERSION</code>, which the release workflow sets in each backend image to the release tag it was built from (for example <code>1.0.10</code>). If it is not set, as when you build from source, the version in <code>package.json</code> is shown instead, and that number is not changed for each release. The About page reads this one value; the frontend has no separate version.</li>
+      <li><strong>Latest version.</strong> The About page asks the GitHub Releases list of <code>sneakywarwolf/PMIS</code> (override with <code>UPDATE_REPO</code>, or <code>UPDATE_API_URL</code> for a mirror). Drafts, prereleases and tags that are not plain dotted numbers are ignored. If GitHub cannot be reached or answers with an error, the page says it could not check and keeps the last good result.</li>
+      <li><strong>Installing updates from the About page is off by default.</strong> It only works when you set <code>UPDATE_COMMAND</code>, a command you provide that the backend runs when an Admin schedules an update. The standard Compose files do not set it, so on a standard install you upgrade as described below. PMIS does not download, verify or roll back anything itself: that is up to your command, so pin versions or digests there. Only an Admin can schedule or cancel an update, and the release text is never passed to the command.</li>
+    </ul>
+  </section>
+
   <section id="upgrade">
     <h2>Upgrading</h2>
     <ol class="plain">

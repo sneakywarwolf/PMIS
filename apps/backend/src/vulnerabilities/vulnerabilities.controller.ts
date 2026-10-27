@@ -71,8 +71,8 @@ export class VulnerabilitiesController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get vulnerability by ID' })
-  async findOne(@Param('id') id: string) {
-    return this.vulnerabilitiesService.findOne(id);
+  async findOne(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.vulnerabilitiesService.findOne(id, user);
   }
 
   @Post()
@@ -84,8 +84,8 @@ export class VulnerabilitiesController {
 
   @Get(':id/history')
   @ApiOperation({ summary: 'Get audit history for a vulnerability' })
-  async getHistory(@Param('id') id: string) {
-    return this.vulnerabilitiesService.getHistory(id);
+  async getHistory(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.vulnerabilitiesService.getHistory(id, user);
   }
 
   @Post('request')

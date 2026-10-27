@@ -1,6 +1,7 @@
 'use client';
 
-import { Fragment, useEffect, useLayoutEffect, useState, useRef } from 'react';
+import { Fragment, Suspense, useEffect, useLayoutEffect, useState, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldAlert, Search, Pencil, Trash2, X, Plus, Download, CheckCircle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, Upload, RefreshCw, Clock } from 'lucide-react';
@@ -42,8 +43,17 @@ type BulkDuplicate = {
   rows: { row: number; severity: string; cvssScore: number | null; cvssVector: string | null; cveId: string | null; cweId: string | null; description: string; impact: string; remediation: string; references: string }[];
 };
 
-export default function VulnerabilitiesPage() {
+export default function VulnerabilitiesPageWithParams() {
+  return (
+    <Suspense fallback={null}>
+      <VulnerabilitiesPage />
+    </Suspense>
+  );
+}
+
+function VulnerabilitiesPage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const [vulnerabilities, setVulnerabilities] = useState<any[]>([]);
   const [pendingVulns, setPendingVulns] = useState<any[]>([]);
   const [pendingChangeRequests, setPendingChangeRequests] = useState<any[]>([]);
@@ -112,6 +122,29 @@ export default function VulnerabilitiesPage() {
   const isAdminOrTL = user?.role === 'ADMIN' || user?.role === 'AVP' || user?.role === 'TEAM_LEAD';
   const isAdmin = user?.role === 'ADMIN';
 
+  // A notification link (/dashboard/vulnerabilities?tab=pending&focus=<id>) opens the Pending Approval tab and
+  // highlights that request. Only roles that may see the queue honour it; for anyone else it is ignored, and the
+  // API refuses them regardless.
+  const focusId = searchParams.get('focus');
+  const wantsPending = searchParams.get('tab') === 'pending';
+  const [focusHandled, setFocusHandled] = useState(false);
+  const [pendingLoaded, setPendingLoaded] = useState(false);
+  useEffect(() => {
+    if (wantsPending && isAdminOrTL) setActiveTab('pending');
+  }, [wantsPending, isAdminOrTL]);
+  useEffect(() => setFocusHandled(false), [focusId]);
+  useEffect(() => {
+    if (!wantsPending || !isAdminOrTL || !focusId || focusHandled || activeTab !== 'pending' || !pendingLoaded) return;
+    const row = document.getElementById(`vuln-row-${focusId}`);
+    if (row) {
+      row.scrollIntoView({ block: 'center' });
+      setFocusHandled(true);
+    } else {
+      toast('That request is no longer pending: it has already been reviewed.', 'info');
+      setFocusHandled(true);
+    }
+  }, [wantsPending, isAdminOrTL, focusId, focusHandled, activeTab, pendingLoaded, pendingVulns, pendingChangeRequests]);
+
   useEffect(() => {
     fetchVulnerabilities();
     if (isAdminOrTL) fetchPending();
@@ -151,6 +184,7 @@ export default function VulnerabilitiesPage() {
       ]);
       setPendingVulns(pendingRes.data);
       setPendingChangeRequests(changeRes.data);
+      setPendingLoaded(true);
     } catch (error) {
       console.error('Failed to fetch pending:', error);
     }
@@ -477,13 +511,14 @@ export default function VulnerabilitiesPage() {
               {displayVulns.map((vuln, i) => (
                 <Fragment key={vuln.id}>
                 <motion.tr
+                  id={`vuln-row-${vuln.id}`}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: i * 0.02 }}
                   onClick={(e: React.MouseEvent) => openVulnDetail(vuln.id, e)}
                   className={`border-b border-gray-700/50 hover:bg-white/5 transition-colors cursor-pointer ${
                     expandedId === vuln.id ? 'bg-emerald-500/5' : ''
-                  }`}
+                  } ${activeTab === 'pending' && wantsPending && focusId === vuln.id ? 'bg-amber-500/10 outline outline-1 outline-amber-500/40' : ''}`}
                 >
                   <td className="px-4 py-3">
                     <div>

@@ -547,13 +547,14 @@ export class DocxManipulatorService {
 
   /**
    * {Project Status} / {Compliance Status}: the project's saved status as text, with a background colour.
-   * Compliant -> "Compliant" on #92D050; Non-Compliant -> "Non-Compliant" on #FF0000; any other status
-   * (In Progress) -> empty, and the template's own background is left exactly as it is. The colour goes on
+   * Compliant -> "Compliant" on #92D050; Non-Compliant -> "Non-Compliant" on #FF0000; In Progress is reported
+   * exactly like Non-Compliant. Any other or unset status -> empty, and the template's own background is left
+   * exactly as it is. The status is the project's saved one, never changed here. The colour goes on
    * the table cell holding the placeholder, or on the paragraph when it is not in a table.
    */
   private applyComplianceStatus(doc: Document, status?: string | null): void {
     const key = (status || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
-    const look = key === 'compliant' ? { value: 'Compliant', fill: '92D050' } : key === 'non-compliant' ? { value: 'Non-Compliant', fill: 'FF0000' } : null;
+    const look = key === 'compliant' ? { value: 'Compliant', fill: '92D050' } : key === 'non-compliant' || key === 'in-progress' ? { value: 'Non-Compliant', fill: 'FF0000' } : null;
     const NAME_RE = /^(project|compliance)[\s_-]*status$/i;
     const resolver = (n: string) => (/^(project|compliance)_status$/.test(n) ? look?.value ?? '' : undefined);
 

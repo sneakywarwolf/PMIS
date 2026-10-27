@@ -67,16 +67,23 @@ export class VulnerabilitiesService {
     });
   }
 
-  async findOne(id: string) {
-    const vuln = await this.prisma.vulnerability.findUnique({
-      where: { id },
-    });
-
-    if (!vuln) {
-      throw new NotFoundException('Vulnerability not found');
-    }
-
+  /**
+   * Same visibility as the list: Admin / AVP / TL see every record (pending, rejected, deactivated); everyone else
+   * only approved, active records, plus a request they submitted themselves. Anything else answers 404, so a
+   * pending record's existence and content cannot be probed by id.
+   */
+  private async visibleVuln(id: string, viewer?: { id: string; role: UserRole }) {
+    const vuln = await this.prisma.vulnerability.findUnique({ where: { id } });
+    if (!vuln) throw new NotFoundException('Vulnerability not found');
+    if (!viewer) return vuln; // internal callers
+    const reviewer = viewer.role === UserRole.ADMIN || viewer.role === UserRole.AVP || viewer.role === UserRole.TEAM_LEAD;
+    const published = vuln.status === VulnerabilityStatus.APPROVED && vuln.isActive;
+    if (!reviewer && !published && vuln.requestedById !== viewer.id) throw new NotFoundException('Vulnerability not found');
     return vuln;
+  }
+
+  async findOne(id: string, viewer?: { id: string; role: UserRole }) {
+    return this.visibleVuln(id, viewer);
   }
 
   async create(data: {
@@ -325,7 +332,8 @@ export class VulnerabilitiesService {
     return removed;
   }
 
-  async getHistory(id: string) {
+  async getHistory(id: string, viewer?: { id: string; role: UserRole }) {
+    await this.visibleVuln(id, viewer); // history is only as visible as the record itself
     return this.prisma.auditLog.findMany({
       where: { targetType: 'VULNERABILITY', targetId: id },
       orderBy: { timestamp: 'desc' },
@@ -391,6 +399,9 @@ export class VulnerabilitiesService {
       type: 'VULNERABILITY_REQUESTED',
       title: 'New Vulnerability Request',
       message: `"${vuln.name}" (${vuln.severity}) has been requested for approval.`,
+      // The existing Pending Approval tab of the Vulnerability Database page, focused on this request. The page and
+      // the /vulnerabilities/pending API enforce the roles; the link grants nothing.
+      linkUrl: `/dashboard/vulnerabilities?tab=pending&focus=${encodeURIComponent(vuln.id)}`,
       relatedId: vuln.id,
       excludeUserId: requestedById,
     });

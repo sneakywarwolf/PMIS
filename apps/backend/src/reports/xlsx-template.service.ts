@@ -12,6 +12,7 @@ const STATUS_RE = /^(project|compliance)[\s_-]*status$/i;
 const STATUS_LOOKS: Record<string, { value: string; fill: string }> = {
   compliant: { value: 'Compliant', fill: 'FF92D050' },
   'non-compliant': { value: 'Non-Compliant', fill: 'FFFF0000' },
+  'in-progress': { value: 'Non-Compliant', fill: 'FFFF0000' }, // In Progress is reported like Non-Compliant
 };
 const statusLook = (status?: string | null) => STATUS_LOOKS[(status || '').trim().toLowerCase().replace(/[\s_]+/g, '-')] ?? null;
 
@@ -90,8 +91,8 @@ export class XlsxTemplateService {
 
   /**
    * Returns a copy of the workbook with every resolvable placeholder replaced; unresolved ones stay literal.
-   * `{Project Status}` / `{Compliance Status}` print the project's status (Compliant / Non-Compliant, empty
-   * for anything else) and, for those two, give the cell a green / red background when the placeholder is all
+   * `{Project Status}` / `{Compliance Status}` print the project's status (Compliant / Non-Compliant; In Progress prints as
+   * Non-Compliant; empty for anything else) and, for those two, give the cell a green / red background when the placeholder is all
    * the cell holds. Any other status, or a cell with other text, keeps the cell's own style exactly as the template has it.
    */
   async fill(xlsx: Buffer, resolve: (raw: string) => string | undefined, options?: { complianceStatus?: string | null; rowSets?: RowSet[] }): Promise<Buffer> {

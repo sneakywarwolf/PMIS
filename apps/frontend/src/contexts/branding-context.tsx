@@ -35,11 +35,19 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   useEffect(() => {
+    // Signed out (logout, expired session, before sign-in) or a different account: nothing fetched for the previous
+    // user may stay readable, and nothing is requested until a user exists.
+    setBranding(DEFAULT_BRANDING);
+    setSettings(null);
+    setSettingsLoaded(false);
     if (!user) return;
+    let cancelled = false;
     api.get('/settings').then((res) => {
+      if (cancelled) return;
       if (res.data?.branding) setBranding({ ...DEFAULT_BRANDING, ...res.data.branding });
       setSettings(res.data?.settings ?? null);
-    }).catch(() => {}).finally(() => setSettingsLoaded(true));
+    }).catch(() => {}).finally(() => { if (!cancelled) setSettingsLoaded(true); });
+    return () => { cancelled = true; };
   // Keyed on the user's id, not the object: refreshUser()/checkAuth replaces the object without changing who is logged in.
   }, [user?.id]);
 

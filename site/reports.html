@@ -210,7 +210,7 @@
       </tbody>
     </table></div>
     <h3>Compliance status</h3>
-    <p><code>{Compliance Status}</code> or <code>{Project Status}</code> (any spacing or underscore form) prints <em>Compliant</em> or <em>Non-Compliant</em> in both Word and Excel. When it is alone in its cell or paragraph, the background is green or red. It stays empty while the project is In-Progress. In Word it also works in headers, footers and the file name.</p>
+    <p><code>{Compliance Status}</code> or <code>{Project Status}</code> (any spacing or underscore form) prints <em>Compliant</em> or <em>Non-Compliant</em> in both Word and Excel, from the project&rsquo;s saved status. A project that is still <em>In Progress</em> prints as <em>Non-Compliant</em>, exactly like one saved as Non-Compliant. When it is alone in its cell or paragraph, the background is green (<code>#92D050</code>) for Compliant and red (<code>#FF0000</code>) for Non-Compliant and In Progress. With no status saved it stays empty and the template background is left as it is. Generating a report never changes the saved status. In Word it also works in headers, footers and the file name.</p>
     <h3>VA and PT sections (Word, Network)</h3>
     <p>Wrap content that applies only to vulnerability assessment or only to penetration testing in marker paragraphs. These are control markers, not parameters: they are never listed as fields. Each marker must be the only text in its paragraph, in any letter case:</p>
 <pre><code>{#VA}

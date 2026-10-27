@@ -417,8 +417,10 @@ function NotificationBell() {
                     onClick={() => {
                       if (!n.read) markAsRead(n.id);
                       setOpen(false);
+                      // Notifications created before they carried a link: a vulnerability request still opens its approval tab.
+                      const target = n.linkUrl || (n.type === 'VULNERABILITY_REQUESTED' && n.relatedId ? `/dashboard/vulnerabilities?tab=pending&focus=${encodeURIComponent(n.relatedId)}` : undefined);
                       // Only in-app paths (e.g. /dashboard/quiz); never an external or protocol-relative URL.
-                      if (n.linkUrl?.startsWith('/') && !n.linkUrl.startsWith('//')) router.push(n.linkUrl);
+                      if (target?.startsWith('/') && !target.startsWith('//')) router.push(target);
                     }}
                   >
                     <div className="flex items-start justify-between gap-2">

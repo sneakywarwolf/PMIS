@@ -69,6 +69,8 @@ export function usePresenceHeartbeat(enabled: boolean) {
 
     return () => {
       cancelled = true;
+      // The count belongs to the signed-in session; drop it so the next account never sees the previous one's.
+      publish({ count: null, failed: false });
       clearInterval(timer);
       ACTIVITY_EVENTS.forEach((e) => window.removeEventListener(e, markActive));
       document.removeEventListener('visibilitychange', onVisible);

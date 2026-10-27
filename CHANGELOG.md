@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- Reports: a project whose saved status is In Progress now prints `{Project Status}` / `{Compliance Status}` as Non-Compliant on the red background, in Word and Excel, like a Non-Compliant project. File names and report eligibility are unchanged.
+- Notifications: a new-vulnerability request now opens the Pending Approval tab, focused on that request. Older unread requests open it too.
+- Security: a Vulnerability DB record that is pending, rejected or deactivated, and its audit history, can no longer be read by id by Testers other than the requester.
+- Updates: the About page shows the version of the running image. The release workflow now sets `APP_VERSION` in the backend image; before, every build showed the `package.json` version (1.0.0). Release metadata from GitHub is validated.
+- Signing out or switching accounts clears the settings and live-user count the previous account had loaded.
 - Add Finding > Add Manually: create a finding for a vulnerability that is not in the Vulnerability DB. With Sync Vuln DB on (default) a separate approval request is also sent; the project finding is unaffected by the decision. With it off the finding stays in the project only.
 - Import Project Findings: add findings from a .csv or .xlsx file (up to 100 MB, 5,000 rows) with preview and all-or-nothing validation. They stay in the project and are never synced to the Vulnerability DB.
 - A step can now hold several PoC screenshots, kept in order and printed in order in the report. Every PoC image in the Word report has a black border.

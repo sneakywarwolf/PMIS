@@ -33,6 +33,8 @@ jobs:
         with:
           context: apps/${{ matrix.app }}
           platforms: ${{ matrix.platform }}
+          # The backend reports this as its version (About page, update check); the frontend has no use for it.
+          build-args: ${{ matrix.app == 'backend' && format('APP_VERSION={0}', github.ref_name) || '' }}
           # Push the image by digest only; the merge job below creates the tags.
           outputs: type=image,name=${{ secrets.DOCKERHUB_USERNAME }}/pmis-${{ matrix.app }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.app }}-${{ matrix.arch }}
