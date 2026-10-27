@@ -147,32 +147,68 @@ server {
 
   <section id="backup">
     <h2>Backup and restore</h2>
-    <p>A complete backup has three parts: the database, the files volume and your <code>.env</code>. Backups contain client vulnerability data. Encrypt them and restrict access.</p>
-    <p>Commands below are for Linux, macOS or Git Bash, run in the <code>PMIS</code> folder. Replace <code>pmis_rustfs_data</code> with your volume name from <code>docker volume ls</code>. For the most consistent file copy, back up while nobody is uploading, or stop the stack first with <code>docker compose stop</code>.</p>
+    <p>A complete backup has four parts: the three data stores that PMIS uses, and your <code>.env</code>.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Store</th><th>Compose service / volume</th><th>Holds</th><th>Back up with</th></tr></thead>
+      <tbody>
+        <tr><td>PostgreSQL</td><td><code>postgres</code> / <code>postgres_data</code></td><td>All application data: users, projects, findings, vulnerability library, settings, audit log</td><td><code>pg_dump</code></td></tr>
+        <tr><td>RustFS (object storage)</td><td><code>rustfs</code> / <code>rustfs_data</code></td><td>Report templates, generated reports, PoC screenshots and other uploaded files</td><td>Archive of the volume</td></tr>
+        <tr><td>Redis</td><td><code>redis</code> / <code>redis_data</code></td><td>Sessions, presence and rate-limit counters. Losing it signs everyone out; no project data is stored here</td><td><code>SAVE</code>, then archive of the volume</td></tr>
+        <tr><td><code>.env</code></td><td>project folder</td><td>Secrets and settings. The same values must be used after a restore</td><td>Copy of the file</td></tr>
+      </tbody>
+    </table></div>
+    <p>Backups contain client vulnerability data. Encrypt them and restrict access.</p>
+    <p>Commands are for Linux, macOS or Git Bash, run in the <code>PMIS</code> folder. Compose names volumes <code>&lt;project&gt;_&lt;volume&gt;</code>, where the project is the folder name in lower case (<code>pmis</code> for a folder called <code>PMIS</code>). Check the real names with <code>docker volume ls</code> and replace <code>pmis_</code> below if yours differ. The archive commands use the <code>postgres:16.4-alpine</code> image, which is already on the host, only for <code>tar</code>.</p>
 
     <h3>Back up</h3>
-<pre><code># Database
-docker compose exec -T postgres pg_dump -U pmis pmis &gt; pmis-db-$(date +%F).sql
+    <p>Stop PMIS from taking new work first, so the three stores match each other: <code>docker compose stop frontend backend</code>. The data stores keep running.</p>
+<pre><code>mkdir -p backup &amp;&amp; D=$(date +%F)
 
-# Files (templates, reports, screenshots)
-docker run --rm -v pmis_rustfs_data:/data:ro -v "$PWD":/backup postgres:16.4-alpine \
-  tar czf /backup/pmis-files-$(date +%F).tgz -C /data .
+# 1. PostgreSQL: a consistent logical dump (custom format, compressed)
+docker compose exec -T postgres pg_dump -U pmis -d pmis -Fc &gt; backup/pmis-db-$D.dump
 
-# Configuration (keep with the backup, store securely)
-cp .env pmis-env-$(date +%F).bak</code></pre>
+# 2. Redis: write a snapshot to disk, then archive the volume
+docker compose exec -T redis redis-cli SAVE
+docker run --rm -v pmis_redis_data:/data:ro -v "$PWD/backup":/backup postgres:16.4-alpine   tar czpf /backup/pmis-redis-$D.tgz -C /data .
+
+# 3. RustFS: archive the volume (templates, reports, screenshots)
+docker run --rm -v pmis_rustfs_data:/data:ro -v "$PWD/backup":/backup postgres:16.4-alpine   tar czpf /backup/pmis-files-$D.tgz -C /data .
+
+# 4. Configuration (keep with the backup, store securely)
+cp .env backup/pmis-env-$D.bak
+
+# Start PMIS again
+docker compose start backend frontend</code></pre>
+    <p>Check that the files exist and are not empty: <code>ls -lh backup</code>. For a stronger check, <code>docker compose exec -T postgres pg_restore --list &lt; backup/pmis-db-$D.dump | head</code> should print the archive header and table of contents.</p>
 
     <h3>Restore</h3>
-    <div class="warn">Restoring replaces all current data. <code>docker compose down -v</code> permanently deletes the current database and files. Back up first if you are unsure.</div>
-<pre><code>docker compose down -v
+    <div class="warn">Restoring replaces all current data. <code>docker compose down -v</code> permanently deletes the current database, files and Redis data. Back up first if you are unsure.</div>
+    <p>Put the saved <code>.env</code> back in the <code>PMIS</code> folder, then set the date of the backup to restore:</p>
+<pre><code>D=YYYY-MM-DD
+cp backup/pmis-env-$D.bak .env
+
+# Remove the old stack and its volumes, then create empty containers and volumes (nothing starts yet)
+docker compose down -v
+docker compose create
+
+# 1. PostgreSQL: start only the database, wait until it is healthy, then load the dump
 docker compose up -d postgres
 docker compose ps postgres          # wait until it shows (healthy)
+docker compose exec -T postgres pg_restore -U pmis -d pmis --no-owner --exit-on-error &lt; backup/pmis-db-$D.dump
 
-docker compose exec -T postgres psql -q -U pmis -d pmis &lt; pmis-db-YYYY-MM-DD.sql
-docker run --rm -v pmis_rustfs_data:/data -v "$PWD":/backup postgres:16.4-alpine \
-  tar xzf /backup/pmis-files-YYYY-MM-DD.tgz -C /data
+# 2. Redis and 3. RustFS: unpack the archives into the (still stopped) volumes
+docker run --rm -v pmis_redis_data:/data -v "$PWD/backup":/backup postgres:16.4-alpine   tar xzpf /backup/pmis-redis-$D.tgz -C /data
+docker run --rm -v pmis_rustfs_data:/data -v "$PWD/backup":/backup postgres:16.4-alpine   tar xzpf /backup/pmis-files-$D.tgz -C /data
 
+# Start everything
 docker compose up -d</code></pre>
-    <p>Use the same <code>.env</code> that was in place when the backup was taken.</p>
+    <ul class="plain">
+      <li>The Redis step is optional: skip it and everyone simply signs in again.</li>
+      <li><code>tar</code> runs as root and keeps the original owners (<code>p</code> flag), which RustFS and Redis need to read their files. Do not unpack the archives as another user.</li>
+      <li>Open PMIS, sign in and check a project, a PoC image and a generated report download.</li>
+      <li>Restoring into a database that already has tables is not supported: always start from <code>down -v</code> as above.</li>
+    </ul>
+    <p>Use the same <code>.env</code> that was in place when the backup was taken, in particular the database password, the object storage keys and the JWT secrets.</p>
   </section>
 
   <section id="version">
@@ -187,7 +223,7 @@ docker compose up -d</code></pre>
   <section id="upgrade">
     <h2>Upgrading</h2>
     <ol class="plain">
-      <li><a href="#backup">Back up</a>. If you are upgrading from a version that used MinIO for file storage, also follow <a href="#migrate-minio">Migrating from MinIO to RustFS</a>: the files have to be copied across once.</li>
+      <li><a href="#backup">Back up</a>.</li>
       <li>Get the new version:
 <pre><code># Prebuilt images: set PMIS_VERSION in .env to the new release, then
 docker compose pull
@@ -198,38 +234,6 @@ git pull
 docker compose up -d --build</code></pre></li>
       <li>Database migrations run automatically when the backend starts. Watch with <code>docker compose logs -f backend</code> until it reports healthy in <code>docker compose ps</code>.</li>
     </ol>
-  </section>
-
-  <section id="migrate-minio">
-    <h2>Migrating an existing install from MinIO to RustFS</h2>
-    <p>Earlier versions stored files in MinIO. RustFS cannot read MinIO's on-disk format, so the files have to be copied across over the S3 interface. A new install does not need this.</p>
-    <div class="warn">Take a <a href="#backup">backup</a> first, and keep the old MinIO volume until you have checked the result. The commands are for Linux, macOS or Git Bash, run in the PMIS folder.</div>
-    <ol class="plain">
-      <li>Set the values for your install. <code>PROJECT</code> is the prefix of your storage volume's name: run <code>docker volume ls | grep minio_data</code>, and for <code>pmis_minio_data</code> the project is <code>pmis</code>. <code>OLD_IMAGE</code> is the MinIO image you ran before, the value of your old <code>MINIO_IMAGE</code> setting:
-<pre><code>PROJECT=pmis
-OLD_IMAGE=minio/minio:latest
-KEY=$(grep '^MINIO_ROOT_USER=' .env | cut -d= -f2-); KEY=${KEY:-pmisminio}
-SECRET=$(grep '^MINIO_ROOT_PASSWORD=' .env | cut -d= -f2-)</code></pre></li>
-      <li>Stop the old stack, which keeps its data. Get the new version, then start only the new storage:
-<pre><code>docker compose down
-git pull
-docker compose up -d rustfs</code></pre></li>
-      <li>Start the old MinIO on its old data volume:
-<pre><code>docker run -d --name pmis-old-minio --network "${PROJECT}_default" \
-  -e MINIO_ROOT_USER="$KEY" -e MINIO_ROOT_PASSWORD="$SECRET" \
-  -v "${PROJECT}_minio_data":/data "$OLD_IMAGE" server /data</code></pre></li>
-      <li>Create the bucket on the new storage, copy every file across, and compare. The new storage has no bucket yet, because PMIS creates it only when it first starts. <code>mc diff</code> prints nothing when the two sides match:
-<pre><code>MC="docker run --rm --network ${PROJECT}_default --entrypoint mc -e MC_HOST_old=http://$KEY:$SECRET@pmis-old-minio:9000 -e MC_HOST_new=http://$KEY:$SECRET@rustfs:9000 $OLD_IMAGE"
-$MC mb --ignore-existing new/vapt-reports
-$MC mirror --preserve old/vapt-reports new/vapt-reports
-$MC diff old/vapt-reports new/vapt-reports</code></pre></li>
-      <li>Remove the temporary MinIO container and start PMIS:
-<pre><code>docker rm -f pmis-old-minio
-docker compose up -d</code></pre></li>
-      <li>Open PMIS and check that an existing report downloads and an existing screenshot shows. After a few days of normal use, delete the old data:
-<pre><code>docker volume rm "${PROJECT}_minio_data"</code></pre></li>
-    </ol>
-    <p>The old <code>MINIO_IMAGE</code> line in <code>.env</code> is no longer used and can be removed.</p>
   </section>
 
   <section id="storage-console">
@@ -261,7 +265,7 @@ docker compose exec -T rustfs curl -s -o /dev/null \
       RUSTFS_CONSOLE_ENABLE: "false"</code></pre>
 <pre><code>docker compose up -d rustfs</code></pre>
     <p>Recreating the container does not touch the <code>rustfs_data</code> volume. The backend reconnects on its own; if a request fails right after, run <code>docker compose restart backend</code>.</p>
-    <div class="warn">Never publish ports 9000 or 9001 in production, for example with a <code>ports:</code> entry or a proxy rule. <code>docker-compose.dev.yml</code> publishes both with fixed credentials and is for development only. If you must administer storage, use <code>mc</code> over the private network as in <a href="#migrate-minio">the migration steps</a>, not a published port.</div>
+    <div class="warn">Never publish ports 9000 or 9001 in production, for example with a <code>ports:</code> entry or a proxy rule. <code>docker-compose.dev.yml</code> publishes both with fixed credentials and is for development only. If you must administer storage, run an S3 client such as <code>mc</code> in a container on the Compose network, not through a published port.</div>
   </section>
 
   <section id="monitoring">

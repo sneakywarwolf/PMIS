@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Documentation: Backup and restore now covers all three data stores (PostgreSQL, RustFS files, Redis) plus `.env`, with tested commands for each. The MinIO to RustFS migration section was removed from the deployment page and README.
 - About: a glass-style Documentation button opens https://sneakywarwolf.github.io/PMIS/ in a new tab.
 - Version: the version on the About page now follows the release automatically. The release workflow also writes the tag into each app's `package.json` before building, and when you build from source with `docker compose build`, `PMIS_VERSION` in `.env` (for example `1.0.10`) is passed to the backend as `APP_VERSION`. Images built before this change still report `1.0.0`; install the next release once and it will show the right number from then on.
 - Settings: every setting now has an effect; none is display-only.
@@ -32,10 +33,9 @@
 - The RustFS web console is disabled in the production compose file (`RUSTFS_CONSOLE_ENABLE=false`); PMIS uses only the S3 API. The docs explain how to check this.
 - Documentation: the Report Engine spec (`docs/REPORT-ENGINE-SPEC.md`) now lists what changed since the original draft (automatic document versioning, Excel for Network projects, queued generation, signed downloads, automatic template selection, generation gate, Client SPOC, Issue Log).
 - Reset-database messages now say "object storage" instead of MinIO.
-- Documentation: upgrade notes point to the MinIO to RustFS migration steps.
 
 ## 1.0.9 (2026-10-25)
-- Object storage is now RustFS (S3-compatible) instead of MinIO. Existing installs must copy their files across once: see https://sneakywarwolf.github.io/PMIS/deployment.html#migrate-minio. New installs need no extra setup, and the MINIO_IMAGE setting is gone.
+- Object storage is now RustFS (S3-compatible) instead of MinIO. The MINIO_IMAGE setting is gone.
 - Docker images are now built natively for linux/amd64 and linux/arm64, instead of emulating arm64.
 - Security: the Docker images were rebuilt to fix Docker Scout findings (backend dev dependencies pruned, Alpine packages and npm upgraded, dependency audit fixes).
 
