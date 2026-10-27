@@ -12,6 +12,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { sniffImageType } from '../common/upload-security.util';
+import { Permission } from '../common/permissions';
 
 @ApiTags('Findings')
 @Controller('findings')
@@ -23,6 +24,7 @@ export class FindingsController {
   ) {}
 
   @Post('upload-poc-image')
+  @Permission('findings.upload_poc')
   @UseGuards(AttachmentSizeGuard('poc'))
   @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('poc')))
   @ApiConsumes('multipart/form-data')
@@ -45,6 +47,7 @@ export class FindingsController {
   }
 
   @Post('nessus/preview')
+  @Permission('findings.nessus_import')
   @UseGuards(NessusUploadSizeGuard)
   @UseInterceptors(FileInterceptor('file', NESSUS_UPLOAD))
   @ApiConsumes('multipart/form-data')
@@ -59,6 +62,7 @@ export class FindingsController {
   }
 
   @Post('nessus/import')
+  @Permission('findings.nessus_import')
   @UseGuards(NessusUploadSizeGuard)
   @UseInterceptors(FileInterceptor('file', NESSUS_UPLOAD))
   @ApiConsumes('multipart/form-data')
@@ -89,6 +93,7 @@ export class FindingsController {
   // Declared before the ':id' routes so these paths are never taken for a finding id.
 
   @Post('manual')
+  @Permission('findings.add')
   @ApiOperation({ summary: 'Add a finding by hand. With syncVulnDb (default true) a separate Vulnerability DB approval request is also created' })
   async createManual(@Body() body: any, @CurrentUser() user: User, @Req() request: any) {
     const ipAddress = request.ip || 'unknown';
@@ -97,6 +102,7 @@ export class FindingsController {
   }
 
   @Get('import/sample')
+  @Permission('findings.file_import')
   @ApiOperation({ summary: 'Sample CSV with the exact headers expected by Import Project Findings' })
   getImportSample(@Res() response: Response) {
     response.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -105,6 +111,7 @@ export class FindingsController {
   }
 
   @Post('import/preview')
+  @Permission('findings.file_import')
   @UseGuards(AttachmentSizeGuard('findingsImport'))
   @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('findingsImport')))
   @ApiConsumes('multipart/form-data')
@@ -115,6 +122,7 @@ export class FindingsController {
   }
 
   @Post('import')
+  @Permission('findings.file_import')
   @UseGuards(AttachmentSizeGuard('findingsImport'))
   @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('findingsImport')))
   @ApiConsumes('multipart/form-data')
@@ -132,6 +140,7 @@ export class FindingsController {
   }
 
   @Get('project/:projectId')
+  @Permission('findings.view')
   @ApiOperation({ summary: 'Get findings for a project' })
   async findByProject(
     @Param('projectId') projectId: string,
@@ -142,12 +151,14 @@ export class FindingsController {
 
   // Declared before the ':id' routes so "project" is never taken for a finding id.
   @Get('project/:projectId/nessus-count')
+  @Permission('findings.view')
   @ApiOperation({ summary: 'Number of Nessus-imported VA findings the caller may delete in this project' })
   async countNessus(@Param('projectId') projectId: string, @CurrentUser() user: User) {
     return this.findingsService.countNessusFindings(projectId, user);
   }
 
   @Delete('project/:projectId/nessus')
+  @Permission('findings.nessus_delete_all')
   @ApiOperation({ summary: 'Delete all Nessus-imported VA findings of a project' })
   async removeAllNessus(@Param('projectId') projectId: string, @CurrentUser() user: User, @Req() request: any) {
     const ipAddress = request.ip || 'unknown';
@@ -156,6 +167,7 @@ export class FindingsController {
   }
 
   @Get(':id')
+  @Permission('findings.view')
   @ApiOperation({ summary: 'Get finding by ID' })
   async findOne(
     @Param('id') id: string,
@@ -165,6 +177,7 @@ export class FindingsController {
   }
 
   @Post()
+  @Permission('findings.add')
   @ApiOperation({ summary: 'Create a finding' })
   async create(
     @Body() body: {
@@ -189,6 +202,7 @@ export class FindingsController {
   }
 
   @Put(':id')
+  @Permission('findings.edit')
   @ApiOperation({ summary: 'Update a finding' })
   async update(
     @Param('id') id: string,
@@ -202,6 +216,7 @@ export class FindingsController {
   }
 
   @Delete(':id')
+  @Permission('findings.delete')
   @ApiOperation({ summary: 'Delete a finding' })
   async remove(
     @Param('id') id: string,
@@ -215,6 +230,7 @@ export class FindingsController {
 
   // POC Steps
   @Post(':id/poc-steps')
+  @Permission('findings.edit')
   @ApiOperation({ summary: 'Add POC step to finding' })
   async addPocStep(
     @Param('id') findingId: string,
@@ -225,6 +241,7 @@ export class FindingsController {
   }
 
   @Put(':id/poc-steps/:stepId')
+  @Permission('findings.edit')
   @ApiOperation({ summary: 'Update POC step' })
   async updatePocStep(
     @Param('id') findingId: string,
@@ -236,6 +253,7 @@ export class FindingsController {
   }
 
   @Delete(':id/poc-steps/:stepId')
+  @Permission('findings.edit')
   @ApiOperation({ summary: 'Delete POC step' })
   async removePocStep(
     @Param('id') findingId: string,

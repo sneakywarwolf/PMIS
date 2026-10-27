@@ -197,7 +197,7 @@ export default function ProjectDetailPage() {
   const { id } = useParams();
   const router = useRouter();
   const { user } = useAuth();
-  const { settings: appSettings } = useBranding();
+  const { settings: appSettings, can } = useBranding();
   const confirmDialog = useConfirm();
   const showToast = useToast();
   const [project, setProject] = useState<Project | null>(null);
@@ -420,7 +420,7 @@ export default function ProjectDetailPage() {
           <h1 className="text-2xl font-bold text-white">{project.name}</h1>
           <p className="text-gray-400 text-sm">{project.clientName}</p>
         </div>
-        {user?.role === 'ADMIN' && (
+        {can('projects.delete') && (
           <button
             onClick={handleDeleteProject}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-sm"
@@ -471,13 +471,15 @@ export default function ProjectDetailPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">Project Details<ChangedMark changes={[...changesFor('name'), ...changesFor('clientName')]} /></h2>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowEditModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-medium transition-all"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              Edit
-            </button>
+            {can('projects.edit') && (
+              <button
+                onClick={() => setShowEditModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-medium transition-all"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edit
+              </button>
+            )}
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[project.status] || 'bg-gray-700 text-gray-300'}`}>
               {project.status.replace('_', ' ')}
             </span>
@@ -548,7 +550,7 @@ export default function ProjectDetailPage() {
           )}
           <InfoField label="Quarter/Frequency" value={project.quarter || 'N/A'} changes={changesFor('quarter')} />
           <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} changes={changesFor('complianceType')} />
-          {user?.role !== 'TESTER' ? (
+          {can('projects.reassign') ? (
             <AssignedTesterField project={project} onChanged={fetchProject} />
           ) : (
             <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
@@ -683,7 +685,7 @@ export default function ProjectDetailPage() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <h2 className="text-lg font-semibold text-white">Findings ({project.findings.length})</h2>
           <div className="flex items-center gap-2">
-            {canEditFindings && (
+            {canEditFindings && can('findings.add') && (
               <button
                 onClick={() => { setEditingFinding(null); setShowAddModal(true); }}
                 className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all text-sm"
@@ -692,7 +694,7 @@ export default function ProjectDetailPage() {
                 Add Finding
               </button>
             )}
-            {canEditFindings && project.subType === 'NETWORK' && (
+            {canEditFindings && project.subType === 'NETWORK' && (can('projects.scope_import') || can('findings.nessus_import')) && (
               <>
                 <input
                   ref={nmapInputRef}
@@ -701,7 +703,7 @@ export default function ProjectDetailPage() {
                   className="hidden"
                   onChange={handleNmapFileSelected}
                 />
-                <button
+                {can('projects.scope_import') && <button
                   onClick={() => nmapInputRef.current?.click()}
                   disabled={uploadingNmap}
                   title="Upload Nmap port scan result (adds ports)"
@@ -709,7 +711,7 @@ export default function ProjectDetailPage() {
                 >
                   {uploadingNmap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                   Nmap Ports
-                </button>
+                </button>}
                 <input
                   ref={nessusInputRef}
                   type="file"
@@ -717,14 +719,14 @@ export default function ProjectDetailPage() {
                   className="hidden"
                   onChange={handleNessusFileSelected}
                 />
-                <button
+                {can('findings.nessus_import') && <button
                   onClick={() => nessusInputRef.current?.click()}
                   title="Add VA findings here"
                   className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm"
                 >
                   <ShieldAlert className="w-4 h-4" />
                   Nessus
-                </button>
+                </button>}
                 {nessusFile && (
                   <NessusImportDialog
                     projectId={project.id}
@@ -735,14 +737,14 @@ export default function ProjectDetailPage() {
                 )}
               </>
             )}
-            <button
+            {can('reports.issue_log') && <button
               onClick={handleGenerateIssueLog}
               className="flex items-center gap-2 px-4 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/20 rounded-lg transition-all text-sm"
             >
               <AlertTriangle className="w-4 h-4" />
               Issue Log
-            </button>
-            <div className="relative">
+            </button>}
+            {can('reports.generate') && <div className="relative">
               <button
                 onClick={() => (project.subType === 'NETWORK' ? setShowFormatMenu((v) => !v) : handleGenerateReport())}
                 disabled={generatingReport || !reportReady}
@@ -765,7 +767,7 @@ export default function ProjectDetailPage() {
                   </button>
                 </div>
               )}
-            </div>
+            </div>}
             <PasswordGeneratorButton />
           </div>
         </div>
@@ -791,7 +793,7 @@ export default function ProjectDetailPage() {
                 </button>
               );
             })}
-            {canEditFindings && nessusCount > 0 && (
+            {canEditFindings && can('findings.nessus_delete_all') && nessusCount > 0 && (
               <button
                 onClick={handleDeleteAllNessus}
                 disabled={deletingNessus}
@@ -809,7 +811,7 @@ export default function ProjectDetailPage() {
           <div className="text-center py-12 glass-card rounded-xl">
             <ShieldAlert className="w-12 h-12 text-gray-600 mx-auto mb-3" />
             <p className="text-gray-400">No findings yet</p>
-            {canEditFindings && (
+            {canEditFindings && can('findings.add') && (
               <button
                 onClick={() => { setEditingFinding(null); setShowAddModal(true); }}
                 className="mt-2 text-emerald-400 hover:text-emerald-300 text-sm"
@@ -828,7 +830,8 @@ export default function ProjectDetailPage() {
                 key={finding.id}
                 finding={finding}
                 index={index}
-                canEdit={canEditFindings}
+                canEdit={canEditFindings && can('findings.edit')}
+                canDelete={canEditFindings && can('findings.delete')}
                 network={project.subType === 'NETWORK'}
                 typeIndicator={project.subType === 'NETWORK' && findingFilter === 'ALL' ? finding.findingType ?? null : null}
                 onEdit={() => { setEditingFinding(finding); setShowAddModal(true); }}
@@ -839,11 +842,13 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      <GeneratedReportsSection
-        projectId={project.id}
-        refreshKey={reportResult}
-        canDelete={user?.role === 'ADMIN' || user?.id === project.tester.id}
-      />
+      {can('reports.history') && (
+        <GeneratedReportsSection
+          projectId={project.id}
+          refreshKey={reportResult}
+          canDelete={can('reports.delete') && (user?.role === 'ADMIN' || user?.id === project.tester.id)}
+        />
+      )}
 
       {/* Add/Edit Finding Modal */}
       {showAddModal && (
@@ -1316,10 +1321,11 @@ function InfoField({ label, value, changes = [] }: { label: string; value: strin
   );
 }
 
-function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, onDelete }: {
+function FindingCard({ finding, index, canEdit, canDelete, network, typeIndicator, onEdit, onDelete }: {
   finding: Finding;
   index: number;
   canEdit: boolean;
+  canDelete: boolean;
   // Network projects: show CVSS vector and CVE IDs, and the VA/PT indicator instead of the classification badge.
   network: boolean;
   // 'VA' | 'PT' only while the All tab is selected; null under a VA/PT tab (the tab already says which).
@@ -1420,20 +1426,20 @@ function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, 
             {pocComplete ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
           </span>
           {canEdit && (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </>
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           )}
           {expanded ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
         </div>
@@ -1530,6 +1536,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
   onSaved: () => void;
 }) {
   const sev = useSeverity();
+  const { can } = useBranding();
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchCategory, setSearchCategory] = useState<'BOTH' | 'APPLICATION_API' | 'NETWORK'>('BOTH');
@@ -1932,16 +1939,20 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                     >
                       Add Manually
                     </button>
-                    <input ref={importInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleImportSelected} />
-                    <button
-                      type="button"
-                      onClick={() => importInputRef.current?.click()}
-                      title="Import findings for this project from a .csv or .xlsx file (project only; not added to the Vulnerability Database)"
-                      className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm"
-                    >
-                      Import Project Findings
-                    </button>
-                    <ImportFormatInfo />
+                    {can('findings.file_import') && (
+                      <>
+                        <input ref={importInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleImportSelected} />
+                        <button
+                          type="button"
+                          onClick={() => importInputRef.current?.click()}
+                          title="Import findings for this project from a .csv or .xlsx file (project only; not added to the Vulnerability Database)"
+                          className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm"
+                        >
+                          Import Project Findings
+                        </button>
+                        <ImportFormatInfo />
+                      </>
+                    )}
                   </div>
                   <div className="flex justify-end gap-3">
                   <button

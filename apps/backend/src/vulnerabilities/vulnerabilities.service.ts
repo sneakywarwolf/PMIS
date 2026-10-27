@@ -5,6 +5,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
 import { UserRole, VulnerabilityStatus, NotificationType } from '@prisma/client';
 import { validateExactCsvHeaders, parseCsv } from '../common/csv-validation.util';
+import { permissionRules } from '../common/permissions';
 
 /** Duplicate check key: case, leading/trailing and repeated spaces don't make a name different. */
 export const normalizeVulnName = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -20,7 +21,7 @@ export class VulnerabilitiesService {
   async findAll(search?: string, severity?: string, category?: string, userRole?: UserRole, sortBy?: string, sortOrder?: string) {
     const where: any = {};
 
-    if (userRole !== UserRole.ADMIN && userRole !== UserRole.AVP && userRole !== UserRole.TEAM_LEAD) {
+    if (!permissionRules.can(userRole, 'vulns.review_requests')) {
       where.status = VulnerabilityStatus.APPROVED;
       where.isActive = true;
     }
@@ -76,7 +77,7 @@ export class VulnerabilitiesService {
     const vuln = await this.prisma.vulnerability.findUnique({ where: { id } });
     if (!vuln) throw new NotFoundException('Vulnerability not found');
     if (!viewer) return vuln; // internal callers
-    const reviewer = viewer.role === UserRole.ADMIN || viewer.role === UserRole.AVP || viewer.role === UserRole.TEAM_LEAD;
+    const reviewer = permissionRules.can(viewer.role, 'vulns.review_requests');
     const published = vuln.status === VulnerabilityStatus.APPROVED && vuln.isActive;
     if (!reviewer && !published && vuln.requestedById !== viewer.id) throw new NotFoundException('Vulnerability not found');
     return vuln;

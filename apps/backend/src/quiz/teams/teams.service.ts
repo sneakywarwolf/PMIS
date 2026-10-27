@@ -3,6 +3,7 @@ import { UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QuizService } from '../quiz.service';
 import { cleanTeamName } from './team-name';
+import { permissionRules } from '../../common/permissions';
 
 export type TeamRow = { teamLeadId: string; name: string; members: number; score: number };
 
@@ -70,7 +71,7 @@ export class TeamsService {
     return {
       teamName: team?.name ?? null,
       customName: team?.customName ?? null,
-      canRename: (role === UserRole.TEAM_LEAD || role === UserRole.ADMIN) && team?.teamLeadId === userId,
+      canRename: permissionRules.can(role, 'quiz.rename_team') && team?.teamLeadId === userId,
       // Admins can rename any team (still only a Quiz/Arcade label).
       canRenameAny: role === UserRole.ADMIN,
     };

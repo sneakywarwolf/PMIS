@@ -10,6 +10,8 @@ import { ATTACHMENT_FORMATS, ATTACHMENT_FORMAT_BY_KEY, ATTACHMENT_PURPOSES, atta
 import { CONFIGURABLE_NOTIFICATION_ROLES, NOTIFICATION_TYPES } from '../notifications/notification-types';
 import { resetQuotaCache } from '../common/quota';
 import { SETTINGS_ID, deepMerge, isPlainObject, pruneUnknown, readEffectiveSettings } from './settings.store';
+import { CONFIGURABLE_ROLES, PERMISSIONS, PERMISSION_GROUPS, PERMISSION_KEYS } from '../common/permission-catalog';
+import { permissionRules } from '../common/permissions';
 
 // Keep in sync with apps/frontend/src/lib/themes.ts (THEME_IDS) — the
 // single source of truth for the actual token values per theme.
@@ -142,6 +144,27 @@ function validatePatch(patch: any) {
     }
   }
 
+  const perms = patch.rbac?.permissions;
+  if (perms !== undefined) {
+    if (!isPlainObject(perms)) {
+      errors.push('rbac.permissions must be an object');
+    } else {
+      for (const [feature, perRole] of Object.entries(perms)) {
+        if (!PERMISSION_KEYS.has(feature)) {
+          errors.push(`Unknown feature "${feature}"`);
+        } else if (!isPlainObject(perRole)) {
+          errors.push(`rbac.permissions.${feature} must be an object`);
+        } else {
+          for (const [role, on] of Object.entries(perRole as Record<string, unknown>)) {
+            if (role === 'ADMIN') errors.push('Admins always have every permission; it cannot be changed');
+            else if (!(CONFIGURABLE_ROLES as readonly string[]).includes(role)) errors.push(`Unknown role "${role}" for ${feature}`);
+            else if (typeof on !== 'boolean') errors.push(`rbac.permissions.${feature}.${role} must be true or false`);
+          }
+        }
+      }
+    }
+  }
+
   const formatting = patch.formatting;
   if (formatting?.dateFormat !== undefined && !DATE_FORMAT_OPTIONS.includes(formatting.dateFormat)) {
     errors.push(`formatting.dateFormat must be one of ${DATE_FORMAT_OPTIONS.join(', ')}`);
@@ -210,7 +233,7 @@ export class SettingsService implements OnModuleInit {
   /** Loads the saved attachment limits so upload checks use them from the first request. */
   async onModuleInit() {
     try {
-      attachmentLimits.set((await this.get()).settings.attachments.maxSizeMb);
+      await this.get(); // also loads the attachment limits and the RBAC matrix
     } catch {
       // The database is not reachable yet: the defaults stay in force until the next settings load.
     }
@@ -219,6 +242,7 @@ export class SettingsService implements OnModuleInit {
   async get() {
     const { settings, updatedAt, updatedById } = await readEffectiveSettings(this.prisma);
     attachmentLimits.set(settings.attachments.maxSizeMb);
+    permissionRules.set(settings.rbac.permissions);
     return {
       settings,
       updatedAt,
@@ -226,6 +250,7 @@ export class SettingsService implements OnModuleInit {
       // What the Settings screen needs to list: the file formats PMIS accepts, and the notifications it sends.
       attachmentFormats: { purposes: ATTACHMENT_PURPOSES, formats: ATTACHMENT_FORMATS },
       notificationTypes: NOTIFICATION_TYPES,
+      permissionCatalog: { groups: PERMISSION_GROUPS, permissions: PERMISSIONS },
     };
   }
 

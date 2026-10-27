@@ -1,6 +1,7 @@
 import { ISSUE_LOG_DEFAULT_COLUMNS } from '../reports/issue-log';
 import { DEFAULT_ATTACHMENT_SIZES_MB } from '../common/attachment-formats';
 import { DEFAULT_NOTIFICATION_RULES } from '../notifications/notification-types';
+import { DEFAULT_PERMISSION_MATRIX } from '../common/permission-catalog';
 
 export const DEFAULT_SETTINGS = {
   general: {
@@ -46,6 +47,10 @@ export const DEFAULT_SETTINGS = {
   // Which notifications each role receives, per notification type. Admins always receive all of them.
   notifications: {
     roleRules: DEFAULT_NOTIFICATION_RULES,
+  },
+  // Which roles may use each feature (Settings > RBAC). Admins can always use every feature.
+  rbac: {
+    permissions: DEFAULT_PERMISSION_MATRIX,
   },
   formatting: {
     dateFormat: 'DD/MM/YYYY',

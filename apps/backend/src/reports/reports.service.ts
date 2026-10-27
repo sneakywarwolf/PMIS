@@ -22,6 +22,7 @@ import { assertSafeDocx, safeFileName } from '../common/docx-package.util';
 import { coveredSubTypes, coversSubType, coversAnySubType, eligibleForProject, isEligibleTemplate, parseExtraSubTypes } from './template-subtypes';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
 import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
+import { permissionRules } from '../common/permissions';
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 const severityRank = (sev: string) => {
@@ -698,7 +699,7 @@ export class ReportsService {
       version: report.version,
       error: report.error,
       fileName,
-      docxUrl: report.status === 'COMPLETED' && report.docxPath
+      docxUrl: report.status === 'COMPLETED' && report.docxPath && permissionRules.can(user.role, 'reports.download')
         ? this.signedDownloadUrl(report.docxPath, fileName || 'report.docx')
         : null,
     };
@@ -1214,7 +1215,7 @@ export class ReportsService {
         return {
           ...h,
           fileName,
-          docxUrl: h.docxPath ? this.signedDownloadUrl(h.docxPath, fileName || 'report.docx') : null,
+          docxUrl: h.docxPath && permissionRules.can(user.role, 'reports.download') ? this.signedDownloadUrl(h.docxPath, fileName || 'report.docx') : null,
         };
       }),
     );
@@ -1256,8 +1257,8 @@ export class ReportsService {
       throw new NotFoundException('Report not found');
     }
 
-    const isOwner = user.role === UserRole.TESTER && report.project.testerId === user.id;
-    if (user.role !== UserRole.ADMIN && !isOwner) {
+    const isOwner = report.project.testerId === user.id;
+    if (user.role !== UserRole.ADMIN && !(isOwner && permissionRules.can(user.role, 'reports.delete'))) {
       throw new ForbiddenException('Only the project owner or an Admin can delete a generated report');
     }
 

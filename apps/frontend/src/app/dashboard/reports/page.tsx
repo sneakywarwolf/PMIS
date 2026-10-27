@@ -13,6 +13,7 @@ import { triggerDownload } from '@/lib/download';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
 import { toDateInputValue } from '@/lib/datetime';
+import { useBranding } from '@/contexts/branding-context';
 
 const subTypeIcons: any = {
   WEB: Monitor,
@@ -48,7 +49,8 @@ const templateSubTypes = (t: any): string[] => [t.subType, ...(t.extraSubTypes ?
 
 export default function ReportsPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('generate');
+  const { can } = useBranding();
+  const [activeTab, setActiveTab] = useState(can('reports.generate') ? 'generate' : 'templates');
 
   return (
     <div className="space-y-6">
@@ -59,7 +61,7 @@ export default function ReportsPage() {
 
       {/* Tabs */}
       <div className="flex gap-2">
-        <button
+        {can('reports.generate') && <button
           onClick={() => setActiveTab('generate')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
             activeTab === 'generate'
@@ -68,8 +70,8 @@ export default function ReportsPage() {
           }`}
         >
           Generate Report
-        </button>
-        <button
+        </button>}
+        {can('templates.view') && <button
           onClick={() => setActiveTab('templates')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
             activeTab === 'templates'
@@ -78,8 +80,8 @@ export default function ReportsPage() {
           }`}
         >
           Browse Templates
-        </button>
-        {user?.role === 'ADMIN' && (
+        </button>}
+        {can('templates.upload') && (
           <button
             onClick={() => setActiveTab('upload')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -91,7 +93,7 @@ export default function ReportsPage() {
             Upload Template
           </button>
         )}
-        {user?.role === 'ADMIN' && (
+        {can('templates.edit_fields') && (
           <button
             onClick={() => setActiveTab('mapping')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -119,7 +121,7 @@ export default function ReportsPage() {
         )}
         {activeTab === 'templates' && (
           <motion.div key="templates" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <TemplateBrowser isAdmin={user?.role === 'ADMIN'} />
+            <TemplateBrowser />
           </motion.div>
         )}
         {activeTab === 'upload' && (
@@ -411,7 +413,8 @@ function slugifyFieldName(raw: string) {
   return raw.trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, '');
 }
 
-function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
+function TemplateBrowser() {
+  const { can } = useBranding();
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [templates, setTemplates] = useState<any[]>([]);
@@ -438,7 +441,7 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
 
   const fetchTemplates = async () => {
     try {
-      const response = await api.get(isAdmin ? '/reports/templates/all' : '/reports/templates');
+      const response = await api.get(can('templates.view_all') ? '/reports/templates/all' : '/reports/templates');
       setTemplates(response.data);
     } catch (error) {
       console.error('Failed to fetch templates:', error);
@@ -602,7 +605,7 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
                 >
                   <Eye className="w-4 h-4" />
                 </button>
-                {isAdmin && !template.isActive && (
+                {can('templates.activate') && !template.isActive && (
                   <button
                     onClick={() => activate(template)}
                     disabled={activating === template.id}
@@ -612,7 +615,7 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
                     {activating === template.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                   </button>
                 )}
-                {isAdmin && !template.isActive && (
+                {can('templates.delete') && !template.isActive && (
                   <button
                     onClick={() => handleDelete(template)}
                     disabled={deleting === template.id}
@@ -645,7 +648,7 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
             <h3 className="text-lg font-semibold text-white">
               Fields in {selectedTemplate.name}
             </h3>
-            {isAdmin && !addingField && (
+            {can('templates.edit_fields') && !addingField && (
               <button
                 onClick={() => setAddingField(true)}
                 className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/20 transition-all"
@@ -681,7 +684,7 @@ function TemplateBrowser({ isAdmin }: { isAdmin: boolean }) {
                       <code className="text-xs text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded">
                         {field.normalizedName}
                       </code>
-                      {isAdmin && (
+                      {can('templates.edit_fields') && (
                         <button
                           onClick={() => { setEditingFieldId(field.id); setEditLabel(field.name); }}
                           className="text-xs text-gray-400 hover:text-white"

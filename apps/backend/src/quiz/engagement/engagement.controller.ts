@@ -1,14 +1,14 @@
 import { Controller, Get } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
-import { Roles } from '../../auth/decorators/roles.decorator';
+
 import { EngagementService } from './engagement.service';
+import { Permission } from '../../common/permissions';
 
 @Controller('quiz/engagement')
 export class EngagementController {
   constructor(private readonly engagement: EngagementService) {}
 
-  @Roles(UserRole.ADMIN)
   @Get()
+  @Permission('quiz.engagement')
   summary() {
     return this.engagement.summary();
   }

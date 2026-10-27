@@ -23,7 +23,7 @@ export function PillSwitch({
       aria-label={labelledBy ? undefined : ariaLabel}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-300 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 disabled:cursor-not-allowed ${checked ? 'bg-emerald-500' : 'bg-gray-600'} ${disabled ? 'opacity-60' : ''}`}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors duration-300 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 disabled:cursor-not-allowed ${checked ? 'bg-emerald-500' : 'bg-[#4b5563]'} ${disabled ? 'opacity-60' : ''}`}
     >
       <span
         aria-hidden="true"

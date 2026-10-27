@@ -21,6 +21,7 @@ interface TeamLead {
 
 export default function UsersPage() {
   const { user } = useAuth();
+  const { can, permissionsLoaded } = useBranding();
   const { roleAccentColors } = useBranding();
   const confirmDialog = useConfirm();
   const showToast = useToast();
@@ -46,12 +47,13 @@ export default function UsersPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (user?.role === 'ADMIN') {
-      fetchUsers();
+    if (!permissionsLoaded || !can('users.page')) return;
+    if (can('users.list')) fetchUsers(); else setLoading(false);
+    if (can('users.hierarchy')) {
       fetchTeamLeads();
       fetchManagers();
     }
-  }, [user]);
+  }, [user, permissionsLoaded, can]);
 
   const fetchUsers = async () => {
     try {
@@ -266,10 +268,10 @@ export default function UsersPage() {
   );
   const pager = usePagination(filteredUsers, search);
 
-  if (user?.role !== 'ADMIN') {
+  if (permissionsLoaded && !can('users.page')) {
     return (
       <div className="text-center py-12">
-        <p className="text-red-400">Access denied. Admin privileges required.</p>
+        <p className="text-red-400">Access denied. Your role is not allowed to use this page.</p>
       </div>
     );
   }
@@ -297,21 +299,21 @@ export default function UsersPage() {
             onChange={handleFileSelect}
             className="hidden"
           />
-          <button
+          {can('users.bulk_import') && <button
             onClick={handleBulkUploadClick}
             disabled={bulkUploading}
             className="flex items-center gap-2 px-4 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
           >
             <Upload className="w-4 h-4" />
             {bulkUploading ? 'Uploading...' : 'Bulk Upload'}
-          </button>
-          <button
+          </button>}
+          {can('users.create') && <button
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all"
           >
             <UserPlus className="w-4 h-4" />
             Add User
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -397,36 +399,36 @@ export default function UsersPage() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <button
+                    {can('users.edit') && <button
                       onClick={() => openEditModal(u)}
                       className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
                       title="Edit"
                     >
                       <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
+                    </button>}
+                    {can('users.reset_password') && <button
                       onClick={() => handleResetPassword(u.id)}
                       className="p-1.5 rounded-lg text-gray-400 hover:text-amber-400 hover:bg-amber-500/10 transition-all"
                       title="Reset Password"
                     >
                       <Key className="w-3.5 h-3.5" />
-                    </button>
+                    </button>}
                     {u.isActive ? (
-                      <button
+                      <>{can('users.deactivate') && <button
                         onClick={() => handleDelete(u.id)}
                         className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
                         title="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      </button>}</>
                     ) : (
-                      <button
+                      <>{can('users.activate') && <button
                         onClick={() => handleActivate(u.id)}
                         className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
                         title={u.deletedAt ? 'Restore (cancels deletion)' : 'Activate'}
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
+                      </button>}</>
                     )}
                   </div>
                 </td>

@@ -6,12 +6,12 @@ import { Loader2, Users, X } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { formatDateTime } from '@/lib/datetime';
 import { useLiveUserCount } from '@/lib/live-users';
+import { useBranding } from '@/contexts/branding-context';
 
 type ActiveUser = { id: string; fullName: string | null; username: string; role: string; teamLead: string | null; status: 'ACTIVE' | 'IDLE'; lastActiveAt: string; idleSeconds: number };
 
 const ROLE_LABELS: Record<string, string> = { ADMIN: 'Administrator', AVP: 'AVP', TEAM_LEAD: 'Team Lead', TESTER: 'Tester' };
 // Only these roles may open the list (the server enforces the same rule and the team scope).
-const CAN_VIEW_LIST = ['ADMIN', 'TEAM_LEAD', 'AVP'];
 
 const PILL = 'flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20';
 
@@ -28,7 +28,8 @@ export function LiveUsersBadge() {
   const { user } = useAuth();
   const { count, failed } = useLiveUserCount();
   const [open, setOpen] = useState(false);
-  const canOpen = !!user && CAN_VIEW_LIST.includes(user.role);
+  const { can } = useBranding();
+  const canOpen = !!user && can('dashboard.live_users');
 
   const label = (
     <>

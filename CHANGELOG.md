@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Settings > RBAC (new tab): the Admin switches each feature on or off per role (AVP, Team Lead, Tester). It lists 60 features in 10 groups, including Manage quiz questions, Upload report templates, Reset passwords (temporary password), Create users, Delete projects and the Vulnerability DB approvals. Admins always have every feature (locked on); Settings itself is not listed and stays Admin only. The defaults are the rules PMIS already had, so nothing changes until an Admin changes it. The server enforces the switches on every request, and menus, pages and buttons follow them.
+- Fix: the off position of the sliding switches (Sync Vuln DB, Notifications, RBAC) was drawn in the theme's accent colour in some themes; it is now grey so on and off are easy to tell apart.
+- Reports: when a role may not download reports, history and status no longer include download links.
 - Documentation: Backup and restore now covers all three data stores (PostgreSQL, RustFS files, Redis) plus `.env`, with tested commands for each. The MinIO to RustFS migration section was removed from the deployment page and README.
 - About: a glass-style Documentation button opens https://sneakywarwolf.github.io/PMIS/ in a new tab.
 - Version: the version on the About page now follows the release automatically. The release workflow also writes the tag into each app's `package.json` before building, and when you build from source with `docker compose build`, `PMIS_VERSION` in `.env` (for example `1.0.10`) is passed to the backend as `APP_VERSION`. Images built before this change still report `1.0.0`; install the next release once and it will show the right number from then on.

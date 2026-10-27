@@ -148,9 +148,11 @@ describe('PresenceService', () => {
 
 describe('PresenceController', () => {
   it('the user list is restricted to Admin, Team Lead and AVP at the route (global RolesGuard enforces it)', () => {
-    const roles = Reflect.getMetadata(ROLES_KEY, PresenceController.prototype.activeUsers);
-    expect(roles.sort()).toEqual([UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD].sort());
-    expect(roles).not.toContain(UserRole.TESTER);
+    const key = Reflect.getMetadata('permission', PresenceController.prototype.activeUsers);
+    expect(key).toBe('dashboard.live_users');
+    const { permissionRules } = require('../common/permissions');
+    const allowed = [UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD, UserRole.TESTER].filter((r) => permissionRules.can(r, key));
+    expect(allowed.sort()).toEqual([UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD].sort());
   });
 
   it('the count endpoint carries no role restriction and returns only a number plus the threshold', async () => {

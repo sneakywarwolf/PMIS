@@ -2,9 +2,10 @@ import { Controller, Get, Query, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { DashboardService } from './dashboard.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+
 import { User, UserRole } from '@prisma/client';
 import { CompletionStatsQueryDto } from './dto/completion-stats-query.dto';
+import { Permission } from '../common/permissions';
 
 @ApiTags('Dashboard & Analytics')
 @Controller('dashboard')
@@ -12,7 +13,7 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('team')
-  @Roles(UserRole.TEAM_LEAD, UserRole.AVP, UserRole.ADMIN)
+  @Permission('dashboard.team_stats')
   @ApiOperation({ summary: 'Get team statistics for TL dashboard' })
   async getTeamStats(@CurrentUser('id') tlId: string) {
     return this.dashboardService.getTeamStats(tlId);
@@ -31,21 +32,21 @@ export class DashboardController {
   }
 
   @Get('tl-comparison')
-  @Roles(UserRole.ADMIN, UserRole.AVP)
+  @Permission('dashboard.tl_comparison')
   @ApiOperation({ summary: 'Compare project status and findings across Team Leads (ADMIN/AVP only)' })
   async getTlComparison() {
     return this.dashboardService.getTlComparison();
   }
 
   @Get('admin')
-  @Roles(UserRole.ADMIN, UserRole.AVP)
+  @Permission('dashboard.org_stats')
   @ApiOperation({ summary: 'Get global admin statistics' })
   async getAdminStats() {
     return this.dashboardService.getAdminStats();
   }
 
   @Get('activity')
-  @Roles(UserRole.ADMIN)
+  @Permission('dashboard.activity_log')
   @ApiOperation({ summary: 'Get recent activity: who did what, with their role (Admin only)' })
   async getRecentActivity(@Query('limit') limit: string, @CurrentUser() user: User) {
     return this.dashboardService.getRecentActivity(Math.min(Math.max(parseInt(limit) || 10, 1), 100), user);

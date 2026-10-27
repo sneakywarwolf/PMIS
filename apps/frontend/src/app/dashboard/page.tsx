@@ -34,7 +34,7 @@ import {
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { settings, settingsLoaded } = useBranding();
+  const { settings, settingsLoaded, can, permissionsLoaded } = useBranding();
   const sev = useSeverity();
   const router = useRouter();
   const [stats, setStats] = useState<any>(null);
@@ -57,15 +57,17 @@ export default function DashboardPage() {
   const series = weeklySeries(engagements.rows ?? []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !permissionsLoaded) return;
+    if (!can('quiz.play')) { setQuizToday(null); return; }
     api.get('/quiz/today').then((res) => setQuizToday(res.data)).catch(() => setQuizToday(null));
-  }, [user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, permissionsLoaded]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !permissionsLoaded) return;
     fetchStats();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, permissionsLoaded]);
 
   // Reuses the app-wide settings the branding provider already fetched once
   // per session, instead of this page issuing its own duplicate GET /settings.
@@ -82,18 +84,18 @@ export default function DashboardPage() {
     try {
       let statsRes;
       let vulnRes;
-      if (user?.role === 'ADMIN' || user?.role === 'AVP') {
+      // Which figures a role gets follows Settings > RBAC: organisation-wide, then team, else trends only.
+      if (can('dashboard.org_stats')) {
         [statsRes, vulnRes] = await Promise.all([
           api.get('/dashboard/admin'),
           api.get('/dashboard/vulnerabilities'),
         ]);
-      } else if (user?.role === 'TEAM_LEAD') {
+      } else if (can('dashboard.team_stats')) {
         [statsRes, vulnRes] = await Promise.all([
           api.get('/dashboard/team'),
           api.get('/dashboard/vulnerabilities'),
         ]);
-      } else if (user?.role === 'TESTER') {
-        // Testers only get vulnerability trends (no dedicated endpoint yet)
+      } else {
         vulnRes = await api.get('/dashboard/vulnerabilities');
       }
       setStats(statsRes?.data ?? null);
@@ -109,7 +111,7 @@ export default function DashboardPage() {
     }
   };
 
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'AVP';
+  const isAdmin = can('dashboard.org_stats');
   const pageTitle = isAdmin ? 'Admin Dashboard' : 'Dashboard';
 
   // Build project status chart data
@@ -328,7 +330,7 @@ export default function DashboardPage() {
 
       <Slot layout={layout} id="tls">
       {/* Team Lead comparison — ADMIN/AVP only (endpoint is role-guarded too) */}
-      {isAdmin && (
+      {can('dashboard.tl_comparison') && (
         <RevealSection delay={0.12}>
           <SectionHeading>Team Leads</SectionHeading>
           <TlComparison onSelect={(tl, status) => filterEngagements({ tl, status })} />
@@ -403,19 +405,19 @@ export default function DashboardPage() {
         >
           <h2 className="text-lg font-semibold text-white mb-4">Quick Actions</h2>
           <div className="space-y-3">
-            <QuickAction
+            {can('projects.create') && <QuickAction
               href="/dashboard/projects/new"
               icon={FolderOpen}
               label="New Project"
               description="Create a new assessment"
-            />
-            <QuickAction
+            />}
+            {can('vulns.view') && <QuickAction
               href="/dashboard/vulnerabilities"
               icon={ShieldCheck}
               label="Vuln Database"
               description="Browse vulnerability DB"
-            />
-            {(user?.role === 'ADMIN' || user?.role === 'AVP' || user?.role === 'TEAM_LEAD') && (
+            />}
+            {can('vulns.review_requests') && (
               <QuickAction
                 href="/dashboard/vulnerabilities?tab=pending"
                 icon={AlertCircle}
@@ -423,12 +425,12 @@ export default function DashboardPage() {
                 description="Review pending vuln requests"
               />
             )}
-            <QuickAction
+            {(can('reports.generate') || can('templates.view')) && <QuickAction
               href="/dashboard/reports"
               icon={FileText}
               label="Reports"
               description="View generated reports"
-            />
+            />}
           </div>
         </motion.div>
       </RevealSection>
@@ -438,7 +440,7 @@ export default function DashboardPage() {
 
       <Slot layout={layout} id="activity">
       {/* Activity */}
-      {user?.role === 'ADMIN' && <RecentActivity delay={0.2} />}
+      {can('dashboard.activity_log') && <RecentActivity delay={0.2} />}
       </Slot>
     </div>
   );

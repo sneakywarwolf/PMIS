@@ -10,6 +10,7 @@ import type { ScanUpload } from '../common/nessus-upload.storage';
 import { assertPocKey, assertPocKeys } from '../common/upload-security.util';
 import { splitPocImagePaths } from '../common/poc-images.util';
 import { StorageService } from '../reports/storage.service';
+import { permissionRules } from '../common/permissions';
 
 /** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) · merge: same plugin already imported, but this file adds affected hosts */
 // 'refresh' = already imported, but its plugin output was not captured then (older import): the same file can add it.
@@ -476,7 +477,7 @@ export class FindingsService {
 
     if (data.status !== undefined) {
       if (!Object.values(FindingStatus).includes(data.status)) throw new BadRequestException('Invalid status');
-      if (user.role === UserRole.TESTER) throw new ForbiddenException('Testers cannot change finding status');
+      if (!permissionRules.can(user.role, 'findings.change_status')) throw new ForbiddenException('Your role cannot change finding status');
     }
 
     const updated = await this.prisma.finding.update({

@@ -41,7 +41,9 @@ interface NavItem {
   label: string;
   href: string;
   icon: React.ElementType;
-  roles: string[];
+  // Opens when the role may use any of these features (Settings > RBAC); none = every signed-in user.
+  features?: string[];
+  adminOnly?: boolean;
 }
 
 interface Notification {
@@ -56,15 +58,15 @@ interface Notification {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
-  { label: 'Projects', href: '/dashboard/projects', icon: FolderKanban, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
-  { label: 'Reports', href: '/dashboard/reports', icon: FileText, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
-  { label: 'Vulnerabilities', href: '/dashboard/vulnerabilities', icon: ShieldAlert, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
-  { label: 'Quiz', href: '/dashboard/quiz', icon: HelpCircle, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
-  { label: 'Retention', href: '/dashboard/retention', icon: Clock, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
-  { label: 'Users', href: '/dashboard/users', icon: Users, roles: ['ADMIN'] },
-  { label: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['ADMIN'] },
-  { label: 'About', href: '/dashboard/about', icon: Info, roles: ['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'] },
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Projects', href: '/dashboard/projects', icon: FolderKanban, features: ['projects.view'] },
+  { label: 'Reports', href: '/dashboard/reports', icon: FileText, features: ['reports.generate', 'templates.view'] },
+  { label: 'Vulnerabilities', href: '/dashboard/vulnerabilities', icon: ShieldAlert, features: ['vulns.view'] },
+  { label: 'Quiz', href: '/dashboard/quiz', icon: HelpCircle, features: ['quiz.play'] },
+  { label: 'Retention', href: '/dashboard/retention', icon: Clock, features: ['retention.view'] },
+  { label: 'Users', href: '/dashboard/users', icon: Users, features: ['users.page'] },
+  { label: 'Settings', href: '/dashboard/settings', icon: Settings, adminOnly: true },
+  { label: 'About', href: '/dashboard/about', icon: Info },
 ];
 
 const roleLabel = (role: string) => {
@@ -79,7 +81,7 @@ const roleLabel = (role: string) => {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, logout, loading } = useAuth();
-  const { primaryColor, shortName, logoUrl } = useBranding();
+  const { primaryColor, shortName, logoUrl, can, permissionsLoaded } = useBranding();
   const router = useRouter();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -113,10 +115,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [user, loading, router]);
 
   useEffect(() => {
-    if (user && !isRouteAllowed(pathname, user.role)) {
+    if (user && permissionsLoaded && !isRouteAllowed(pathname, user.role, can)) {
       router.replace(`/unauthorized?from=${encodeURIComponent(pathname)}`);
     }
-  }, [user, pathname, router]);
+  }, [user, pathname, router, permissionsLoaded, can]);
 
   if (loading) {
     return (
@@ -128,9 +130,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (!user) return null;
   if (user.isForcePasswordChange) return <ForceChangePasswordGate />;
-  if (!isRouteAllowed(pathname, user.role)) return null;
+  if (!permissionsLoaded || !isRouteAllowed(pathname, user.role, can)) return null;
 
-  const filteredNav = navItems.filter(item => item.roles.includes(user.role));
+  const filteredNav = navItems.filter((item) => (item.adminOnly ? user.role === 'ADMIN' : !item.features || item.features.some(can)));
 
   return (
     <div className="min-h-screen bg-cyber-bg flex">

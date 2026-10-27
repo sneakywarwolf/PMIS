@@ -31,6 +31,9 @@ interface SettingsContextValue extends Branding, Identity {
   // need other sections (workflow, appearance, ...) don't each re-fetch it.
   settings: any;
   settingsLoaded: boolean;
+  // What the signed-in user's role may do (Settings > RBAC). Admins may do everything.
+  permissionsLoaded: boolean;
+  can: (feature: string) => boolean;
   // Re-reads /settings (the settings page calls it after a save so the change applies without a reload).
   refreshSettings: () => Promise<void>;
 }
@@ -43,6 +46,8 @@ const DEFAULT_CONTEXT: SettingsContextValue = {
   shortName: 'PMIS',
   settings: null,
   settingsLoaded: false,
+  permissionsLoaded: false,
+  can: () => false,
   refreshSettings: async () => {},
 };
 
@@ -53,6 +58,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
   const [branding, setBranding] = useState<Branding>(DEFAULT_BRANDING);
   const [settings, setSettings] = useState<any>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [permissions, setPermissions] = useState<Record<string, boolean> | null>(null);
   const [publicIdentity, setPublicIdentity] = useState<Identity | null>(null);
   const pathname = usePathname();
 
@@ -77,9 +83,13 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
     setBranding(DEFAULT_BRANDING);
     setSettings(null);
     setSettingsLoaded(false);
+    setPermissions(null);
     configureFormats();
     if (!user) return;
     let cancelled = false;
+    api.get('/settings/my-permissions').then((res) => {
+      if (!cancelled) setPermissions(res.data?.permissions ?? {});
+    }).catch(() => { if (!cancelled) setPermissions({}); });
     api.get('/settings').then((res) => {
       if (cancelled) return;
       if (res.data?.branding) setBranding({ ...DEFAULT_BRANDING, ...res.data.branding });
@@ -94,6 +104,10 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
   }, [branding.primaryColor]);
 
   const refreshSettings = useCallback(async () => {
+    try {
+      const mine = await api.get('/settings/my-permissions');
+      setPermissions(mine.data?.permissions ?? {});
+    } catch { /* keep what is shown */ }
     try {
       const res = await api.get('/settings');
       if (res.data?.branding) setBranding({ ...DEFAULT_BRANDING, ...res.data.branding });
@@ -150,8 +164,23 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
     link.href = identity.faviconUrl;
   }, [identity.faviconUrl]);
 
+  // Admins can do everything. Others only what the matrix allows; until it has loaded, nothing is assumed.
+  const isAdmin = user?.role === 'ADMIN';
+  const can = useCallback((feature: string) => isAdmin || permissions?.[feature] === true, [isAdmin, permissions]);
+
+  // Another Admin may change the matrix: pick it up when the tab is shown again, so a switch applies without a sign-out.
+  useEffect(() => {
+    if (!user) return;
+    const onShow = () => {
+      if (document.visibilityState !== 'visible') return;
+      api.get('/settings/my-permissions').then((res) => setPermissions(res.data?.permissions ?? {})).catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onShow);
+    return () => document.removeEventListener('visibilitychange', onShow);
+  }, [user?.id]);
+
   return (
-    <BrandingContext.Provider value={{ ...branding, ...identity, shortName, settings, settingsLoaded, refreshSettings }}>
+    <BrandingContext.Provider value={{ ...branding, ...identity, shortName, settings, settingsLoaded, permissionsLoaded: isAdmin || permissions !== null, can, refreshSettings }}>
       <div key={formatKey} style={{ display: 'contents' }}>
       {children}
       </div>

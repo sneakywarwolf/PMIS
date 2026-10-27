@@ -81,9 +81,11 @@ describe('GET /dashboard/activity (the activity log)', () => {
   it('is Admin only', () => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { DashboardController } = require('../dashboard/dashboard.controller');
+    const key = Reflect.getMetadata('permission', DashboardController.prototype.getRecentActivity);
+    expect(key).toBe('dashboard.activity_log');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { ROLES_KEY } = require('../auth/decorators/roles.decorator');
-    expect(Reflect.getMetadata(ROLES_KEY, DashboardController.prototype.getRecentActivity)).toEqual(['ADMIN']);
+    const { permissionRules } = require('./permissions');
+    expect(['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'].filter((r) => permissionRules.can(r, key))).toEqual(['ADMIN']);
   });
 
   it('returns the actor\'s name and role with each entry', async () => {

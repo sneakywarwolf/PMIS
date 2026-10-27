@@ -27,6 +27,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { RateLimitGuard } from './common/rate-limit.guard';
 import { DatabaseQuotaGuard } from './common/quota';
+import { PermissionGuard } from './common/permissions';
 
 @Module({
   imports: [
@@ -73,6 +74,10 @@ import { DatabaseQuotaGuard } from './common/quota';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionGuard,
     },
     // Last, so a request that is refused anyway never costs a database size lookup.
     {

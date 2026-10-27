@@ -49,7 +49,7 @@
   <section id="controls">
     <h2>Built-in protections</h2>
     <div class="card-grid">
-      <div class="card"><h3>Access control</h3><p>Every request is checked on the server against the user's role and team. Users see only the projects, findings and reports they are entitled to.</p></div>
+      <div class="card"><h3>Access control</h3><p>Every request is checked on the server against the user's role and team. Users see only the projects, findings and reports they are entitled to. An Admin can allow or deny each feature per role under Settings &gt; RBAC; Admins always keep every feature, and the Settings panel stays Admin only.</p></div>
       <div class="card"><h3>Passwords</h3><p>Stored only as Argon2id hashes. Admins set a password policy, by default at least 14 characters with mixed character types. New and reset accounts must choose their own password at first sign-in.</p></div>
       <div class="card"><h3>Sessions</h3><p>Session tokens are kept in HTTP-only, same-site cookies that scripts cannot read. Sessions expire after inactivity (15 minutes by default). Each user has one active session at a time. Signing out or changing a password ends the session.</p></div>
       <div class="card"><h3>Sign-in protection</h3><p>Accounts are locked temporarily after repeated failed sign-ins, and request rates are limited.</p></div>
