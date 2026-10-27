@@ -45,8 +45,8 @@ export class DashboardController {
   }
 
   @Get('activity')
-  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
-  @ApiOperation({ summary: 'Get recent activity' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Get recent activity: who did what, with their role (Admin only)' })
   async getRecentActivity(@Query('limit') limit: string, @CurrentUser() user: User) {
     return this.dashboardService.getRecentActivity(Math.min(Math.max(parseInt(limit) || 10, 1), 100), user);
   }

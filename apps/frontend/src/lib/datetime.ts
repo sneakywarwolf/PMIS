@@ -30,6 +30,13 @@ export function formatDateTime(date: Date | string | number): string {
   return `${formatDate(d)}, ${formatTime(d)}`;
 }
 
+/** DD/MM/YYYY, HH:MM:SS (24-hour), for logs where the exact second matters */
+export function formatDateTimeSeconds(date: Date | string | number): string {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return '';
+  return `${formatDate(d)}, ${formatTime(d)}:${String(d.getSeconds()).padStart(2, '0')}`;
+}
+
 /** HH:MM (24-hour) */
 export function formatTime(date: Date | string | number): string {
   const d = date instanceof Date ? date : new Date(date);

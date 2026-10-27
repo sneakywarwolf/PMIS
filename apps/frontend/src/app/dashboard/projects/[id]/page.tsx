@@ -318,23 +318,6 @@ export default function ProjectDetailPage() {
 
   const nessusInputRef = useRef<HTMLInputElement>(null);
   const [nessusFile, setNessusFile] = useState<File | null>(null);
-  // Import Project Findings (.csv / .xlsx): project-only findings, never added to the Vulnerability DB.
-  const findingsImportRef = useRef<HTMLInputElement>(null);
-  const [findingsImportFile, setFindingsImportFile] = useState<File | null>(null);
-  const handleFindingsImportSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    if (!/\.(csv|xlsx)$/i.test(file.name)) {
-      showToast('Choose a .csv or .xlsx file.', 'error');
-      return;
-    }
-    if (file.size > IMPORT_MAX_BYTES) {
-      showToast('This file is larger than 100 MB, the upload limit.', 'error');
-      return;
-    }
-    setFindingsImportFile(file);
-  };
   const handleNessusFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -706,33 +689,6 @@ export default function ProjectDetailPage() {
                 <Plus className="w-4 h-4" />
                 Add Finding
               </button>
-            )}
-            {canEditFindings && (
-              <>
-                <input
-                  ref={findingsImportRef}
-                  type="file"
-                  accept=".csv,.xlsx"
-                  className="hidden"
-                  onChange={handleFindingsImportSelected}
-                />
-                <button
-                  onClick={() => findingsImportRef.current?.click()}
-                  title="Import findings for this project from a .csv or .xlsx file (project only; not added to the Vulnerability Database)"
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm"
-                >
-                  <Upload className="w-4 h-4" />
-                  Import Project Findings
-                </button>
-                {findingsImportFile && (
-                  <ProjectFindingsImportDialog
-                    projectId={project.id}
-                    file={findingsImportFile}
-                    onClose={() => setFindingsImportFile(null)}
-                    onImported={fetchProject}
-                  />
-                )}
-              </>
             )}
             {canEditFindings && project.subType === 'NETWORK' && (
               <>
@@ -1605,6 +1561,23 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
   const [showCvssCalc, setShowCvssCalc] = useState(false);
   // "Add Manually": a vulnerability that is not in the Vulnerability DB, created for this project only.
   const [showManual, setShowManual] = useState(false);
+  // "Import Project Findings" (.csv / .xlsx): project-only findings, never added to the Vulnerability DB.
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const handleImportSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!/\.(csv|xlsx)$/i.test(file.name)) {
+      alert('Choose a .csv or .xlsx file.');
+      return;
+    }
+    if (file.size > IMPORT_MAX_BYTES) {
+      alert('This file is larger than 100 MB, the upload limit.');
+      return;
+    }
+    setImportFile(file);
+  };
 
   const uploadStepImages = async (index: number, files: File[]) => {
     setUploadingStep(index);
@@ -1946,15 +1919,25 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                 )}
 
                 <div className="flex items-center justify-between gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowManual(true)}
-                    title="Create a finding for a vulnerability that is not in the Vulnerability Database"
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 border border-cyan-500/20 text-sm"
-                  >
-                    <Pencil className="w-4 h-4" />
-                    Add Manually
-                  </button>
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowManual(true)}
+                      title="Create a finding for a vulnerability that is not in the Vulnerability Database"
+                      className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm"
+                    >
+                      Add Manually
+                    </button>
+                    <input ref={importInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleImportSelected} />
+                    <button
+                      type="button"
+                      onClick={() => importInputRef.current?.click()}
+                      title="Import findings for this project from a .csv or .xlsx file (project only; not added to the Vulnerability Database)"
+                      className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm"
+                    >
+                      Import Project Findings
+                    </button>
+                  </div>
                   <div className="flex justify-end gap-3">
                   <button
                     type="button"
@@ -2226,6 +2209,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
           </AnimatePresence>
         </form>
       </motion.div>
+      {importFile && <ProjectFindingsImportDialog projectId={projectId} file={importFile} onClose={() => setImportFile(null)} onImported={onSaved} />}
       {showManual && <ManualFindingModal projectId={projectId} onClose={() => setShowManual(false)} onSaved={onSaved} />}
     </div>,
     document.body
@@ -2493,17 +2477,29 @@ function ManualFindingModal({ projectId, onClose, onSaved }: { projectId: string
           </div>
 
           <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700">
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input type="checkbox" role="switch" aria-checked={syncVulnDb} checked={syncVulnDb} onChange={(e) => setSyncVulnDb(e.target.checked)} className="mt-1" />
-              <span>
-                <span className="block text-sm text-white font-medium">Sync Vuln DB</span>
+            <div className="flex items-start gap-3">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={syncVulnDb}
+                aria-labelledby="mf-sync-label"
+                onClick={() => setSyncVulnDb((v) => !v)}
+                className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors duration-300 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 ${syncVulnDb ? 'bg-emerald-500' : 'bg-gray-600'}`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-md transition-transform duration-300 ease-in-out ${syncVulnDb ? 'translate-x-5' : 'translate-x-0'}`}
+                />
+              </button>
+              <div>
+                <span id="mf-sync-label" className="block text-sm text-white font-medium">Sync Vuln DB</span>
                 <span className="block text-xs text-gray-400 mt-0.5">
                   {syncVulnDb
                     ? 'On: the finding is added to this project now, and a separate request to add the vulnerability to the Vulnerability Database is sent for approval. The finding stays usable whatever the decision.'
                     : 'Off: the finding exists only in this project. Nothing is sent to the Vulnerability Database.'}
                 </span>
-              </span>
-            </label>
+              </div>
+            </div>
           </div>
 
           {errors.length > 0 && (

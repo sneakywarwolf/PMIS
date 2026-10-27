@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Add Finding: Import Project Findings moved into the dialog, beside Add Manually (both styled like Cancel and Continue). Imported findings are PT findings, which in a Network project means they are listed under PT Findings. Sync Vuln DB is now a sliding switch.
+- Activity log (dashboard): each entry shows the person's name, their role in brackets, what they did, and the date and time to the second. It is now visible to Admins only; the API refuses everyone else.
 - Nessus CSV import now reads the Plugin Output column (per host and port, like a .nessus file), so `{VA Output}` and the finding's evidence are filled for CSV imports. A CWE listed only in the XREF column is picked up as the CWE ID.
 - Reports: a project whose saved status is In Progress now prints `{Project Status}` / `{Compliance Status}` as Non-Compliant on the red background, in Word and Excel, like a Non-Compliant project. File names and report eligibility are unchanged.
 - Notifications: a new-vulnerability request now opens the Pending Approval tab, focused on that request. Older unread requests open it too.

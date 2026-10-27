@@ -112,7 +112,7 @@ export function ProjectFindingsImportDialog({
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div className="min-w-0">
             <h2 id="pf-import-title" className="text-lg font-semibold text-white">Import Project Findings</h2>
-            <p className="text-xs text-gray-500 truncate">{file.name} · added to this project only. They are not added to the Vulnerability Database and cannot be synced to it.</p>
+            <p className="text-xs text-gray-500 truncate">{file.name} · added to this project only, as PT findings. They are not added to the Vulnerability Database and cannot be synced to it.</p>
           </div>
           <button onClick={close} disabled={importing} aria-label="Close" className="text-gray-400 hover:text-white disabled:opacity-50">
             <X className="w-5 h-5" />

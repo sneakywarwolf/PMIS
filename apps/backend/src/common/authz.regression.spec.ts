@@ -76,3 +76,20 @@ describe('DashboardService.getRecentActivity scoping', () => {
     expect(prisma.auditLog.findMany.mock.calls[1][0].where).toEqual({});
   });
 });
+
+describe('GET /dashboard/activity (the activity log)', () => {
+  it('is Admin only', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { DashboardController } = require('../dashboard/dashboard.controller');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { ROLES_KEY } = require('../auth/decorators/roles.decorator');
+    expect(Reflect.getMetadata(ROLES_KEY, DashboardController.prototype.getRecentActivity)).toEqual(['ADMIN']);
+  });
+
+  it('returns the actor\'s name and role with each entry', async () => {
+    const prisma: any = { auditLog: { findMany: jest.fn().mockResolvedValue([]) } };
+    const ref = await Test.createTestingModule({ providers: [DashboardService, { provide: PrismaService, useValue: prisma }] }).compile();
+    await ref.get(DashboardService).getRecentActivity(10, admin);
+    expect(prisma.auditLog.findMany.mock.calls[0][0].include.actor.select).toEqual({ id: true, username: true, fullName: true, role: true });
+  });
+});

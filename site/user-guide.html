@@ -62,7 +62,8 @@
         <tr><td>Approve or reject library requests and edits</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
         <tr><td>Edit, delete or bulk upload the library directly</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
         <tr><td>Manage users</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
-        <tr><td>Team dashboard and activity feed</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+        <tr><td>Team dashboard</td><td>Yes</td><td>Yes</td><td>Yes</td><td>No</td></tr>
+        <tr><td>Activity log (who did what, and when)</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
         <tr><td>Organisation dashboard and Team Lead comparison</td><td>Yes</td><td>Yes</td><td>No</td><td>No</td></tr>
         <tr><td>Live users</td><td>Everyone</td><td>Own Team Leads and their teams</td><td>Own testers</td><td>No</td></tr>
         <tr><td>Settings and software updates</td><td>Yes</td><td>No</td><td>No</td><td>No</td></tr>
@@ -99,9 +100,10 @@
     </ol>
     <h3>Findings that are not in the library</h3>
     <ul class="plain">
-      <li><strong>Add Manually</strong> (in <em>Add Finding</em>): enter the vulnerability yourself: name, severity, CVSS score and vector (a calculator is built in), description, impact, remediation, reference and optional CVE and CWE IDs. The finding is created in this project at once.</li>
-      <li><strong>Sync Vuln DB</strong> (on by default): also sends the vulnerability to the library as a normal approval request. The finding stays usable whatever the decision, and nothing is published without approval. Switch it off to keep the finding in this project only; there is no later sync for it.</li>
-      <li><strong>Import Project Findings</strong>: add many findings from a <code>.csv</code> or <code>.xlsx</code> file (up to 100 MB and 5,000 rows) using the sample template&rsquo;s exact headers. You see a preview first; if any row is invalid, nothing is imported. Rows already in the project are skipped. Imported findings stay in this project only: they never enter the library and have no sync option. Workbooks with formulas, macros or embedded objects are rejected.</li>
+      <li>Both options below are buttons in the <em>Add Finding</em> dialog, next to Cancel and Continue.</li>
+      <li><strong>Add Manually</strong>: enter the vulnerability yourself: name, severity, CVSS score and vector (a calculator is built in), description, impact, remediation, reference and optional CVE and CWE IDs. The finding is created in this project at once.</li>
+      <li><strong>Sync Vuln DB</strong> (a slider, on by default): also sends the vulnerability to the library as a normal approval request. The finding stays usable whatever the decision, and nothing is published without approval. Switch it off to keep the finding in this project only; there is no later sync for it.</li>
+      <li><strong>Import Project Findings</strong>: add many findings as PT findings (in a Network project they appear under <em>PT Findings</em>) from a <code>.csv</code> or <code>.xlsx</code> file (up to 100 MB and 5,000 rows) using the sample template&rsquo;s exact headers. You see a preview first; if any row is invalid, nothing is imported. Rows already in the project are skipped. Imported findings stay in this project only: they never enter the library and have no sync option. Workbooks with formulas, macros or embedded objects are rejected.</li>
     </ul>
     <p>Both kinds are treated like findings picked from the library: they need steps and screenshots before a report, and they appear in the project&rsquo;s reports and Issue Log only.</p>
     <div class="note"><strong>Report readiness:</strong> a finding is ready for a report only when it has at least one step, every step has a description, and every step has a screenshot. The finding list shows which findings still need work. Nessus findings on Network projects are exempt, because their evidence comes from the scan output.</div>

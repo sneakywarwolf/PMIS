@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- The dashboard activity endpoint is Admin only and returns each actor's name and role.
 - Nessus CSV import reads Plugin Output (so `{VA Output}` is filled) and a CWE in the XREF column.
 - In Progress projects print as Non-Compliant (red) for the project status placeholder in Word and Excel reports.
 - New-vulnerability notifications open the Pending Approval tab on that request.

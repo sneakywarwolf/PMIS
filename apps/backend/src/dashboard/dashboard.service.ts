@@ -389,7 +389,7 @@ export class DashboardService {
       orderBy: { timestamp: 'desc' },
       include: {
         actor: {
-          select: { id: true, username: true, role: true },
+          select: { id: true, username: true, fullName: true, role: true },
         },
       },
     });
