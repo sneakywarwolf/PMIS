@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Loader2, Download, Info } from 'lucide-react';
+import { UploadStatus, useUploadStatus } from '@/components/upload-status';
 import { useBranding } from '@/contexts/branding-context';
 import { api } from '@/contexts/auth-context';
 import { downloadBlob } from '@/lib/download';
@@ -132,6 +133,7 @@ export function ProjectFindingsImportDialog({
   const [error, setError] = useState('');
   const [importing, setImporting] = useState(false);
   const [done, setDone] = useState<{ created: number; skipped: { row: number; name: string }[] } | null>(null);
+  const upload = useUploadStatus();
 
   const body = () => {
     const form = new FormData();
@@ -141,10 +143,12 @@ export function ProjectFindingsImportDialog({
   };
 
   useEffect(() => {
+    upload.begin(file.size);
     api
-      .post('/findings/import/preview', body(), { headers: { 'Content-Type': 'multipart/form-data' } })
+      .post('/findings/import/preview', body(), { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress })
       .then((res) => setPreview(res.data))
-      .catch((e) => setError(errorText(e, 'Could not read this file.')));
+      .catch((e) => setError(errorText(e, 'Could not read this file.')))
+      .finally(() => upload.finish());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -162,12 +166,14 @@ export function ProjectFindingsImportDialog({
   const runImport = async () => {
     setImporting(true);
     setError('');
+    upload.begin(file.size);
     try {
-      const res = await api.post('/findings/import', body(), { headers: { 'Content-Type': 'multipart/form-data' } });
+      const res = await api.post('/findings/import', body(), { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress });
       setDone(res.data);
     } catch (e: any) {
       setError(errorText(e, 'Import failed. Nothing was imported.'));
     } finally {
+      upload.finish();
       setImporting(false);
     }
   };
@@ -186,9 +192,8 @@ export function ProjectFindingsImportDialog({
         </div>
 
         <div className="p-6 overflow-y-auto space-y-4">
-          {!preview && !error && (
-            <p className="flex items-center gap-2 text-sm text-gray-400"><Loader2 className="w-4 h-4 animate-spin" /> Checking the file…</p>
-          )}
+          {!preview && !error && <UploadStatus snap={upload.snap} fileName={file.name} working="Checking the file" />}
+          {importing && <UploadStatus snap={upload.snap} fileName={file.name} working="Importing the findings" />}
 
           {error && (
             <div role="alert" className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-300 whitespace-pre-line">

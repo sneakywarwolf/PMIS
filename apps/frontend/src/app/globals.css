@@ -347,3 +347,12 @@ button:disabled {
   padding-top: 1.1rem !important;
   padding-bottom: 1.1rem !important;
 }
+
+/* Moving bar for work of unknown length (the server processing an uploaded file). */
+@keyframes pmis-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.pmis-indeterminate {
+  animation: pmis-indeterminate 1.4s ease-in-out infinite;
+}

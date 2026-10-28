@@ -1,0 +1,101 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { CheckCircle2, Loader2, UploadCloud } from 'lucide-react';
+import { IDLE, UploadSnapshot, etaText, formatBytes, formatClock, nextSpeed, percentOf } from '@/lib/upload-progress';
+
+/**
+ * Live status of one file request: the upload (bytes, speed, time left) and then the server's processing time, so
+ * people can see the application is working and has not stopped responding. Pass `onProgress` to axios as
+ * `onUploadProgress`, call `begin()` before the request and `finish()` after it, whatever the outcome.
+ */
+export function useUploadStatus() {
+  const [snap, setSnap] = useState<UploadSnapshot>(IDLE);
+  const startedAt = useRef(0);
+  const uploadedAt = useRef(0);
+  const last = useRef<{ loaded: number; at: number } | null>(null);
+  const speed = useRef(0);
+  const tick = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopTick = () => { if (tick.current) { clearInterval(tick.current); tick.current = null; } };
+
+  const begin = useCallback((total: number) => {
+    stopTick();
+    startedAt.current = Date.now();
+    uploadedAt.current = 0;
+    last.current = null;
+    speed.current = 0;
+    setSnap({ ...IDLE, phase: 'uploading', total });
+    // The clock keeps running between progress events, so a stalled or slow phase still visibly moves.
+    tick.current = setInterval(() => {
+      const now = Date.now();
+      setSnap((s) => s.phase === 'idle' || s.phase === 'done' ? s : {
+        ...s,
+        elapsed: Math.floor((now - startedAt.current) / 1000),
+        processingElapsed: uploadedAt.current ? Math.floor((now - uploadedAt.current) / 1000) : 0,
+      });
+    }, 1000);
+  }, []);
+
+  const onProgress = useCallback((e: { loaded: number; total?: number }) => {
+    const now = Date.now();
+    const total = e.total ?? 0;
+    speed.current = nextSpeed(speed.current, last.current, e.loaded, now);
+    last.current = { loaded: e.loaded, at: now };
+    const complete = total > 0 && e.loaded >= total;
+    if (complete && !uploadedAt.current) uploadedAt.current = now;
+    setSnap((s) => ({
+      ...s,
+      phase: complete ? 'processing' : 'uploading',
+      loaded: e.loaded,
+      total: total || s.total,
+      speed: speed.current,
+    }));
+  }, []);
+
+  const finish = useCallback(() => {
+    stopTick();
+    setSnap(IDLE);
+  }, []);
+
+  useEffect(() => stopTick, []);
+  return { snap, begin, onProgress, finish };
+}
+
+export function UploadStatus({ snap, fileName, working = 'Reading and checking the file' }: { snap: UploadSnapshot; fileName?: string; working?: string }) {
+  if (snap.phase === 'idle') return null;
+  const processing = snap.phase === 'processing';
+  const pct = percentOf(snap.loaded, snap.total);
+  const eta = etaText(snap.loaded, snap.total, snap.speed);
+  return (
+    <div role="status" aria-live="polite" className="rounded-xl border border-gray-700 bg-gray-800/40 p-4 space-y-3" data-testid="upload-status">
+      <div className="flex items-center gap-2 text-sm text-white">
+        {processing ? <Loader2 className="w-4 h-4 animate-spin text-emerald-400" /> : <UploadCloud className="w-4 h-4 text-emerald-400" />}
+        <span className="font-medium">{processing ? `${working}…` : 'Uploading…'}</span>
+        {fileName && <span className="text-gray-500 truncate">{fileName}</span>}
+        <span className="ml-auto font-mono text-xs text-gray-400 tabular-nums">{formatClock(snap.elapsed)}</span>
+      </div>
+
+      <div className="h-2 rounded-full bg-gray-700 overflow-hidden" aria-hidden="true">
+        {processing ? (
+          <div className="h-full w-1/3 rounded-full bg-emerald-500 pmis-indeterminate" />
+        ) : (
+          <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-300 ease-out" style={{ width: `${pct}%` }} />
+        )}
+      </div>
+
+      {processing ? (
+        <div className="space-y-1 text-xs text-gray-400">
+          <p className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Upload complete ({formatBytes(snap.total)}).</p>
+          <p>The server is processing the file. Large files can take several minutes. Working for {formatClock(snap.processingElapsed)} — please keep this window open; nothing is wrong.</p>
+        </div>
+      ) : (
+        <p className="text-xs text-gray-400 tabular-nums">
+          {pct}% · {formatBytes(snap.loaded)} of {formatBytes(snap.total)}
+          {snap.speed > 0 && ` · ${formatBytes(snap.speed)}/s`}
+          {eta && ` · ${eta}`}
+        </p>
+      )}
+    </div>
+  );
+}

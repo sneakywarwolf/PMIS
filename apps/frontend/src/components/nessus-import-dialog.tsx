@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { X, Loader2, Search } from 'lucide-react';
+import { UploadStatus, useUploadStatus } from '@/components/upload-status';
 import { api } from '@/contexts/auth-context';
 import { stripCvssPrefix } from '@/lib/cvss';
 import { useSeverity } from '@/lib/severity';
@@ -67,6 +68,7 @@ export function NessusImportDialog({
   const [severity, setSeverity] = useState('');
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const upload = useUploadStatus();
 
   const body = () => {
     const form = new FormData();
@@ -76,8 +78,9 @@ export function NessusImportDialog({
   };
 
   useEffect(() => {
+    upload.begin(file.size);
     api
-      .post('/findings/nessus/preview', body(), { headers: { 'Content-Type': 'multipart/form-data' } })
+      .post('/findings/nessus/preview', body(), { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress })
       .then((res) => {
         const found: Item[] = res.data.items;
         setItems(found);
@@ -89,7 +92,8 @@ export function NessusImportDialog({
           e.response?.data?.message ||
             (e.response?.status === 413 ? 'This file is larger than the upload limit set by your Admin.' : 'Could not read this file.'),
         ),
-      );
+      )
+      .finally(() => upload.finish());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -134,14 +138,16 @@ export function NessusImportDialog({
   const runImport = async () => {
     setImporting(true);
     setError('');
+    upload.begin(file.size);
     try {
       const form = body();
       form.append('selected', JSON.stringify([...selected]));
-      const res = await api.post('/findings/nessus/import', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const res = await api.post('/findings/nessus/import', form, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress });
       setResult(res.data);
     } catch (e: any) {
       setError(e.response?.data?.message || 'Import failed.');
     } finally {
+      upload.finish();
       setImporting(false);
     }
   };
@@ -217,7 +223,7 @@ export function NessusImportDialog({
         ) : error && !items ? (
           <p role="alert" className="m-6 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
         ) : !items ? (
-          <div className="p-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-emerald-400" /></div>
+          <div className="p-6"><UploadStatus snap={upload.snap} fileName={file.name} working="Reading the scan and matching plugins" /></div>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b border-gray-800">
@@ -280,6 +286,7 @@ export function NessusImportDialog({
               </table>
             </div>
 
+            {importing && <div className="px-4 pt-4"><UploadStatus snap={upload.snap} fileName={file.name} working="Creating the findings" /></div>}
             <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-t border-gray-700">
               <p className="text-xs text-amber-400">
                 {infoSelected > 0 && `${infoSelected} informational item${infoSelected === 1 ? ' is' : 's are'} selected and will be imported as findings. `}
