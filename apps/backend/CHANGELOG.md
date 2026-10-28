@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Nessus readers: control characters other than tab, newline and carriage return are replaced by a space (only NUL bytes in the first 8 KB mean binary and are refused); CSV delimiter (comma, semicolon or tab) is chosen from the header line; UTF-16 files with a byte-order mark are decoded. `CsvRowStream` takes a `delimiter` option.
 - RBAC: `common/permission-catalog.ts` lists every feature and its default per role; endpoints are marked `@Permission('feature')` (global `PermissionGuard`) instead of fixed `@Roles(...)`, and service checks use `permissionRules.can(role, feature)`. The matrix is stored in settings (`rbac.permissions`, validated: no Admin entries, no unknown features or roles), applies immediately on save, and `GET /settings/my-permissions` returns what the caller's role may do. Only the Settings controller keeps `@Roles(ADMIN)`.
 - Settings: Application Name, Logo, Favicon, Table Density, Pagination Size, Date/Time/Number formats, Severity Labels and the Storage/Database quotas are now applied (validation added for each). `GET /settings/public-theme` also returns the application name, logo and favicon.
 - Quotas: `DatabaseQuotaGuard` (HTTP 507 for POST/PUT/PATCH at the database quota, except auth, settings, presence, notifications and update) and a storage quota check before every upload.

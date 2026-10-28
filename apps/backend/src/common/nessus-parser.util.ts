@@ -34,7 +34,10 @@ const SEVERITY_BY_RISK: Record<string, NessusSeverity> = {
 
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 // eslint-disable-next-line no-control-regex
-const BINARY_CHARS = /[\x00-\x08\x0e-\x1f]/;
+/** Control characters other than tab, newline and carriage return. */
+const CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+/** A NUL in the start of the file means binary content; further in, stray control characters are scan output. */
+const BINARY_HEAD_BYTES = 8192;
 
 /**
  * The most plugin output a finding keeps when imported (the rest is cut with a marker, see
@@ -86,7 +89,7 @@ function toScore(raw: string | null | undefined): number | null {
  * (an Office/zip archive, binary content) and the folding of repeated plugin hits into one finding live here.
  */
 export abstract class ScanStream {
-  private readonly decoder = new StringDecoder('utf8');
+  private decoder = new StringDecoder('utf8');
   private readonly found = new Map<string, NessusFinding>();
   /** Endpoints seen per plugin, so folding a host in is O(1) instead of re-deduping the list on every hit. */
   private readonly seen = new Map<string, Set<string>>();
@@ -95,7 +98,12 @@ export abstract class ScanStream {
   private bytes = 0;
   private started = false;
 
+  /** Which text encoding the file turned out to be (from its byte-order mark): UTF-8 unless it is UTF-16. */
+  private wide: 'le' | 'be' | null = null;
+  private carry: Buffer | null = null;
+
   write(chunk: Buffer): void {
+    const before = this.bytes;
     this.bytes += chunk.length;
     if (this.head.length < 4) {
       // PK\x03\x04: a zip/Office container is never a valid .nessus or .csv.
@@ -104,12 +112,30 @@ export abstract class ScanStream {
         throw new BadRequestException('File content is a binary/Office archive, not a Nessus .nessus or .csv export.');
       }
     }
-    let text = this.decoder.write(chunk);
+    // Excel and some tools save "Unicode text": UTF-16 with a byte-order mark. Read it instead of refusing it.
+    if (before === 0 && chunk.length >= 2) {
+      if (chunk[0] === 0xff && chunk[1] === 0xfe) this.wide = 'le';
+      else if (chunk[0] === 0xfe && chunk[1] === 0xff) this.wide = 'be';
+      if (this.wide) this.decoder = new StringDecoder('utf16le');
+    }
+    // A NUL near the start of a UTF-8 file means binary content.
+    if (!this.wide && before < BINARY_HEAD_BYTES && chunk.subarray(0, BINARY_HEAD_BYTES - before).includes(0)) {
+      throw new BadRequestException('File does not look like a text Nessus export (it contains binary data).');
+    }
+    let text = this.decoder.write(this.wide === 'be' ? this.swapped(chunk) : chunk);
     if (!this.started && text) {
       this.started = true;
-      text = text.replace(/^﻿/, '');
+      text = text.replace(/^\uFEFF/, '');
     }
     this.feed(text);
+  }
+
+  /** Big-endian UTF-16 to little-endian, keeping a byte that is cut off at the end of a chunk for the next one. */
+  private swapped(chunk: Buffer): Buffer {
+    const all = this.carry ? Buffer.concat([this.carry, chunk]) : chunk;
+    const even = all.length - (all.length % 2);
+    this.carry = even < all.length ? Buffer.from(all.subarray(even)) : null;
+    return Buffer.from(all.subarray(0, even)).swap16();
   }
 
   end(): NessusFinding[] {
@@ -127,8 +153,9 @@ export abstract class ScanStream {
 
   private feed(text: string) {
     if (!text) return;
-    if (BINARY_CHARS.test(text)) throw new BadRequestException('File does not look like a text Nessus export.');
-    this.consume(text);
+    // Scan output often carries stray control characters (escape sequences from banners and prompts): they are
+    // replaced by a space, and the file is still read, instead of the whole upload being refused for them.
+    this.consume(text.replace(CONTROL_CHARS, ' '));
   }
 
   /** One hit of a plugin on one endpoint. `create` builds the finding the first time the plugin is seen. */
@@ -269,16 +296,41 @@ export function parseNessusXml(xml: string): NessusFinding[] {
 
 /** Reader for a Nessus .csv export: one row per plugin per host, folded into one finding per plugin. */
 export class NessusCsvStream extends ScanStream {
-  private readonly rows = new CsvRowStream((row) => this.row(row), { maxFieldChars: MAX_CSV_FIELD_CHARS });
+  private rows: CsvRowStream | null = null;
+  /** The start of the file, until its first line is complete and the delimiter can be chosen from the header. */
+  private pending = '';
   private idx: Record<'plugin' | 'name' | 'risk' | 'host' | 'port' | 'protocol' | 'cve' | 'cwe' | 'v3' | 'v2' | 'synopsis' | 'description' | 'solution' | 'seeAlso' | 'pluginOutput' | 'xref', number> | null = null;
   private dataRows = 0;
 
   protected consume(text: string) {
+    if (this.rows) {
+      this.rows.write(text);
+      return;
+    }
+    this.pending += text;
+    const nl = this.pending.indexOf('\n');
+    // Wait for the whole header line (or a generous amount of text without one) before choosing the delimiter.
+    if (nl < 0 && this.pending.length < 1024 * 1024) return;
+    this.startRows();
+  }
+
+  /**
+   * Nessus writes commas, but a CSV re-saved from a spreadsheet in some regions uses semicolons or tabs. The
+   * header line decides: whichever of the three separates it into the most columns.
+   */
+  private startRows() {
+    const head = this.pending.slice(0, Math.max(this.pending.indexOf('\n'), 0) || this.pending.length);
+    const count = (d: string) => head.split(d).length;
+    const delimiter = ([',', ';', '\t'] as const).reduce((best, d) => (count(d) > count(best) ? d : best), ',' as ',' | ';' | '\t');
+    this.rows = new CsvRowStream((row) => this.row(row), { maxFieldChars: MAX_CSV_FIELD_CHARS, delimiter });
+    const text = this.pending;
+    this.pending = '';
     this.rows.write(text);
   }
 
   protected finish() {
-    this.rows.end();
+    if (!this.rows) this.startRows();
+    this.rows!.end();
     if (!this.idx || this.dataRows === 0) throw new BadRequestException('The CSV file is empty or has no data rows.');
   }
 

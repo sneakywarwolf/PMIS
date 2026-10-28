@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { X, Loader2, Search } from 'lucide-react';
 import { UploadStatus, useUploadStatus } from '@/components/upload-status';
+import { describeUploadError } from '@/lib/upload-error';
 import { api } from '@/contexts/auth-context';
 import { stripCvssPrefix } from '@/lib/cvss';
 import { useSeverity } from '@/lib/severity';
@@ -69,6 +70,7 @@ export function NessusImportDialog({
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const upload = useUploadStatus();
+  const [attempt, setAttempt] = useState(0);
 
   const body = () => {
     const form = new FormData();
@@ -87,15 +89,10 @@ export function NessusImportDialog({
         // Pre-select every importable vulnerability (has a CVSS score); informational stays opt-in.
         setSelected(new Set(found.filter((i) => isVuln(i) && STATUS[i.status].selectable).map((i) => i.key)));
       })
-      .catch((e) =>
-        setError(
-          e.response?.data?.message ||
-            (e.response?.status === 413 ? 'This file is larger than the upload limit set by your Admin.' : 'Could not read this file.'),
-        ),
-      )
+      .catch((e) => setError(describeUploadError(e, { fileSize: file.size, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Could not read this file.')))
       .finally(() => upload.finish());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [attempt]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !importing && close();
@@ -145,7 +142,7 @@ export function NessusImportDialog({
       const res = await api.post('/findings/nessus/import', form, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress });
       setResult(res.data);
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Import failed.');
+      setError(describeUploadError(e, { fileSize: file.size, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Import failed. Nothing was imported.'));
     } finally {
       upload.finish();
       setImporting(false);
@@ -221,7 +218,15 @@ export function NessusImportDialog({
             ))}
           </div>
         ) : error && !items ? (
-          <p role="alert" className="m-6 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
+          <div className="m-6 space-y-3">
+            <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
+            <button
+              onClick={() => { setError(''); setAttempt((a) => a + 1); }}
+              className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-sm"
+            >
+              Try again
+            </button>
+          </div>
         ) : !items ? (
           <div className="p-6"><UploadStatus snap={upload.snap} fileName={file.name} working="Reading the scan and matching plugins" /></div>
         ) : (

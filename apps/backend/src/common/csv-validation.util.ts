@@ -4,7 +4,6 @@ export const MAX_CSV_ROWS = 200_000;
 export const MAX_CSV_COLUMNS = 200;
 
 const QUOTE = 34;
-const COMMA = 44;
 const CR = 13;
 const LF = 10;
 
@@ -24,7 +23,11 @@ export class CsvRowStream {
   /** A quote was just read inside quotes: an escaped "" or the closing quote, decided by the next character. */
   private quotePending = false;
 
-  constructor(private readonly onRow: (row: string[]) => void, private readonly opts: { maxFieldChars?: number } = {}) {}
+  private readonly delimiter: number;
+
+  constructor(private readonly onRow: (row: string[]) => void, private readonly opts: { maxFieldChars?: number; delimiter?: ',' | ';' | '\t' } = {}) {
+    this.delimiter = (opts.delimiter ?? ',').charCodeAt(0);
+  }
 
   write(text: string): void {
     let start = 0; // where the current run of ordinary characters began; runs are appended in one piece
@@ -52,7 +55,7 @@ export class CsvRowStream {
         this.inQuotes = true;
         this.touched = true;
         start = i + 1;
-      } else if (c === COMMA) {
+      } else if (c === this.delimiter) {
         this.append(text.slice(start, i));
         this.endField();
         this.touched = true;

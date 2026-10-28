@@ -121,6 +121,7 @@
         <tr><td>Nmap</td><td><code>.xml</code>, <code>.txt</code>, <code>.nmap</code></td><td>Open ports recorded on the project for the report's port tables.</td></tr>
       </tbody>
     </table></div>
+    <p>Nessus CSV files are read whatever way they were saved: commas, semicolons or tabs between columns, UTF-8 or UTF-16 text, and stray control characters in plugin output (replaced by a space). Only a file with binary data at its start, or without the Plugin ID, Name, Risk and Host columns, is refused, with a message saying why. If an upload fails, the message says whether the connection dropped while uploading, or the server stopped after the whole file had arrived, and a Try again button repeats the check.</p>
     <ul class="plain">
       <li>Nessus findings belong to that project only. They are not added to the shared vulnerability library.</li>
       <li>All VA findings imported into a project can be deleted together with <em>Delete All VA Findings</em>.</li>

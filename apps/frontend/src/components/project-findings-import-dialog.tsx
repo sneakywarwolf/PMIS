@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Loader2, Download, Info } from 'lucide-react';
 import { UploadStatus, useUploadStatus } from '@/components/upload-status';
+import { describeUploadError } from '@/lib/upload-error';
 import { useBranding } from '@/contexts/branding-context';
 import { api } from '@/contexts/auth-context';
 import { downloadBlob } from '@/lib/download';
@@ -147,7 +148,7 @@ export function ProjectFindingsImportDialog({
     api
       .post('/findings/import/preview', body(), { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress })
       .then((res) => setPreview(res.data))
-      .catch((e) => setError(errorText(e, 'Could not read this file.')))
+      .catch((e) => setError(e.response?.data?.message ? errorText(e, 'Could not read this file.') : describeUploadError(e, { fileSize: file.size, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Could not read this file.')))
       .finally(() => upload.finish());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -171,7 +172,7 @@ export function ProjectFindingsImportDialog({
       const res = await api.post('/findings/import', body(), { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress });
       setDone(res.data);
     } catch (e: any) {
-      setError(errorText(e, 'Import failed. Nothing was imported.'));
+      setError(e.response?.data?.message ? errorText(e, 'Import failed. Nothing was imported.') : describeUploadError(e, { fileSize: file.size, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Import failed. Nothing was imported.'));
     } finally {
       upload.finish();
       setImporting(false);

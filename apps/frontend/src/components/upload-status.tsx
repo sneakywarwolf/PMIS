@@ -11,6 +11,7 @@ import { IDLE, UploadSnapshot, etaText, formatBytes, formatClock, nextSpeed, per
  */
 export function useUploadStatus() {
   const [snap, setSnap] = useState<UploadSnapshot>(IDLE);
+  const latestRef = useRef<UploadSnapshot>(IDLE);
   const startedAt = useRef(0);
   const uploadedAt = useRef(0);
   const last = useRef<{ loaded: number; at: number } | null>(null);
@@ -25,6 +26,7 @@ export function useUploadStatus() {
     uploadedAt.current = 0;
     last.current = null;
     speed.current = 0;
+    latestRef.current = { ...IDLE, phase: 'uploading', total };
     setSnap({ ...IDLE, phase: 'uploading', total });
     // The clock keeps running between progress events, so a stalled or slow phase still visibly moves.
     tick.current = setInterval(() => {
@@ -44,6 +46,7 @@ export function useUploadStatus() {
     last.current = { loaded: e.loaded, at: now };
     const complete = total > 0 && e.loaded >= total;
     if (complete && !uploadedAt.current) uploadedAt.current = now;
+    latestRef.current = { ...latestRef.current, phase: complete ? 'processing' : 'uploading', loaded: e.loaded, total: total || latestRef.current.total, speed: speed.current };
     setSnap((s) => ({
       ...s,
       phase: complete ? 'processing' : 'uploading',
@@ -58,8 +61,11 @@ export function useUploadStatus() {
     setSnap(IDLE);
   }, []);
 
+  // Where the request had got to, for explaining a failure (state may not have caught up when the error arrives).
+  const latest = useCallback(() => ({ ...latestRef.current, elapsed: startedAt.current ? Math.floor((Date.now() - startedAt.current) / 1000) : 0 }), []);
+
   useEffect(() => stopTick, []);
-  return { snap, begin, onProgress, finish };
+  return { snap, begin, onProgress, finish, latest };
 }
 
 export function UploadStatus({ snap, fileName, working = 'Reading and checking the file' }: { snap: UploadSnapshot; fileName?: string; working?: string }) {
