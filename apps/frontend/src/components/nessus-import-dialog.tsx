@@ -47,8 +47,9 @@ const STATUS: Record<Status, { label: string; cls: string; hint: string; selecta
 const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Info'];
 
 // Nessus mixes real vulnerabilities with informational plugins (OS fingerprint, open ports,
-// service detection...). Only plugins that carry a CVSS score are treated as vulnerabilities.
-const isVuln = (i: Item) => i.cvssScore !== null && i.cvssScore > 0;
+// service detection...). A plugin is a vulnerability if it carries a CVSS score OR Nessus rates its risk above Info
+// (some Medium/Low plugins ship without any CVSS score and must still be pre-selected).
+const isVuln = (i: Item) => (i.cvssScore !== null && i.cvssScore > 0) || i.severity !== 'Info';
 
 export function NessusImportDialog({
   projectId,

@@ -721,7 +721,7 @@ export default function ProjectDetailPage() {
                 />
                 {can('findings.nessus_import') && <button
                   onClick={() => nessusInputRef.current?.click()}
-                  title="Add VA findings here"
+                  title="Import VA findings from a Nessus scan. Supported formats: .nessus (XML), .csv"
                   className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm"
                 >
                   <ShieldAlert className="w-4 h-4" />
