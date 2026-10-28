@@ -5,6 +5,13 @@ import { buildCompletionStats, CompletionStatsBase, isCompletedProjectRow } from
 import { ComplianceType } from '@prisma/client';
 import { CompletionStatsGranularity } from './dto/completion-stats-query.dto';
 
+/** A CVSS score override (e.g. from the calculator) decides a finding's severity, as it does in the reports. */
+function effectiveSeverity(f: { cvssScoreOverride: number | null; vulnerability: { severity: string } | null; projectVulnerability: { severity: string } | null }): string {
+  const o = f.cvssScoreOverride;
+  if (o != null) return o >= 9 ? 'Critical' : o >= 7 ? 'High' : o >= 4 ? 'Medium' : o >= 0.1 ? 'Low' : 'Info';
+  return (f.vulnerability ?? f.projectVulnerability)!.severity;
+}
+
 // Vulnerability.severity is a free-form string; fold "Informational"/"Info" together.
 function severityKey(raw: string): 'critical' | 'high' | 'medium' | 'low' | 'info' {
   const s = raw.trim().toLowerCase();
@@ -209,7 +216,7 @@ export class DashboardService {
 
     // Group by severity
     const bySeverity = findings.reduce((acc: any, f) => {
-      const sev = (f.vulnerability ?? f.projectVulnerability)!.severity;
+      const sev = effectiveSeverity(f);
       acc[sev] = (acc[sev] || 0) + 1;
       return acc;
     }, {});
@@ -272,13 +279,13 @@ export class DashboardService {
     const findings = projects.length
       ? await this.prisma.finding.findMany({
           where: { projectId: { in: projects.map((p) => p.id) } },
-          select: { projectId: true, vulnerability: { select: { severity: true } }, projectVulnerability: { select: { severity: true } } },
+          select: { projectId: true, cvssScoreOverride: true, vulnerability: { select: { severity: true } }, projectVulnerability: { select: { severity: true } } },
         })
       : [];
 
     const counts = new Map<string, Record<string, number>>();
     for (const f of findings) {
-      const sev = severityKey((f.vulnerability ?? f.projectVulnerability)!.severity);
+      const sev = severityKey(effectiveSeverity(f));
       const row = counts.get(f.projectId) ?? { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
       row[sev] += 1;
       counts.set(f.projectId, row);
@@ -312,7 +319,7 @@ export class DashboardService {
       // ponytail: loads every finding to bucket severity (it's a relation field, so no groupBy);
       // move to a raw SQL aggregate if the findings table gets large.
       this.prisma.finding.findMany({
-        select: { projectId: true, vulnerability: { select: { severity: true } }, projectVulnerability: { select: { severity: true } } },
+        select: { projectId: true, cvssScoreOverride: true, vulnerability: { select: { severity: true } }, projectVulnerability: { select: { severity: true } } },
       }),
     ]);
 
@@ -342,7 +349,7 @@ export class DashboardService {
     }
     for (const f of findings) {
       const team = teams.get(owner.get(f.projectId) ?? '');
-      if (team) team.vulnCounts[severityKey((f.vulnerability ?? f.projectVulnerability)!.severity)] += 1;
+      if (team) team.vulnCounts[severityKey(effectiveSeverity(f))] += 1;
     }
 
     return [...teams.values()].sort((a, b) => a.tlName.localeCompare(b.tlName));

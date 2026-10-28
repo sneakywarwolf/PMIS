@@ -1336,6 +1336,8 @@ function FindingCard({ finding, index, canEdit, canDelete, network, typeIndicato
   const sev = useSeverity();
   const [expanded, setExpanded] = useState(false);
   const cvss = finding.cvssScoreOverride ?? finding.vulnerability.cvssScore ?? '-';
+  // An overridden CVSS score (e.g. from the calculator) decides the severity, as it does in the reports.
+  const severity = finding.cvssScoreOverride != null ? (cvssSeverity(finding.cvssScoreOverride) === 'None' ? 'Info' : cvssSeverity(finding.cvssScoreOverride)) : finding.vulnerability.severity;
 
   // PoC completion indicator — backend getPocReadiness is the single source of truth
   const pocComplete = finding.pocComplete;
@@ -1363,8 +1365,8 @@ function FindingCard({ finding, index, canEdit, canDelete, network, typeIndicato
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             <h3 className="text-sm font-medium text-white truncate">{finding.vulnerability.name}</h3>
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={sev.badgeStyle(finding.vulnerability.severity)}>
-              {sev.label(finding.vulnerability.severity)}
+            <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={sev.badgeStyle(severity)}>
+              {sev.label(severity)}
             </span>
             {!network && finding.classification && (
               <span className="px-2 py-0.5 rounded-full text-xs font-medium border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
@@ -1403,6 +1405,11 @@ function FindingCard({ finding, index, canEdit, canDelete, network, typeIndicato
           <p className="text-xs text-gray-500 mt-0.5 truncate">
             CVSS: {cvss} {finding.cvssScoreOverride !== null && finding.cvssScoreOverride !== undefined && (
               <span className="text-amber-400">(overridden)</span>
+            )}
+            {finding.classification && finding.vulnerability.cvssScore == null && finding.cvssScoreOverride == null && (
+              <span className="inline-flex align-middle ml-1 text-amber-400" title="No CVSS score in Nessus" aria-label="No CVSS score in Nessus">
+                <AlertCircle className="w-3 h-3" />
+              </span>
             )}
             {network && (
               <>
