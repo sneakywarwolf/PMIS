@@ -23,6 +23,8 @@ export const DEFAULT_PERMISSIONS: Record<string, [boolean, boolean, boolean]> = 
   'findings.delete': [true, true, true],
   'findings.upload_poc': [true, true, true],
   'findings.nessus_import': [true, true, true],
+  'findings.fortify_import': [true, true, true],
+  'findings.fortify_delete_all': [true, true, true],
   'findings.nessus_delete_all': [true, true, true],
   'findings.file_import': [true, true, true],
   'vulns.view': [true, true, true],

@@ -2,6 +2,8 @@ import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseGuards, UseInt
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
 import { NESSUS_UPLOAD, NessusUploadSizeGuard } from '../common/nessus-upload.storage';
+import { FORTIFY_UPLOAD, FortifyUploadSizeGuard } from '../common/fortify-upload';
+import { FortifyImportService } from './fortify-import.service';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Res } from '@nestjs/common';
 import type { Response } from 'express';
@@ -20,6 +22,7 @@ export class FindingsController {
   constructor(
     private readonly findingsService: FindingsService,
     private readonly projectFindings: ProjectFindingsService,
+    private readonly fortify: FortifyImportService,
     private readonly storageService: StorageService,
   ) {}
 
@@ -89,6 +92,43 @@ export class FindingsController {
     return this.findingsService.importNessus(projectId, file, selected as string[], user, ipAddress, userAgent);
   }
 
+  @Post('fortify/preview')
+  @Permission('findings.fortify_import')
+  @UseGuards(FortifyUploadSizeGuard)
+  @UseInterceptors(FileInterceptor('file', FORTIFY_UPLOAD))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Parse a Fortify .fpr/.xml (FVDL) result file and list its findings (no data is written)' })
+  async previewFortify(@UploadedFile() file: Express.Multer.File, @Body('projectId') projectId: string, @CurrentUser() user: User) {
+    if (!projectId) throw new BadRequestException('projectId is required');
+    return this.fortify.preview(projectId, file, user);
+  }
+
+  @Post('fortify/import')
+  @Permission('findings.fortify_import')
+  @UseGuards(FortifyUploadSizeGuard)
+  @UseInterceptors(FileInterceptor('file', FORTIFY_UPLOAD))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Import only the selected findings (by key) from a Fortify result file into an SCR project' })
+  async importFortify(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('projectId') projectId: string,
+    @Body('selected') selectedRaw: string,
+    @CurrentUser() user: User,
+    @Req() request: any,
+  ) {
+    if (!projectId) throw new BadRequestException('projectId is required');
+    let selected: unknown;
+    try {
+      selected = JSON.parse(selectedRaw);
+    } catch {
+      selected = null;
+    }
+    if (!Array.isArray(selected) || !selected.every((k) => typeof k === 'string')) {
+      throw new BadRequestException('selected must be a JSON array of finding keys');
+    }
+    return this.fortify.import(projectId, file, selected as string[], user, request.ip || 'unknown', request.headers['user-agent'] || 'unknown');
+  }
+
   // ─── Project-only findings (not from the Vulnerability DB) ───
   // Declared before the ':id' routes so these paths are never taken for a finding id.
 
@@ -155,6 +195,20 @@ export class FindingsController {
   @ApiOperation({ summary: 'Number of Nessus-imported VA findings the caller may delete in this project' })
   async countNessus(@Param('projectId') projectId: string, @CurrentUser() user: User) {
     return this.findingsService.countNessusFindings(projectId, user);
+  }
+
+  @Get('project/:projectId/fortify-count')
+  @Permission('findings.view')
+  @ApiOperation({ summary: 'Number of Fortify-imported findings the caller may delete in this project' })
+  async countFortify(@Param('projectId') projectId: string, @CurrentUser() user: User) {
+    return this.findingsService.countNessusFindings(projectId, user, 'fortify');
+  }
+
+  @Delete('project/:projectId/fortify')
+  @Permission('findings.fortify_delete_all')
+  @ApiOperation({ summary: 'Delete all Fortify-imported findings of a project' })
+  async removeAllFortify(@Param('projectId') projectId: string, @CurrentUser() user: User, @Req() request: any) {
+    return this.findingsService.removeAllNessusFindings(projectId, user, request.ip || 'unknown', request.headers['user-agent'] || 'unknown', 'fortify');
   }
 
   @Delete('project/:projectId/nessus')

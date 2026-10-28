@@ -7,11 +7,12 @@ import { ReportsModule } from '../reports/reports.module';
 import { VulnerabilitiesModule } from '../vulnerabilities/vulnerabilities.module';
 import { SettingsModule } from '../settings/settings.module';
 import { ProjectFindingsService } from './project-findings.service';
+import { FortifyImportService } from './fortify-import.service';
 
 @Module({
   imports: [PrismaModule, AuditModule, ReportsModule, VulnerabilitiesModule, SettingsModule],
   controllers: [FindingsController],
-  providers: [FindingsService, ProjectFindingsService],
+  providers: [FindingsService, ProjectFindingsService, FortifyImportService],
   exports: [FindingsService],
 })
 export class FindingsModule {}

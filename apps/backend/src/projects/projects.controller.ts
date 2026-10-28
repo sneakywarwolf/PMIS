@@ -8,6 +8,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
 import { User, UserRole } from '@prisma/client';
 import { parseNetworkScopeFile } from '../common/network-scope-import.util';
+import { parseSiteMapFile } from '../common/site-map-import.util';
 import { Permission } from '../common/permissions';
 
 @ApiTags('Projects')
@@ -111,6 +112,17 @@ export class ProjectsController {
       .filter((r) => r && typeof r.ip === 'string')
       .map((r) => ({ ip: r.ip, domainHostname: String(r.domainHostname ?? ''), purpose: '' }));
     return parseNetworkScopeFile(file, rows);
+  }
+
+  @Post(':id/site-map')
+  @Permission('projects.scope_import')
+  @UseGuards(AttachmentSizeGuard('siteMap'))
+  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('siteMap')))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload the Site Map (.csv/.xlsx with Directory Name, File Name) of an SCR project; replaces the previous one' })
+  async importSiteMap(@Param('id') id: string, @UploadedFile() file: Express.Multer.File, @CurrentUser() user: User) {
+    assertAttachmentSize('siteMap', file);
+    return this.projectsService.importSiteMap(id, file, user);
   }
 
   @Post(':id/nmap-import')

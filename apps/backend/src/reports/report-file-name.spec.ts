@@ -23,7 +23,7 @@ describe('report file name', () => {
     const t = 'VAPT_{Client-Name}_{Compliance Status}.docx';
     expect(name({ ...project, complianceStatus: 'Compliant' }, t)).toBe('VAPT_Testing-New-Project_Compliant.docx');
     expect(name({ ...project, complianceStatus: 'Non-Compliant' }, t)).toBe('VAPT_Testing-New-Project_Non-Compliant.docx');
-    expect(name({ ...project, complianceStatus: 'In-Progress' }, t)).toBe('VAPT_Testing-New-Project.docx');
+    expect(name({ ...project, complianceStatus: 'In-Progress' }, t)).toBe('VAPT_Testing-New-Project_Non-Compliant.docx');
   });
 
   it('fallback name (template without a stored file name) uses the project status', () => {

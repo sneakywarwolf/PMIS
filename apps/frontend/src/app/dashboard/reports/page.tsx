@@ -22,6 +22,7 @@ const subTypeIcons: any = {
   THICK_CLIENT: Monitor,
   NETWORK: Server,
   APPLICATION: FileText,
+  SCR: FileText,
 };
 
 const subTypeLabels: any = {
@@ -31,6 +32,7 @@ const subTypeLabels: any = {
   THICK_CLIENT: 'Thick Client',
   NETWORK: 'Network',
   APPLICATION: 'Application',
+  SCR: 'SCR — Secure Code Review',
 };
 
 // Category display name: the stored value, except Cert-In which reads better than CERT_IN.
@@ -41,7 +43,7 @@ const activityTypesFor = (category: string): string[] =>
   category === 'CERT_IN'
     ? ['APPLICATION', 'NETWORK']
     : category === 'PCI' || category === 'VAPT'
-      ? ['WEB', 'API', 'MOBILE', 'THICK_CLIENT', 'NETWORK']
+      ? ['WEB', 'API', 'MOBILE', 'THICK_CLIENT', 'NETWORK', 'SCR']
       : ['WEB', 'API', 'MOBILE', 'THICK_CLIENT', 'NETWORK', 'APPLICATION'];
 
 // Every Activity Type a template serves: its primary one plus any extras.
@@ -773,7 +775,7 @@ function TemplateUploader() {
   const [formData, setFormData] = useState({
     name: '',
     category: 'VAPT',
-    // Activity Types for this template; the first is the primary one (sent as subType), the rest as extras.
+    // Single Activity Type (sent as subType); kept as an array because extraSubTypes is still supported server-side.
     subTypes: ['WEB'] as string[],
     reportFormat: 'WORD',
     effectiveFrom: toDateInputValue(new Date()),
@@ -865,37 +867,16 @@ function TemplateUploader() {
             </div>
             <div>
               <label className="block text-sm text-gray-300 mb-1" id="activity-types-label">Activity Type</label>
-              <details className="group relative">
-                <summary
-                  aria-labelledby="activity-types-label"
-                  className="flex items-center justify-between cursor-pointer list-none px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700 text-sm"
-                >
-                  <span className={formData.subTypes.length ? '' : 'text-gray-500'}>
-                    {formData.subTypes.length ? formData.subTypes.map((st) => subTypeLabels[st] || st).join(', ') : 'Select Activity Types'}
-                  </span>
-                  <span className="ml-2 text-gray-400 text-xs transition-transform group-open:rotate-180">▼</span>
-                </summary>
-                <div className="absolute z-20 mt-1 w-full rounded-lg bg-gray-900 border border-gray-700 shadow-lg p-1">
-                  {activityTypesFor(formData.category).map((st) => (
-                    <label key={st} className="flex items-center gap-2 px-2 py-1.5 rounded text-sm text-gray-300 hover:bg-gray-800 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={formData.subTypes.includes(st)}
-                        onChange={() =>
-                          setFormData({
-                            ...formData,
-                            subTypes: formData.subTypes.includes(st) ? formData.subTypes.filter((x) => x !== st) : [...formData.subTypes, st],
-                          })
-                        }
-                      />
-                      {subTypeLabels[st] || st}
-                    </label>
-                  ))}
-                </div>
-              </details>
-              <p className="mt-1 text-xs text-gray-500">
-                {formData.subTypes.length === 0 ? 'Select at least one.' : `${formData.subTypes.length} selected`}
-              </p>
+              <select
+                aria-labelledby="activity-types-label"
+                value={formData.subTypes[0]}
+                onChange={(e) => setFormData({ ...formData, subTypes: [e.target.value] })}
+                className="w-full px-3 py-2 rounded-lg bg-gray-800/50 border border-gray-700"
+              >
+                {activityTypesFor(formData.category).map((st) => (
+                  <option key={st} value={st}>{subTypeLabels[st] || st}</option>
+                ))}
+              </select>
             </div>
           </div>
           <div>

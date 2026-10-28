@@ -8,6 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
 import { findingPocReadiness } from '../common/poc-validation.util';
 import { parseNmapScan, NmapPortRecord } from '../common/nmap-parser.util';
+import { parseSiteMapFile } from '../common/site-map-import.util';
 import { eligibleForProject } from '../reports/template-subtypes';
 
 /**
@@ -430,6 +431,14 @@ export class ProjectsService {
    * IP/port/protocol/service/status rows to the project, so repeated scans
    * accumulate rather than overwrite each other.
    */
+  async importSiteMap(id: string, file: Express.Multer.File, user: User) {
+    const project = await this.checkProjectAccess(id, user);
+    if (project.subType !== 'SCR') throw new BadRequestException('Site Map upload is only available for SCR projects');
+    const result = await parseSiteMapFile(file);
+    await this.prisma.project.update({ where: { id }, data: { siteMap: result.rows as any } });
+    return { message: 'Site Map imported', rowsImported: result.rows.length, duplicates: result.duplicates, errors: result.errors.slice(0, 50), errorCount: result.errors.length };
+  }
+
   async importNmapScan(id: string, file: Express.Multer.File, user: User) {
     const project = await this.checkProjectAccess(id, user);
     if (project.subType !== 'NETWORK') {

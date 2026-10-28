@@ -37,12 +37,13 @@ const SUB_TYPE_FILE_LABELS: Record<TemplateSubType, string> = {
   THICK_CLIENT: 'Thick-Client',
   NETWORK: 'Network',
   APPLICATION: 'Application',
+  SCR: 'SCR',
 };
 
-/** The project's status as printed in reports and file names: "Compliant" / "Non-Compliant", empty while In-Progress or unset. */
+/** The project's status as printed in reports and file names: "Compliant" / "Non-Compliant" (In-Progress counts as Non-Compliant, as in the report body), empty when unset. */
 const complianceStatusText = (status?: string | null): string => {
   const key = (status || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
-  return key === 'compliant' ? 'Compliant' : key === 'non-compliant' ? 'Non-Compliant' : '';
+  return key === 'compliant' ? 'Compliant' : key === 'non-compliant' || key === 'in-progress' ? 'Non-Compliant' : '';
 };
 
 /** The project status (Compliance Status dropdown) that allows a report even with no findings. */
@@ -788,7 +789,7 @@ export class ReportsService {
           pocSteps.push({ stepNo: step.stepNo, description: step.description, imageKey: imageKeys[0] ?? null, imageKeys });
         }
 
-        findingsData.push(this.toFindingData(f, index + 1, pocSteps, severityLabels));
+        findingsData.push({ ...this.toFindingData(f, index + 1, pocSteps, severityLabels), hideCvss: project.subType === TemplateSubType.SCR });
       }
 
 
@@ -1054,7 +1055,7 @@ export class ReportsService {
     const split = project.subType === 'NETWORK';
     const resolversFor = (list: any[]) =>
       list.map((f, i) => {
-        const data = this.toFindingData(f, i + 1, [], severityLabels);
+        const data = { ...this.toFindingData(f, i + 1, [], severityLabels), hideCvss: project.subType === TemplateSubType.SCR };
         // Excel cells take real line breaks; Word's line-separator marker becomes one here.
         return (raw: string) => this.docxManipulator.resolveFindingParameter(this.slugifyFieldName(raw).substring(0, 100), data)?.split(LINE_SEP).join('\n');
       });
@@ -1481,7 +1482,7 @@ export class ReportsService {
       return this.buildLegacyReportFileName(project, version, template, reportDate);
     }
 
-    // {Compliance Status} / {Project Status}: same wording the report body prints (empty while In-Progress).
+    // {Compliance Status} / {Project Status}: same wording the report body prints (In-Progress prints as Non-Compliant).
     const statusText = complianceStatusText(project.complianceStatus);
     const rules = this.buildMappedFieldRules(template, project, version, reportDate)
       .concat([{ match: ['compliance_status', 'project_status'], value: statusText }])

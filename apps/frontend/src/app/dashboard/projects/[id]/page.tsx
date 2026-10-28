@@ -33,6 +33,7 @@ import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
 import { PasswordGeneratorButton } from '@/components/password-generator-button';
 import { NessusImportDialog } from '@/components/nessus-import-dialog';
+import { FortifyImportDialog } from '@/components/fortify-import-dialog';
 import { PillSwitch } from '@/components/pill-switch';
 import { useSeverity } from '@/lib/severity';
 import { ProjectFindingsImportDialog, ImportFormatInfo, IMPORT_MAX_BYTES } from '@/components/project-findings-import-dialog';
@@ -154,6 +155,7 @@ interface Project {
   totalScopeCount?: number;
   networkScope?: { ip: string; domainHostname: string; purpose: string }[];
   toolsUsedTable?: { name: string; version: string; licenseType: string }[];
+  siteMap?: { directoryName: string; fileName: string }[] | null;
   nmapPorts?: { ip: string; port: string; protocol: string; service: string; status: string }[];
   quarter?: string;
   complianceType?: string;
@@ -211,6 +213,8 @@ export default function ProjectDetailPage() {
   const [showFormatMenu, setShowFormatMenu] = useState(false);
   const [nessusCount, setNessusCount] = useState(0);
   const [deletingNessus, setDeletingNessus] = useState(false);
+  const [fortifyCount, setFortifyCount] = useState(0);
+  const [deletingFortify, setDeletingFortify] = useState(false);
   const [findingFilter, setFindingFilter] = useState<'ALL' | 'VA' | 'PT'>('ALL');
 
   const fetchProject = useCallback(async () => {
@@ -220,6 +224,9 @@ export default function ProjectDetailPage() {
       // How many Nessus-imported VA findings the caller may bulk-delete (drives the "Delete All VA Findings" button).
       if (response.data.subType === 'NETWORK') {
         api.get(`/findings/project/${id}/nessus-count`).then((r) => setNessusCount(r.data.count)).catch(() => setNessusCount(0));
+      }
+      if (response.data.subType === 'SCR') {
+        api.get(`/findings/project/${id}/fortify-count`).then((r) => setFortifyCount(r.data.count)).catch(() => setFortifyCount(0));
       }
     } catch (error) {
       console.error('Failed to fetch project:', error);
@@ -251,6 +258,28 @@ export default function ProjectDetailPage() {
       showToast(error.response?.data?.message || 'Failed to delete VA findings — nothing was changed.', 'error');
     } finally {
       setDeletingNessus(false);
+      await fetchProject();
+    }
+  };
+
+  // Deletes ALL of this project's Fortify-imported findings (server-side), after an explicit confirm.
+  const handleDeleteAllFortify = async () => {
+    if (!project) return;
+    const ok = await confirmDialog({
+      title: 'Delete all Fortify findings?',
+      message: `This will permanently delete all ${fortifyCount} Fortify-imported finding${fortifyCount === 1 ? '' : 's'} in this project. Other findings, the Vulnerability Database and reports are not affected. This cannot be undone.`,
+      confirmLabel: `Delete ${fortifyCount} Fortify finding${fortifyCount === 1 ? '' : 's'}`,
+      danger: true,
+    });
+    if (!ok) return;
+    setDeletingFortify(true);
+    try {
+      const res = await api.delete(`/findings/project/${project.id}/fortify`);
+      showToast(res.data.deleted === 0 ? 'No Fortify-imported findings were left to delete.' : `Deleted ${res.data.deleted} Fortify-imported finding${res.data.deleted === 1 ? '' : 's'}.`, 'success');
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to delete Fortify findings — nothing was changed.', 'error');
+    } finally {
+      setDeletingFortify(false);
       await fetchProject();
     }
   };
@@ -331,6 +360,41 @@ export default function ProjectDetailPage() {
       return;
     }
     setNessusFile(file);
+  };
+
+  const siteMapInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingSiteMap, setUploadingSiteMap] = useState(false);
+  const handleSiteMapFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !project) return;
+    setUploadingSiteMap(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post(`/projects/${project.id}/site-map`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const { rowsImported, duplicates, errorCount } = res.data;
+      showToast(`Site Map uploaded: ${rowsImported} row${rowsImported === 1 ? '' : 's'}${duplicates ? `, ${duplicates} duplicate${duplicates === 1 ? '' : 's'} skipped` : ''}${errorCount ? `, ${errorCount} row${errorCount === 1 ? '' : 's'} rejected` : ''}.`, errorCount ? 'error' : 'success');
+      await fetchProject();
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to upload the Site Map — nothing was changed.', 'error');
+    } finally {
+      setUploadingSiteMap(false);
+    }
+  };
+
+  const fortifyInputRef = useRef<HTMLInputElement>(null);
+  const [fortifyFile, setFortifyFile] = useState<File | null>(null);
+  const handleFortifyFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    // Matches the server's limit for a Fortify result file; checked here so nothing is uploaded just to be rejected.
+    if (file.size > 300 * 1024 * 1024) {
+      showToast('This file is larger than 300 MB, which is the upload limit.', 'error');
+      return;
+    }
+    setFortifyFile(file);
   };
 
   const handleGenerateReport = async (reportFormat: 'WORD' | 'EXCEL' = 'WORD') => {
@@ -737,6 +801,36 @@ export default function ProjectDetailPage() {
                 )}
               </>
             )}
+            {canEditFindings && project.subType === 'SCR' && can('projects.scope_import') && (
+              <>
+                <input ref={siteMapInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleSiteMapFileSelected} />
+                <button
+                  onClick={() => siteMapInputRef.current?.click()}
+                  disabled={uploadingSiteMap}
+                  title={'Upload the Site Map. Accepted formats: .csv, .xlsx\nHeader row: Directory Name, File Name\nA new upload replaces the previous Site Map.'}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm disabled:opacity-50"
+                >
+                  {uploadingSiteMap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  Site Map{project.siteMap?.length ? ` (${project.siteMap.length})` : ''}
+                </button>
+              </>
+            )}
+            {canEditFindings && project.subType === 'SCR' && can('findings.fortify_import') && (
+              <>
+                <input ref={fortifyInputRef} type="file" accept=".fpr,.xml,.fvdl" className="hidden" onChange={handleFortifyFileSelected} />
+                <button
+                  onClick={() => fortifyInputRef.current?.click()}
+                  title="Import SCR findings from a Fortify scan. Supported formats: .fpr, .xml, .fvdl (FVDL)"
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm"
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  Fortify
+                </button>
+                {fortifyFile && (
+                  <FortifyImportDialog projectId={project.id} file={fortifyFile} onClose={() => setFortifyFile(null)} onImported={fetchProject} />
+                )}
+              </>
+            )}
             {can('reports.issue_log') && <button
               onClick={handleGenerateIssueLog}
               className="flex items-center gap-2 px-4 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/20 rounded-lg transition-all text-sm"
@@ -804,6 +898,20 @@ export default function ProjectDetailPage() {
                 Delete All VA Findings ({nessusCount})
               </button>
             )}
+          </div>
+        )}
+
+        {project.subType === 'SCR' && canEditFindings && can('findings.fortify_delete_all') && fortifyCount > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleDeleteAllFortify}
+              disabled={deletingFortify}
+              title="Permanently delete every Fortify-imported finding in this project"
+              className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+            >
+              {deletingFortify ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete All Fortify Findings ({fortifyCount})
+            </button>
           </div>
         )}
 
