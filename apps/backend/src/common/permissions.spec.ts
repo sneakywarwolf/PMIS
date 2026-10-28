@@ -35,6 +35,13 @@ describe('RBAC catalog', () => {
     expect(unused).toEqual([]);
   });
 
+  it('the front end fallback table has the same features and defaults as the catalog', () => {
+    const text = fs.readFileSync(path.resolve(__dirname, '../../../frontend/src/lib/rbac-defaults.ts'), 'utf8');
+    const rows = [...text.matchAll(/'([a-z_.]+)': \[(true|false), (true|false), (true|false)\]/g)];
+    const fromFile = Object.fromEntries(rows.map((m) => [m[1], { AVP: m[2] === 'true', TEAM_LEAD: m[3] === 'true', TESTER: m[4] === 'true' }]));
+    expect(fromFile).toEqual(DEFAULT_PERMISSION_MATRIX);
+  });
+
   it('only the Settings controller still uses the fixed @Roles rule', () => {
     const dir = path.resolve(__dirname, '..');
     const offenders: string[] = [];

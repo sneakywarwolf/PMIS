@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import axios from 'axios';
 import { api, useAuth } from '@/contexts/auth-context';
 import { configureFormats } from '@/lib/datetime';
+import { defaultPermissionsFor } from '@/lib/rbac-defaults';
 
 const DEFAULT_APP_NAME = 'PMIS - Project Management for Information Security';
 
@@ -53,8 +54,30 @@ const DEFAULT_CONTEXT: SettingsContextValue = {
 
 const BrandingContext = createContext<SettingsContextValue>(DEFAULT_CONTEXT);
 
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * What the signed-in role may do (Settings > RBAC). A failed request is retried; if the server still cannot answer
+ * (for example it is an older version without the endpoint), the shipped defaults for the role are used rather than
+ * hiding everything. The server enforces the real rules on every request either way.
+ * With `quiet`, a failure returns null so a screen that is already showing the right thing is left alone.
+ */
+async function loadPermissions(role: string, quiet = false): Promise<Record<string, boolean> | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await api.get('/settings/my-permissions');
+      if (res.data?.permissions && typeof res.data.permissions === 'object') return res.data.permissions;
+    } catch (e: any) {
+      if (e?.response?.status === 404) break; // an older server: retrying will not help
+      if (attempt < 2) await wait(500 * (attempt + 1));
+    }
+  }
+  return quiet ? null : defaultPermissionsFor(role);
+}
+
 export function BrandingProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const userRole = user?.role;
   const [branding, setBranding] = useState<Branding>(DEFAULT_BRANDING);
   const [settings, setSettings] = useState<any>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -87,9 +110,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
     configureFormats();
     if (!user) return;
     let cancelled = false;
-    api.get('/settings/my-permissions').then((res) => {
-      if (!cancelled) setPermissions(res.data?.permissions ?? {});
-    }).catch(() => { if (!cancelled) setPermissions({}); });
+    loadPermissions(user.role).then((p) => { if (!cancelled && p) setPermissions(p); });
     api.get('/settings').then((res) => {
       if (cancelled) return;
       if (res.data?.branding) setBranding({ ...DEFAULT_BRANDING, ...res.data.branding });
@@ -104,16 +125,13 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
   }, [branding.primaryColor]);
 
   const refreshSettings = useCallback(async () => {
-    try {
-      const mine = await api.get('/settings/my-permissions');
-      setPermissions(mine.data?.permissions ?? {});
-    } catch { /* keep what is shown */ }
+    if (userRole) { const p = await loadPermissions(userRole, true); if (p) setPermissions(p); }
     try {
       const res = await api.get('/settings');
       if (res.data?.branding) setBranding({ ...DEFAULT_BRANDING, ...res.data.branding });
       setSettings(res.data?.settings ?? null);
     } catch { /* keep what is shown */ }
-  }, []);
+  }, [userRole]);
 
   const general = settings?.general;
   const identity: Identity = general
@@ -173,7 +191,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
     const onShow = () => {
       if (document.visibilityState !== 'visible') return;
-      api.get('/settings/my-permissions').then((res) => setPermissions(res.data?.permissions ?? {})).catch(() => {});
+      if (user.role) loadPermissions(user.role, true).then((p) => { if (p) setPermissions(p); });
     };
     document.addEventListener('visibilitychange', onShow);
     return () => document.removeEventListener('visibilitychange', onShow);

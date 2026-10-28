@@ -558,6 +558,12 @@ function RbacTab({ settings, setCategory, catalog }: any) {
           <button type="button" onClick={resetAll} className="px-3 py-2 rounded-lg bg-gray-700/60 hover:bg-gray-700 text-xs text-gray-200 whitespace-nowrap">Reset to defaults</button>
         </div>
       </div>
+      {catalog.permissions.length === 0 && (
+        <p role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+          The server did not send the list of features. This usually means the backend is older than this screen: update
+          and restart the backend (and the frontend) to the same release, then reload this page.
+        </p>
+      )}
       {catalog.groups.map((group: string) => {
         const rows = catalog.permissions.filter((p: any) => p.group === group && matches(p));
         if (rows.length === 0) return null;

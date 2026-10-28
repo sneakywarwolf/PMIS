@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Fix: if the permissions of the signed-in role cannot be loaded (a temporary error, or a backend older than the front end), the menu and pages now retry and then fall back to the shipped defaults for the role, instead of hiding every feature and sending people to the Unauthorized page. The server still enforces the real rules. Settings > RBAC says so when the backend does not send its feature list.
 - Settings > RBAC (new tab): the Admin switches each feature on or off per role (AVP, Team Lead, Tester). It lists 60 features in 10 groups, including Manage quiz questions, Upload report templates, Reset passwords (temporary password), Create users, Delete projects and the Vulnerability DB approvals. Admins always have every feature (locked on); Settings itself is not listed and stays Admin only. The defaults are the rules PMIS already had, so nothing changes until an Admin changes it. The server enforces the switches on every request, and menus, pages and buttons follow them.
 - Fix: the off position of the sliding switches (Sync Vuln DB, Notifications, RBAC) was drawn in the theme's accent colour in some themes; it is now grey so on and off are easy to tell apart.
 - Reports: when a role may not download reports, history and status no longer include download links.
