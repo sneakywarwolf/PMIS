@@ -457,6 +457,11 @@ export class FindingsService {
     return withVulnerability(finding);
   }
 
+  /** A tester may edit what they created, and every finding of a project assigned to them (whoever added it). */
+  private testerOwns(finding: { createdById: string; project?: { testerId: string | null } | null }, user: User) {
+    return finding.createdById === user.id || finding.project?.testerId === user.id;
+  }
+
   async update(id: string, data: any, user: User, ipAddress: string, userAgent: string) {
     const finding = await this.prisma.finding.findUnique({
       where: { id },
@@ -470,7 +475,7 @@ export class FindingsService {
     await this.checkProjectAccess(finding.projectId, user);
 
     if (user.role === UserRole.TESTER) {
-      if (finding.createdById !== user.id || finding.status !== FindingStatus.DRAFT) {
+      if (!this.testerOwns(finding, user) || finding.status !== FindingStatus.DRAFT) {
         throw new ForbiddenException('Cannot edit this finding');
       }
     }
@@ -571,7 +576,7 @@ export class FindingsService {
 
     await this.checkProjectAccess(finding.projectId, user);
 
-    if (user.role === UserRole.TESTER && finding.createdById !== user.id) {
+    if (user.role === UserRole.TESTER && !this.testerOwns(finding, user)) {
       throw new ForbiddenException('Cannot modify this finding');
     }
 
