@@ -44,6 +44,11 @@ export function etaText(loaded: number, total: number, speed: number): string | 
   return `about ${Math.floor(s / 3600)} h ${Math.ceil((s % 3600) / 60)} min left`;
 }
 
+/** Progress never goes backwards: a late or out-of-order event with a smaller `loaded` keeps the furthest value seen. */
+export function furthest(previous: number, loaded: number): number {
+  return Number.isFinite(loaded) && loaded > previous ? loaded : previous;
+}
+
 export function percentOf(loaded: number, total: number): number {
   if (!(total > 0)) return 0;
   return Math.min(100, Math.floor((loaded / total) * 100));

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { etaText, formatBytes, formatClock, nextSpeed, percentOf } from './upload-progress.ts';
+import { etaText, formatBytes, formatClock, furthest, nextSpeed, percentOf } from './upload-progress.ts';
 
 test('formatBytes', () => {
   assert.equal(formatBytes(0), '0 B');
@@ -35,4 +35,12 @@ test('nextSpeed smooths and ignores stalled samples', () => {
   assert.equal(nextSpeed(1000, { loaded: 1000, at: 1000 }, 1000, 2000), 1000);
   const s = nextSpeed(1000, { loaded: 0, at: 0 }, 3000, 1000);
   assert.ok(s > 1000 && s < 3000);
+});
+
+test('furthest: progress never goes backwards and ignores junk', () => {
+  assert.equal(furthest(0, 50), 50);
+  assert.equal(furthest(50, 30), 50);
+  assert.equal(furthest(50, NaN), 50);
+  assert.equal(furthest(50, 50), 50);
+  assert.equal(percentOf(furthest(900, 100), 1000), 90);
 });

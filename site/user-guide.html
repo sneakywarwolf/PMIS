@@ -128,6 +128,23 @@
     </ul>
   </section>
 
+  <section>
+    <h2>SCR (Secure Code Review) projects</h2>
+    <p>SCR is a Testing Type (Platform) that uses the same project fields as a Cert-In Application project. Two imports are available on its Findings page:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Import</th><th>Accepted files</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Fortify</td><td><code>.fpr</code>, <code>.xml</code>, <code>.fvdl</code></td><td>A preview of the Fortify findings; you choose which to import. Instances suppressed in an <code>.fpr</code> are left out (an <code>.xml</code> / <code>.fvdl</code> carries no suppression data). Fortify supplies no CVSS, so none is set. The first data-flow trace becomes the finding's evidence. 500 MB by default, up to 1 GB (Settings &gt; Attachments).</td></tr>
+        <tr><td>Site Map</td><td><code>.csv</code>, <code>.xlsx</code></td><td>Header row <code>Directory Name</code>, <code>File Name</code>. A new upload replaces the previous one.</td></tr>
+      </tbody>
+    </table></div>
+    <ul class="plain">
+      <li>Fortify findings belong to that project only and are not added to the shared vulnerability library. <em>Delete All Fortify Findings</em> removes them together.</li>
+      <li>For PCI and VAPT, upload the template with SCR as its Activity Type. For Cert-In, an SCR project uses an Application template.</li>
+      <li>SCR reports leave the CVSS score and vector placeholders empty.</li>
+    </ul>
+  </section>
+
   <section id="library">
     <h2>Vulnerability library</h2>
     <ul class="plain">

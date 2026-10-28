@@ -348,11 +348,17 @@ button:disabled {
   padding-bottom: 1.1rem !important;
 }
 
-/* Moving bar for work of unknown length (the server processing an uploaded file). */
-@keyframes pmis-indeterminate {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(300%); }
+/* Work of unknown length (the server processing an uploaded file). The bar itself never moves: only the stripes
+   drawn inside it do, and only their background position changes, so no layout or transform is involved. */
+@keyframes pmis-processing {
+  from { background-position: 0 0; }
+  to { background-position: 1.5rem 0; }
 }
-.pmis-indeterminate {
-  animation: pmis-indeterminate 1.4s ease-in-out infinite;
+.pmis-processing {
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.22) 50%, rgba(255, 255, 255, 0.22) 75%, transparent 75%);
+  background-size: 1.5rem 1.5rem;
+  animation: pmis-processing 0.9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pmis-processing { animation: none; }
 }

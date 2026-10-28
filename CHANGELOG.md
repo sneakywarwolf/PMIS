@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 1.1.1 (2026-10-29)
+- SCR (Secure Code Review) is a new Testing Type (Platform). SCR projects use the same project fields as Cert-In Application projects, and the Compliance Category is not changed. For PCI and VAPT, SCR is an Activity Type of its own when uploading a template; Cert-In still offers only Network and Application, and an SCR project there uses an Application template.
+- SCR projects get a Fortify button next to Nessus's place on the Findings page. It reads a Fortify `.fpr`, or an FVDL `.xml` / `.fvdl`, shows every finding for review, and imports only the ones selected, into that project only (nothing goes to the Vulnerability DB or approvals). Fields follow the `FPR-to-XLSXV2.0` script: name, severity, description, impact (Abstract), remediation, numbered references, CVE / CWE and code locations (path:line), plus the first data-flow trace as the finding's evidence. Instances suppressed in an `.fpr` are left out (not possible for `.xml` / `.fvdl`). Fortify supplies no CVSS, so none is set. **Delete All Fortify Findings** removes a project's Fortify findings in one step.
+- SCR projects also get a Site Map button: upload a `.csv` or `.xlsx` with the header row `Directory Name`, `File Name`. A new upload replaces the previous one.
+- Settings > Attachments lists the SCR Fortify import formats (`.fpr`, `.xml`, `.fvdl`): 500 MB by default, up to 1 GB. New permissions: Import Fortify results, Delete all Fortify findings.
+- SCR reports leave the CVSS score and CVSS vector placeholders empty.
+- Reports: a finding with no Steps or PoC prints a bold "POC:" followed by "Observe the Screenshot." where "Step 1" was, and any scan output (Nessus plugin output, Fortify trace) is shown in the snapshot cell as plain text. An empty `{Fix POC Snapshot}` stays blank instead of "N/A".
+- Reports: a project whose status is In Progress now prints Non-Compliant in generated file names and the Issue Log file name too, as it already did in the report body.
+- Template upload: Activity Type is a single-select drop-down instead of a multi-select.
+- Hover tips throughout PMIS now appear after one second.
+- Fix: the live upload / processing bar no longer moves sideways. It is one fixed track: uploading grows the fill from the real byte count, processing fills it with moving stripes inside it; progress never steps backwards on late updates, and the text below keeps its height between phases.
+- Security: Fortify merges respect the draft-only rule for testers; Fortify parsing is bounded (findings, text kept, two files at a time); Fortify and Site Map uploads count as heavy routes for rate limiting.
+- Database: two additive migrations (`SCR` Activity Type, Site Map column).
 - Nessus CSV imports are more forgiving. A stray control character in plugin output (escape sequences from banners and prompts are common in big scans) no longer makes the whole file unreadable: it is replaced by a space. Files saved with semicolons or tabs between columns, or as UTF-16 text, are read too. A file with binary data at its start is still refused, now with a clearer message.
 - Failed uploads say what happened: a dropped connection with how much had been sent, the server stopping after the whole file had arrived, a gateway timeout (502/503/504), or a size limit on the way (413), instead of one generic message. The Nessus dialog has a Try again button.
 - Big uploads show live status. The Nessus import and Import Project Findings dialogs now show a progress bar with percent, size sent, speed and time left while the file uploads, then "the server is processing the file" with a moving bar and a running clock, so it is clear the application is working and has not stopped. The same status shows while the selected findings are created.

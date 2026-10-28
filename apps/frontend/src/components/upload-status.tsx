@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Loader2, UploadCloud } from 'lucide-react';
-import { IDLE, UploadSnapshot, etaText, formatBytes, formatClock, nextSpeed, percentOf } from '@/lib/upload-progress';
+import { IDLE, UploadSnapshot, etaText, furthest, formatBytes, formatClock, nextSpeed, percentOf } from '@/lib/upload-progress';
 
 /**
  * Live status of one file request: the upload (bytes, speed, time left) and then the server's processing time, so
@@ -42,15 +42,17 @@ export function useUploadStatus() {
   const onProgress = useCallback((e: { loaded: number; total?: number }) => {
     const now = Date.now();
     const total = e.total ?? 0;
-    speed.current = nextSpeed(speed.current, last.current, e.loaded, now);
-    last.current = { loaded: e.loaded, at: now };
-    const complete = total > 0 && e.loaded >= total;
+    // Stale or out-of-order events must not pull the bar back.
+    const loaded = furthest(latestRef.current.loaded, e.loaded);
+    speed.current = nextSpeed(speed.current, last.current, loaded, now);
+    last.current = { loaded, at: now };
+    const complete = total > 0 && loaded >= total;
     if (complete && !uploadedAt.current) uploadedAt.current = now;
-    latestRef.current = { ...latestRef.current, phase: complete ? 'processing' : 'uploading', loaded: e.loaded, total: total || latestRef.current.total, speed: speed.current };
+    latestRef.current = { ...latestRef.current, phase: complete ? 'processing' : 'uploading', loaded, total: total || latestRef.current.total, speed: speed.current };
     setSnap((s) => ({
       ...s,
       phase: complete ? 'processing' : 'uploading',
-      loaded: e.loaded,
+      loaded: furthest(s.loaded, e.loaded),
       total: total || s.total,
       speed: speed.current,
     }));
@@ -82,21 +84,23 @@ export function UploadStatus({ snap, fileName, working = 'Reading and checking t
         <span className="ml-auto font-mono text-xs text-gray-400 tabular-nums">{formatClock(snap.elapsed)}</span>
       </div>
 
-      <div className="h-2 rounded-full bg-gray-700 overflow-hidden" aria-hidden="true">
-        {processing ? (
-          <div className="h-full w-1/3 rounded-full bg-emerald-500 pmis-indeterminate" />
-        ) : (
-          <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-300 ease-out" style={{ width: `${pct}%` }} />
-        )}
+      {/* One fixed track for every phase. The fill is anchored left and is never translated: uploading grows its
+          width, processing fills it and animates only the stripes inside, so nothing in the layout moves. */}
+      <div className="h-2 w-full rounded-full bg-gray-700 overflow-hidden relative" aria-hidden="true">
+        <div
+          className={`absolute inset-y-0 left-0 rounded-full bg-emerald-500 ${processing ? 'pmis-processing w-full' : 'transition-[width] duration-300 ease-out'}`}
+          style={processing ? undefined : { width: `${pct}%` }}
+        />
       </div>
 
+      {/* Both phases get the same reserved height, so switching between them does not resize the panel. */}
       {processing ? (
-        <div className="space-y-1 text-xs text-gray-400">
+        <div className="space-y-1 text-xs text-gray-400 min-h-[3.75rem]">
           <p className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Upload complete ({formatBytes(snap.total)}).</p>
           <p>The server is processing the file. Large files can take several minutes. Working for {formatClock(snap.processingElapsed)} — please keep this window open; nothing is wrong.</p>
         </div>
       ) : (
-        <p className="text-xs text-gray-400 tabular-nums">
+        <p className="text-xs text-gray-400 tabular-nums min-h-[3.75rem]">
           {pct}% · {formatBytes(snap.loaded)} of {formatBytes(snap.total)}
           {snap.speed > 0 && ` · ${formatBytes(snap.speed)}/s`}
           {eta && ` · ${eta}`}

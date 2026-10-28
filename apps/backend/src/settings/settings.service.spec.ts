@@ -91,6 +91,8 @@ describe('SettingsService.getSystemHealth', () => {
       await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 101 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 100/);
       await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 2.5 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/whole number/);
       await expect(service.update({ attachments: { maxSizeMb: { 'nessus.csv': 501 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 500/);
+      await expect(service.update({ attachments: { maxSizeMb: { 'fortify.fpr': 1024 } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ attachments: { maxSizeMb: { 'fortify.fpr': 1025 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 1024/);
       await expect(service.update({ attachments: { maxSizeMb: { 'exe.exe': 5 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown file format/);
       await expect(service.update({ attachments: { maxSizeMb: 'big' } }, 'a', 'ip', 'ua')).rejects.toThrow(/object/);
     });

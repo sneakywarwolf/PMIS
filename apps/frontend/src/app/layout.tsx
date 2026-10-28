@@ -7,6 +7,7 @@ import { BrandingProvider } from '@/contexts/branding-context';
 import { ThemeProvider } from '@/contexts/theme-context';
 import { ToastProvider } from '@/components/toast-provider';
 import { ConfirmProvider } from '@/components/confirm-provider';
+import { TooltipDelay } from '@/components/tooltip-delay';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -64,6 +65,7 @@ export default function RootLayout({
                 <ToastProvider>
                   <ConfirmProvider>
                   {children}
+                  <TooltipDelay />
                   </ConfirmProvider>
                 </ToastProvider>
               </ThemeProvider>

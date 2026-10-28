@@ -8,8 +8,8 @@ const WINDOW_MS = 60_000;
 
 // Expensive endpoints (file imports, template/report generation) get an extra, much smaller per-user budget.
 const HEAVY = [
-  /^POST \/findings\/(nessus\/(preview|import)|import(\/preview)?|upload-poc-image)$/,
-  /^POST \/projects\/[^/]+\/nmap-import$/,
+  /^POST \/findings\/((nessus|fortify)\/(preview|import)|import(\/preview)?|upload-poc-image)$/,
+  /^POST \/projects\/[^/]+\/(nmap-import|site-map)$/,
   /^POST \/reports\/(generate|templates)$/,
   /^GET \/reports\/issue-log\/[^/]+$/,
   /^GET \/vulnerabilities\/export$/,

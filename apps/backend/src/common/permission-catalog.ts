@@ -63,6 +63,8 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'findings.delete', group: 'Findings', label: 'Delete findings', description: 'Delete a finding.', defaults: ALL },
   { key: 'findings.upload_poc', group: 'Findings', label: 'Upload PoC images', description: 'Upload PoC screenshots.', defaults: ALL },
   { key: 'findings.nessus_import', group: 'Findings', label: 'Import Nessus results', description: 'Preview and import a .nessus or Nessus .csv file.', defaults: ALL },
+  { key: 'findings.fortify_import', group: 'Findings', label: 'Import Fortify results', description: 'Preview and import a Fortify .fpr or FVDL .xml file into an SCR project.', defaults: ALL },
+  { key: 'findings.fortify_delete_all', group: 'Findings', label: 'Delete all Fortify findings of a project', description: 'Delete every Fortify-imported finding of an SCR project at once.', defaults: ALL },
   { key: 'findings.nessus_delete_all', group: 'Findings', label: 'Delete all Nessus findings of a project', description: 'Delete every Nessus-imported VA finding of a project at once.', defaults: ALL },
   { key: 'findings.file_import', group: 'Findings', label: 'Import Project Findings from a file', description: 'Import findings from a .csv or .xlsx file into a project.', defaults: ALL },
 
