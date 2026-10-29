@@ -91,6 +91,8 @@ describe('SettingsService.getSystemHealth', () => {
       await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 101 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 100/);
       await expect(service.update({ attachments: { maxSizeMb: { 'poc.png': 2.5 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/whole number/);
       await expect(service.update({ attachments: { maxSizeMb: { 'nessus.csv': 501 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 500/);
+      await expect(service.update({ attachments: { maxSizeMb: { 'fortify.fpr': 1024 } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ attachments: { maxSizeMb: { 'fortify.fpr': 1025 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/between 1 and 1024/);
       await expect(service.update({ attachments: { maxSizeMb: { 'exe.exe': 5 } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown file format/);
       await expect(service.update({ attachments: { maxSizeMb: 'big' } }, 'a', 'ip', 'ua')).rejects.toThrow(/object/);
     });
@@ -158,6 +160,29 @@ describe('SettingsService.getSystemHealth', () => {
       expect(Object.keys(res).sort()).toEqual(['appName', 'defaultTheme', 'faviconUrl', 'logoUrl']);
       expect(res.appName).toBe('Acme');
       expect(res.logoUrl).toBe(png);
+    });
+  });
+  describe('RBAC settings', () => {
+    const ok = () => { (prisma.appSettings as any).upsert = jest.fn(); (service as any).auditService = { log: jest.fn() }; };
+
+    it('accepts per-role switches and rejects Admin, unknown features and roles, and non-booleans', async () => {
+      ok();
+      await expect(service.update({ rbac: { permissions: { 'quiz.play': { TESTER: false } } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ rbac: { permissions: { 'quiz.play': { ADMIN: false } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Admins always have every permission/);
+      await expect(service.update({ rbac: { permissions: { 'settings.update': { TESTER: true } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown feature/);
+      await expect(service.update({ rbac: { permissions: { 'quiz.play': { INTERN: true } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown role/);
+      await expect(service.update({ rbac: { permissions: { 'quiz.play': { TESTER: 'no' } } } }, 'a', 'ip', 'ua')).rejects.toThrow(/true or false/);
+    });
+
+    it('a saved switch is in force straight away, and get() lists the catalog', async () => {
+      const { permissionRules } = require('../common/permissions');
+      (prisma.appSettings as any).upsert = jest.fn().mockImplementation(async ({ update }: any) => { prisma.appSettings.findUnique.mockResolvedValue({ data: update.data }); });
+      (service as any).auditService = { log: jest.fn() };
+      const res = await service.update({ rbac: { permissions: { 'quiz.play': { TESTER: false } } } }, 'a', 'ip', 'ua');
+      expect(permissionRules.can('TESTER', 'quiz.play')).toBe(false);
+      expect(permissionRules.can('AVP', 'quiz.play')).toBe(true);
+      expect(res.permissionCatalog.permissions.length).toBeGreaterThan(50);
+      permissionRules.set(undefined);
     });
   });
 });

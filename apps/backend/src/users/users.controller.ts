@@ -7,9 +7,10 @@ import { parseUploadedFileToCsv } from '../common/bulk-upload-file.util';
 import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
 import { attachmentLimits } from '../common/attachment-formats';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+
 import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
 import { User, UserRole } from '@prisma/client';
+import { Permission } from '../common/permissions';
 
 @ApiTags('Users')
 @Controller('users')
@@ -17,27 +18,28 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @Permission('users.list')
   @ApiOperation({ summary: 'List users (filtered by role scope)' })
   async findAll(@CurrentUser() user: User) {
     return this.usersService.findAll(user);
   }
 
   @Get('team-leads')
-  @Roles(UserRole.ADMIN)
+  @Permission('users.hierarchy')
   @ApiOperation({ summary: 'Get all active team leads' })
   async getTeamLeads() {
     return this.usersService.getTeamLeads();
   }
 
   @Get('managers')
-  @Roles(UserRole.ADMIN)
+  @Permission('users.hierarchy')
   @ApiOperation({ summary: 'Get all active users for manager selection' })
   async getManagers() {
     return this.usersService.getManagers();
   }
 
   @Get('sample-csv')
+  @Permission('users.bulk_import')
   @ApiOperation({ summary: 'Download sample CSV format for bulk user upload' })
   async getSampleCsv(@Res() response: Response) {
     const csv = this.usersService.getSampleCsv();
@@ -69,21 +71,21 @@ export class UsersController {
   }
 
   @Get('team-hierarchy')
-  @Roles(UserRole.ADMIN)
+  @Permission('users.hierarchy')
   @ApiOperation({ summary: 'Get team hierarchy tree' })
   async getTeamHierarchy() {
     return this.usersService.getTeamHierarchy();
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @Permission('users.list')
   @ApiOperation({ summary: 'Get user by ID' })
   async findOne(@Param('id') id: string, @CurrentUser() user: User) {
     return this.usersService.findOne(id, user);
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @Permission('users.create')
   @ApiOperation({ summary: 'Create new user' })
   async create(
     @Body() dto: CreateUserDto,
@@ -96,7 +98,7 @@ export class UsersController {
   }
 
   @Post('bulk-upload')
-  @Roles(UserRole.ADMIN)
+  @Permission('users.bulk_import')
   @UseGuards(AttachmentSizeGuard('userBulk'))
   @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('userBulk')))
   @ApiConsumes('multipart/form-data')
@@ -114,7 +116,7 @@ export class UsersController {
   }
 
   @Put(':id')
-  @Roles(UserRole.ADMIN)
+  @Permission('users.edit')
   @ApiOperation({ summary: 'Update user' })
   async update(
     @Param('id') id: string,
@@ -128,7 +130,7 @@ export class UsersController {
   }
 
   @Put(':id/activate')
-  @Roles(UserRole.ADMIN)
+  @Permission('users.activate')
   @ApiOperation({ summary: 'Activate deactivated user' })
   async activate(
     @Param('id') id: string,
@@ -141,7 +143,7 @@ export class UsersController {
   }
 
   @Post(':id/reset-password')
-  @Roles(UserRole.ADMIN)
+  @Permission('users.reset_password')
   @ApiOperation({ summary: 'Force password reset' })
   async forcePasswordReset(
     @Param('id') id: string,
@@ -154,7 +156,7 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN)
+  @Permission('users.deactivate')
   @ApiOperation({ summary: 'Deactivate user with a 24h grace period; reactivating within the window restores the user with data intact, otherwise owned project data/files are purged' })
   async softDelete(
     @Param('id') id: string,

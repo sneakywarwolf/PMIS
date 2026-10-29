@@ -6,6 +6,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { CornerDownLeft, FolderOpen, Search } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { isRouteAllowed } from '@/lib/rbac';
+import { useBranding } from '@/contexts/branding-context';
 
 type Page = { label: string; href: string; icon: React.ElementType };
 type Item = { key: string; label: string; hint: string; href: string; icon: React.ElementType };
@@ -25,6 +26,7 @@ export function CommandPalette({ pages, open, onOpenChange }: {
 }) {
   const router = useRouter();
   const { user } = useAuth();
+  const { can } = useBranding();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const [projects, setProjects] = useState<{ id: string; name: string; clientName: string; scope: string | null }[]>([]);
@@ -47,20 +49,21 @@ export function CommandPalette({ pages, open, onOpenChange }: {
     setActive(0);
     setProjects([]); // never show a previous fetch (or previous user's) while the fresh, permission-checked list loads
     let cancelled = false;
+    if (!can('projects.view')) { setProjects([]); return; }
     api.get('/projects/search')
       .then((r) => { if (!cancelled) setProjects(r.data); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [open, user?.id, user?.role]);
+  }, [open, user?.id, user?.role, can]);
 
   const items: Item[] = useMemo(() => {
     const all: Item[] = [
-      ...pages.filter((p) => isRouteAllowed(p.href, user?.role)).map((p) => ({ key: p.href, label: p.label, hint: 'Page', href: p.href, icon: p.icon })),
+      ...pages.filter((p) => isRouteAllowed(p.href, user?.role, can)).map((p) => ({ key: p.href, label: p.label, hint: 'Page', href: p.href, icon: p.icon })),
       ...projects.map((r) => ({ key: r.id, label: r.clientName, hint: r.scope || r.name, href: `/dashboard/projects/${r.id}`, icon: FolderOpen })),
     ];
     const q = query.trim().toLowerCase();
     return (q ? all.filter((i) => `${i.label} ${i.hint}`.toLowerCase().includes(q)) : all).slice(0, 30);
-  }, [pages, projects, query, user?.role]);
+  }, [pages, projects, query, user?.role, can]);
 
   useEffect(() => setActive(0), [query]);
   useEffect(() => {
@@ -69,7 +72,7 @@ export function CommandPalette({ pages, open, onOpenChange }: {
 
   const go = (item?: Item) => {
     if (!item) return;
-    if (!isRouteAllowed(item.href, user?.role)) return;
+    if (!isRouteAllowed(item.href, user?.role, can)) return;
     onOpenChange(false);
     router.push(item.href);
   };

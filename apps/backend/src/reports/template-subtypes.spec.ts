@@ -2,6 +2,7 @@ import { TemplateCategory as C, TemplateSubType as S } from '@prisma/client';
 import { eligibleForProject, isEligibleTemplate, parseExtraSubTypes } from './template-subtypes';
 
 describe('template activity types', () => {
+  const t = (over: object = {}) => ({ isActive: true, category: C.CERT_IN, subType: S.APPLICATION, extraSubTypes: [] as S[], reportFormat: 'WORD', ...over });
   it('Cert-In Application template is the umbrella for non-Network projects only', () => {
     expect(eligibleForProject(C.CERT_IN, S.WEB)).toEqual({
       OR: [{ subType: S.WEB }, { extraSubTypes: { has: S.WEB } }, { subType: S.APPLICATION }, { extraSubTypes: { has: S.APPLICATION } }],
@@ -22,7 +23,6 @@ describe('template activity types', () => {
   });
 
   describe('isEligibleTemplate (backend re-check of a pinned template)', () => {
-    const t = (over: object = {}) => ({ isActive: true, category: C.CERT_IN, subType: S.APPLICATION, extraSubTypes: [] as S[], reportFormat: 'WORD', ...over });
     it('Cert-In: Application template fits non-Network projects, Network projects need a Network template', () => {
       expect(isEligibleTemplate(t(), C.CERT_IN, S.WEB, 'WORD')).toBe(true);
       expect(isEligibleTemplate(t(), C.CERT_IN, S.NETWORK, 'WORD')).toBe(false);
@@ -39,5 +39,19 @@ describe('template activity types', () => {
       expect(isEligibleTemplate(t({ category: C.PCI, subType: S.WEB }), C.VAPT, S.WEB, 'WORD')).toBe(false);
       expect(isEligibleTemplate(t(), C.CERT_IN, S.WEB, 'EXCEL')).toBe(false);
     });
+  });
+
+  it('SCR: PCI / VAPT need a template assigned to SCR; Cert-In uses an Application template', () => {
+    expect(isEligibleTemplate(t({ category: C.VAPT, subType: S.SCR }), C.VAPT, S.SCR, 'WORD')).toBe(true);
+    expect(isEligibleTemplate(t({ category: C.PCI, subType: S.WEB, extraSubTypes: [S.SCR] }), C.PCI, S.SCR, 'WORD')).toBe(true);
+    expect(isEligibleTemplate(t({ category: C.VAPT, subType: S.WEB }), C.VAPT, S.SCR, 'WORD')).toBe(false);
+    expect(isEligibleTemplate(t({ category: C.CERT_IN, subType: S.APPLICATION }), C.CERT_IN, S.SCR, 'WORD')).toBe(true);
+    expect(isEligibleTemplate(t({ category: C.CERT_IN, subType: S.NETWORK }), C.CERT_IN, S.SCR, 'WORD')).toBe(false);
+  });
+
+  it('SCR is accepted for PCI / VAPT uploads but not offered for Cert-In', () => {
+    expect(parseExtraSubTypes(['SCR'], S.WEB, C.VAPT)).toEqual([S.SCR]);
+    expect(() => parseExtraSubTypes([], S.SCR, C.CERT_IN)).toThrow();
+    expect(() => parseExtraSubTypes(['SCR'], S.APPLICATION, C.CERT_IN)).toThrow();
   });
 });

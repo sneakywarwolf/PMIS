@@ -194,6 +194,7 @@ export default function NewProjectPage() {
                 <option value="MOBILE">Mobile Application</option>
                 <option value="THICK_CLIENT">Thick Client</option>
                 <option value="NETWORK">Network</option>
+                <option value="SCR">SCR — Secure Code Review</option>
               </select>
             </div>
             {form.subType !== 'NETWORK' && (

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, ListOrdered, ArrowUp, ArrowDown, GripVertical, Save, Loader2, Clock, ServerCog, Egg } from 'lucide-react';
+import { Settings as SettingsIcon, Palette, LayoutGrid, ShieldCheck, Paperclip, Bell, Calendar, ListOrdered, ArrowUp, ArrowDown, GripVertical, Save, Loader2, Clock, ServerCog, Egg, KeyRound } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { api } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast-provider';
@@ -21,6 +21,7 @@ const TABS = [
   { id: 'security', label: 'Security & Sessions', icon: ShieldCheck },
   { id: 'attachments', label: 'Attachments', icon: Paperclip },
   { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'rbac', label: 'RBAC', icon: KeyRound },
   { id: 'formatting', label: 'Formatting', icon: Calendar },
   { id: 'issueLog', label: 'Issue Log Parameters', icon: ListOrdered },
   { id: 'system', label: 'System', icon: ServerCog },
@@ -50,7 +51,7 @@ function SettingsContent() {
   const { refreshSettings } = useBranding();
   const [settings, setSettings] = useState<any>(null);
   // Lists from the server: every file format PMIS accepts, and every notification it sends.
-  const [catalog, setCatalog] = useState<{ attachmentFormats: any; notificationTypes: any[] }>({ attachmentFormats: { purposes: [], formats: [] }, notificationTypes: [] });
+  const [catalog, setCatalog] = useState<{ attachmentFormats: any; notificationTypes: any[]; permissionCatalog: { groups: string[]; permissions: any[] } }>({ attachmentFormats: { purposes: [], formats: [] }, notificationTypes: [], permissionCatalog: { groups: [], permissions: [] } });
   const [meta, setMeta] = useState<{ updatedAt: string | null; updatedById: string | null }>({ updatedAt: null, updatedById: null });
   const [history, setHistory] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('general');
@@ -59,7 +60,7 @@ function SettingsContent() {
   const fetchSettings = async () => {
     const res = await api.get('/settings');
     setSettings(res.data.settings);
-    setCatalog({ attachmentFormats: res.data.attachmentFormats ?? { purposes: [], formats: [] }, notificationTypes: res.data.notificationTypes ?? [] });
+    setCatalog({ attachmentFormats: res.data.attachmentFormats ?? { purposes: [], formats: [] }, notificationTypes: res.data.notificationTypes ?? [], permissionCatalog: res.data.permissionCatalog ?? { groups: [], permissions: [] } });
     setMeta({ updatedAt: res.data.updatedAt, updatedById: res.data.updatedById });
   };
 
@@ -141,6 +142,7 @@ function SettingsContent() {
         {activeTab === 'workflow' && <WorkflowTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'security' && <SecurityTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'attachments' && <AttachmentsTab settings={settings} setCategory={setCategory} catalog={catalog.attachmentFormats} />}
+        {activeTab === 'rbac' && <RbacTab settings={settings} setCategory={setCategory} catalog={catalog.permissionCatalog} />}
         {activeTab === 'notifications' && <NotificationsTab settings={settings} setCategory={setCategory} types={catalog.notificationTypes} />}
         {activeTab === 'formatting' && <FormattingTab settings={settings} setCategory={setCategory} />}
         {activeTab === 'issueLog' && <IssueLogTab settings={settings} setCategory={setCategory} />}
@@ -523,6 +525,87 @@ function NotificationsTab({ settings, setCategory, types }: any) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function RbacTab({ settings, setCategory, catalog }: any) {
+  const matrix: Record<string, Record<string, boolean>> = settings.rbac?.permissions ?? {};
+  const [query, setQuery] = useState('');
+  const on = (key: string, role: string, def: boolean) => (typeof matrix[key]?.[role] === 'boolean' ? matrix[key][role] : def);
+  const toggle = (def: any, role: string, next: boolean) =>
+    setCategory('rbac', {
+      permissions: {
+        ...matrix,
+        [def.key]: { AVP: on(def.key, 'AVP', def.defaults.AVP), TEAM_LEAD: on(def.key, 'TEAM_LEAD', def.defaults.TEAM_LEAD), TESTER: on(def.key, 'TESTER', def.defaults.TESTER), [role]: next },
+      },
+    });
+  const resetAll = () =>
+    setCategory('rbac', { permissions: Object.fromEntries(catalog.permissions.map((p: any) => [p.key, { ...p.defaults }])) });
+  const q = query.trim().toLowerCase();
+  const matches = (p: any) => !q || `${p.label} ${p.description} ${p.group}`.toLowerCase().includes(q);
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <p className={`${hintCls} max-w-2xl`}>
+          Choose which roles may use each feature. Admins can always use every feature and this cannot be changed. A switch
+          decides whether the role may use the feature at all; what a role can see of other people&rsquo;s data is still limited
+          to their own projects (Testers) or team (Team Leads, AVPs), as before. Changes apply to everyone once saved. The
+          Settings panel is not listed: it is only ever available to Admins.
+        </p>
+        <div className="flex items-center gap-2">
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search features" aria-label="Search features" className={`${inputCls} !w-56`} />
+          <button type="button" onClick={resetAll} className="px-3 py-2 rounded-lg bg-gray-700/60 hover:bg-gray-700 text-xs text-gray-200 whitespace-nowrap">Reset to defaults</button>
+        </div>
+      </div>
+      {catalog.permissions.length === 0 && (
+        <p role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">
+          The server did not send the list of features. This usually means the backend is older than this screen: update
+          and restart the backend (and the frontend) to the same release, then reload this page.
+        </p>
+      )}
+      {catalog.groups.map((group: string) => {
+        const rows = catalog.permissions.filter((p: any) => p.group === group && matches(p));
+        if (rows.length === 0) return null;
+        return (
+          <section key={group} aria-label={group}>
+            <h3 className="text-sm font-medium text-white mb-2">{group}</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-400 border-b border-gray-800">
+                    <th className="py-2 pr-4 font-medium">Feature</th>
+                    <th className="py-2 px-3 font-medium text-center">Admin</th>
+                    {ROLE_COLUMNS.map((c) => <th key={c.role} className="py-2 px-3 font-medium text-center">{c.label}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((p: any) => (
+                    <tr key={p.key} className="border-b border-gray-800/60 align-top" data-feature={p.key}>
+                      <td className="py-3 pr-4">
+                        <p className="text-white">{p.label}</p>
+                        <p className="text-xs text-gray-500 mt-0.5 max-w-xl">{p.description}</p>
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="flex justify-center" title="Admins always have access">
+                          <PillSwitch checked disabled onChange={() => undefined} ariaLabel={`${p.label}: Admin (always on)`} />
+                        </div>
+                      </td>
+                      {ROLE_COLUMNS.map((c) => (
+                        <td key={c.role} className="py-3 px-3">
+                          <div className="flex justify-center">
+                            <PillSwitch checked={on(p.key, c.role, p.defaults[c.role])} onChange={(v) => toggle(p, c.role, v)} ariaLabel={`${p.label}: ${c.label}`} />
+                          </div>
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

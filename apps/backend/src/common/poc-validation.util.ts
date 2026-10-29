@@ -53,6 +53,7 @@ export function findingPocReadiness(
   // Only scan-imported VA findings are exempt. A project-only PT finding (entered by hand or imported from a file)
   // is project-scoped too, but keeps the full Steps/PoC requirement.
   const isVa = finding.findingType !== undefined ? finding.findingType === 'VA' : !!finding.projectScoped;
-  if (projectSubType === 'NETWORK' && isVa) return 'ready';
+  // SCR: a Fortify import is evidence in itself (locations + data-flow trace), so it needs no screenshots either.
+  if ((projectSubType === 'NETWORK' || projectSubType === 'SCR') && isVa) return 'ready';
   return getPocReadiness(finding.pocSteps);
 }

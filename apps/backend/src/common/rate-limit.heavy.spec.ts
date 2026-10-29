@@ -7,6 +7,9 @@ describe('isHeavyRoute', () => {
     expect(isHeavyRoute('POST', '/reports/generate')).toBe(true);
     expect(isHeavyRoute('POST', '/findings/nessus/import')).toBe(true);
     expect(isHeavyRoute('POST', '/projects/abc/nmap-import')).toBe(true);
+  expect(isHeavyRoute('POST', '/findings/fortify/preview')).toBe(true);
+  expect(isHeavyRoute('POST', '/findings/fortify/import')).toBe(true);
+  expect(isHeavyRoute('POST', '/projects/abc/site-map')).toBe(true);
     expect(isHeavyRoute('GET', '/reports/issue-log/abc')).toBe(true);
     expect(isHeavyRoute('POST', '/users/bulk-upload')).toBe(true);
     expect(isHeavyRoute('GET', '/projects')).toBe(false);

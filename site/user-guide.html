@@ -72,6 +72,7 @@
       </tbody>
     </table></div>
     <p>"Within scope" means projects the user leads, or projects whose tester belongs to the user's team. Permissions are enforced by the server, not just hidden in the interface.</p>
+    <p><strong>The table shows the defaults.</strong> An Admin can change them under <em>Settings &gt; RBAC</em>, which lists every feature covered by access control (60, in 10 groups: Dashboard, Projects, Findings, Vulnerability Database, Reports, Report Templates, Quiz, Users, Retention, Updates) with a switch per role for AVP, Team Lead and Tester. Admins always have every feature, and the switch for Admin is locked on. The Settings panel is not a feature: it is only ever available to Admins. A switch decides whether a role may use a feature at all; the scope rules above (own projects, own team) still apply on top of it. Changes apply to everyone as soon as they are saved, and a menu item or button disappears for a role that has lost the feature. <em>Reset to defaults</em> restores the table above.</p>
   </section>
 
   <section id="projects">
@@ -120,9 +121,27 @@
         <tr><td>Nmap</td><td><code>.xml</code>, <code>.txt</code>, <code>.nmap</code></td><td>Open ports recorded on the project for the report's port tables.</td></tr>
       </tbody>
     </table></div>
+    <p>Nessus CSV files are read whatever way they were saved: commas, semicolons or tabs between columns, UTF-8 or UTF-16 text, and stray control characters in plugin output (replaced by a space). Only a file with binary data at its start, or without the Plugin ID, Name, Risk and Host columns, is refused, with a message saying why. If an upload fails, the message says whether the connection dropped while uploading, or the server stopped after the whole file had arrived, and a Try again button repeats the check.</p>
     <ul class="plain">
       <li>Nessus findings belong to that project only. They are not added to the shared vulnerability library.</li>
       <li>All VA findings imported into a project can be deleted together with <em>Delete All VA Findings</em>.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>SCR (Secure Code Review) projects</h2>
+    <p>SCR is a Testing Type (Platform) that uses the same project fields as a Cert-In Application project. Two imports are available on its Findings page:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Import</th><th>Accepted files</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Fortify</td><td><code>.fpr</code>, <code>.xml</code>, <code>.fvdl</code></td><td>A preview of the Fortify findings; you choose which to import. Instances suppressed in an <code>.fpr</code> are left out (an <code>.xml</code> / <code>.fvdl</code> carries no suppression data). Fortify supplies no CVSS, so none is set. The first data-flow trace becomes the finding's evidence. 500 MB by default, up to 1 GB (Settings &gt; Attachments).</td></tr>
+        <tr><td>Site Map</td><td><code>.csv</code>, <code>.xlsx</code></td><td>Header row <code>Directory Name</code>, <code>File Name</code>. A new upload replaces the previous one.</td></tr>
+      </tbody>
+    </table></div>
+    <ul class="plain">
+      <li>Fortify findings belong to that project only and are not added to the shared vulnerability library. <em>Delete All Fortify Findings</em> removes them together.</li>
+      <li>For PCI and VAPT, upload the template with SCR as its Activity Type. For Cert-In, an SCR project uses an Application template.</li>
+      <li>SCR reports leave the CVSS score and vector placeholders empty.</li>
     </ul>
   </section>
 
@@ -175,7 +194,7 @@
       <li><strong>Users</strong>: create, edit, bulk upload (CSV or XLSX), reset passwords and reactivate accounts. Reset users must set a new password at next sign-in.</li>
       <li><strong>Deleting a user</strong> deactivates the account immediately. Reactivating within 24 hours restores it with its data. After 24 hours, the data and files of projects the user owns are purged permanently.</li>
       <li><strong>Templates</strong>: see <a href="reports.html#templates">Reports</a>.</li>
-      <li><strong>Settings</strong>: application name, logo and favicon (browser tab, sidebar, login page), colours, table density, rows per page, severity names and colours (also printed in reports), session timeout, password policy, retention periods, storage and database size quotas (enforced: uploads are refused at the storage quota; creating or changing data is refused with HTTP 507 at the database quota, while viewing, deleting and Settings keep working), the largest file allowed for each accepted upload format (<em>Attachments</em>), which roles get which notifications, Issue Log columns, and date, time and number formats. Every setting takes effect for everyone once saved. Every change is recorded, with the person&rsquo;s name and role, in the settings history.</li>
+      <li><strong>Settings</strong>: application name, logo and favicon (browser tab, sidebar, login page), colours, table density, rows per page, severity names and colours (also printed in reports), session timeout, password policy, retention periods, storage and database size quotas (enforced: uploads are refused at the storage quota; creating or changing data is refused with HTTP 507 at the database quota, while viewing, deleting and Settings keep working), the largest file allowed for each accepted upload format (<em>Attachments</em>), which roles get which notifications, which roles may use each feature (<em>RBAC</em>), Issue Log columns, and date, time and number formats. Every setting takes effect for everyone once saved. Every change is recorded, with the person&rsquo;s name and role, in the settings history.</li>
       <li><strong>Updates</strong>: the <em>About</em> page shows the running version and newer releases. On a Docker installation, update by following <a href="deployment.html#upgrade">Upgrading</a>.</li>
     </ul>
   </section>

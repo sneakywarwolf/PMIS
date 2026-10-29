@@ -110,6 +110,7 @@ enum TemplateSubType {
   THICK_CLIENT
   NETWORK
   APPLICATION
+  SCR
 }
 
 enum TemplateFieldCategory {
@@ -239,6 +240,8 @@ model Project {
   networkScope       Json?    @map("network_scope")
   quarter            String?  @map("quarter")
   nmapPorts          Json?    @map("nmap_ports")
+  // SCR projects: uploaded Site Map rows [{ directoryName, fileName }].
+  siteMap            Json?    @map("site_map")
   projectVulnerabilities ProjectVulnerability[]
   // Structured rows for {Tool Name}/{Tool Version}/{Open Source/Licensed} —
   // toolsUsed (free text) is kept in sync as a derived summary so the

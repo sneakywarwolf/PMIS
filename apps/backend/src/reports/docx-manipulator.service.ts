@@ -70,6 +70,8 @@ export interface FindingData {
   severity: string;
   cvssScore: number | null;
   cvssVector: string | null;
+  /** SCR projects: CVSS score/vector placeholders print empty (Fortify supplies none and the report doesn't use it). */
+  hideCvss?: boolean;
   description: string;
   impact: string;
   remediation: string;
@@ -1418,10 +1420,16 @@ export class DocxManipulatorService {
 
       // Expand into one row per POC step
       const pocSteps = finding.pocSteps || [];
-      if (pocSteps.length === 0) {
+      // No steps, or only blank ones (no text, no screenshot): "POC: Observe the Screenshot." replaces "Step 1".
+      const stepIsBlank = (st: FindingData['pocSteps'][number]) => !st.description?.trim() && !(st.imageKeys?.length || st.imageKey);
+      if (pocSteps.every(stepIsBlank)) {
         const cells = Array.from(row.getElementsByTagNameNS(this.W_NS, 'tc'));
-        if (cells[0]) this.replaceCellValue(cells[0], 'POC: N/A');
-        if (cells[1]) this.replaceCellValue(cells[1], 'N/A');
+        if (cells[0]) this.setStepCellText(cells[0], 1, 'Observe the Screenshot.', 'POC:');
+        // Scan output (Nessus / Fortify trace) is still shown when there is one; otherwise the cell stays blank, never "N/A".
+        if (cells[1]) {
+          this.setCellMultilineText(cells[1], finding.pocText ?? '');
+          this.unbold(cells[1]);
+        }
         continue;
       }
       for (const step of pocSteps) {
@@ -1436,8 +1444,9 @@ export class DocxManipulatorService {
             this.setCellImages(doc, cells[1], imgs);
           } else if (finding.pocText) {
             this.setCellMultilineText(cells[1], finding.pocText);
+            this.unbold(cells[1]);
           } else {
-            this.replaceCellValue(cells[1], 'N/A');
+            this.replaceCellValue(cells[1], '');
           }
         }
         table.insertBefore(clone, row);
@@ -1491,7 +1500,7 @@ export class DocxManipulatorService {
       normalizedName = normalizedName.slice(3);
       if (normalizedName === 'output') return finding.pocText ?? '';
     }
-    const cvssCombined = finding.cvssScore != null
+    const cvssCombined = finding.hideCvss ? '' : finding.cvssScore != null
       ? `${finding.cvssScore}${finding.cvssVector ? ` | ${stripCvssPrefix(finding.cvssVector)}` : ''}`
       : 'N/A';
     const cveCwe = [finding.cveId, finding.cweId].filter(Boolean).join(' / ') || 'N/A';
@@ -1503,9 +1512,9 @@ export class DocxManipulatorService {
       finding_title: finding.title,
       vulnerability_name: finding.title,
       severity: finding.severityLabel || finding.severity,
-      cvss_score: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
-      score_value: finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
-      cvss_vector: stripCvssPrefix(finding.cvssVector) || 'N/A',
+      cvss_score: finding.hideCvss ? '' : finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
+      score_value: finding.hideCvss ? '' : finding.cvssScore != null ? String(finding.cvssScore) : 'N/A',
+      cvss_vector: finding.hideCvss ? '' : stripCvssPrefix(finding.cvssVector) || 'N/A',
       cvss: cvssCombined,
       cve_cwe: cveCwe,
       cve_id: finding.cveId || 'N/A',
@@ -1849,7 +1858,8 @@ export class DocxManipulatorService {
    * carries — and the label keeps the template's own wording/case
    * ("STEP 1: " vs "Step 1:") with just the number swapped.
    */
-  private setStepCellText(cell: Element, stepNo: number, description: string): void {
+  /** `customLabel` replaces the default "Step n:" label; only the label is bold, the description is not. */
+  private setStepCellText(cell: Element, stepNo: number, description: string, customLabel?: string): void {
     const doc = cell.ownerDocument;
     const para = cell.getElementsByTagNameNS(this.W_NS, 'p').item(0);
     if (!para) return;
@@ -1857,7 +1867,7 @@ export class DocxManipulatorService {
     const labelRun = Array.from(para.getElementsByTagNameNS(this.W_NS, 'r')).find((r) => this.getRunText(r).trim()) ?? null;
     const templateRPr = labelRun ? this.getFirstChildByTagName(labelRun, 'rPr') : null;
     const labelText = labelRun ? this.getRunText(labelRun) : '';
-    const label = (/\d/.test(labelText) ? labelText.replace(/\d+/, String(stepNo)) : `Step ${stepNo}:`).replace(/(\S)$/, '$1 ');
+    const label = customLabel ? customLabel.replace(/(\S)$/, '$1 ') : (/\d/.test(labelText) ? labelText.replace(/\d+/, String(stepNo)) : `Step ${stepNo}:`).replace(/(\S)$/, '$1 ');
 
     for (const run of Array.from(para.getElementsByTagNameNS(this.W_NS, 'r'))) {
       para.removeChild(run);
@@ -1872,6 +1882,8 @@ export class DocxManipulatorService {
             for (const n of Array.from(rPr.getElementsByTagNameNS(this.W_NS, tag))) rPr.removeChild(n);
           }
         }
+        // "POC:" is always bold, whatever the template's own label run looked like.
+        if (emphasis && customLabel && !rPr.getElementsByTagNameNS(this.W_NS, 'b').length) rPr.insertBefore(doc.createElementNS(this.W_NS, 'w:b'), rPr.firstChild);
         run.appendChild(rPr);
       }
       const t = doc.createElementNS(this.W_NS, 'w:t');
@@ -1904,6 +1916,15 @@ export class DocxManipulatorService {
       // Clear any other runs in the cell that held placeholder fragments
       for (const r of runs) {
         if (r !== target) this.setRunText(r, '');
+      }
+    }
+  }
+
+  /** Scan output printed in a snapshot cell is plain text, whatever weight the template's placeholder had. */
+  private unbold(cell: Element): void {
+    for (const rPr of Array.from(cell.getElementsByTagNameNS(this.W_NS, 'rPr')) as Element[]) {
+      for (const tag of ['b', 'bCs']) {
+        for (const n of Array.from(rPr.getElementsByTagNameNS(this.W_NS, tag)) as Element[]) rPr.removeChild(n);
       }
     }
   }

@@ -6,9 +6,10 @@ import { VulnerabilitiesService } from './vulnerabilities.service';
 import { parseUploadedFileToCsv } from '../common/bulk-upload-file.util';
 import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
 import { attachmentLimits } from '../common/attachment-formats';
-import { Roles } from '../auth/decorators/roles.decorator';
+
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User, UserRole } from '@prisma/client';
+import { Permission } from '../common/permissions';
 
 @ApiTags('Vulnerabilities')
 @Controller('vulnerabilities')
@@ -16,6 +17,7 @@ export class VulnerabilitiesController {
   constructor(private readonly vulnerabilitiesService: VulnerabilitiesService) {}
 
   @Get()
+  @Permission('vulns.view')
   @ApiOperation({ summary: 'Search vulnerabilities' })
   async findAll(
     @Query('search') search?: string,
@@ -29,19 +31,21 @@ export class VulnerabilitiesController {
   }
 
   @Get('pending')
-  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @Permission('vulns.review_requests')
   @ApiOperation({ summary: 'List pending vulnerability requests' })
   async findPending() {
     return this.vulnerabilitiesService.findPending();
   }
 
   @Get('severities')
+  @Permission('vulns.view')
   @ApiOperation({ summary: 'Get all severity counts' })
   async getSeverities() {
     return this.vulnerabilitiesService.getSeverities();
   }
 
   @Get('export')
+  @Permission('vulns.export')
   @ApiOperation({ summary: 'Export vulnerabilities to CSV' })
   async export(
     @Query('severity') severity: string,
@@ -56,6 +60,7 @@ export class VulnerabilitiesController {
   }
 
   @Get('sample-csv')
+  @Permission('vulns.bulk_upload')
   @ApiOperation({ summary: 'Download sample CSV format for bulk upload' })
   async getSampleCsv(@Res() response: Response) {
     const csv = this.vulnerabilitiesService.getSampleCsv();
@@ -65,33 +70,35 @@ export class VulnerabilitiesController {
   }
 
   @Get('change-tracker')
-  @Roles(UserRole.ADMIN)
+  @Permission('vulns.change_tracker')
   @ApiOperation({ summary: 'List all vulnerability changes across the system (Admin only)' })
   async getChangeTracker(@Query('limit') limit?: string) {
     return this.vulnerabilitiesService.getAllHistory(limit ? parseInt(limit) : 100);
   }
 
   @Get(':id')
+  @Permission('vulns.view')
   @ApiOperation({ summary: 'Get vulnerability by ID' })
   async findOne(@Param('id') id: string, @CurrentUser() user: User) {
     return this.vulnerabilitiesService.findOne(id, user);
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @Permission('vulns.create')
   @ApiOperation({ summary: 'Create vulnerability entry (Admin)' })
   async create(@Body() body: any, @CurrentUser('id') userId: string) {
     return this.vulnerabilitiesService.create(body, userId);
   }
 
   @Get(':id/history')
+  @Permission('vulns.view')
   @ApiOperation({ summary: 'Get audit history for a vulnerability' })
   async getHistory(@Param('id') id: string, @CurrentUser() user: User) {
     return this.vulnerabilitiesService.getHistory(id, user);
   }
 
   @Post('request')
-  @Roles(UserRole.TESTER, UserRole.TEAM_LEAD, UserRole.ADMIN)
+  @Permission('vulns.request_new')
   @ApiOperation({ summary: 'Request new vulnerability (Tester/TL/Admin)' })
   async request(
     @Body() body: any,
@@ -101,7 +108,7 @@ export class VulnerabilitiesController {
   }
 
   @Post('bulk-upload')
-  @Roles(UserRole.ADMIN)
+  @Permission('vulns.bulk_upload')
   @UseGuards(AttachmentSizeGuard('vulnBulk'))
   @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('vulnBulk')))
   @ApiConsumes('multipart/form-data')
@@ -129,49 +136,49 @@ export class VulnerabilitiesController {
   }
 
   @Put(':id')
-  @Roles(UserRole.ADMIN)
+  @Permission('vulns.edit')
   @ApiOperation({ summary: 'Update vulnerability (Admin)' })
   async update(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
     return this.vulnerabilitiesService.update(id, body, userId);
   }
 
   @Post(':id/change-request')
-  @Roles(UserRole.TESTER)
+  @Permission('vulns.propose_edit')
   @ApiOperation({ summary: 'Propose an edit to an existing vulnerability (Tester) — requires Admin/TL approval' })
   async createChangeRequest(@Param('id') id: string, @Body() body: any, @CurrentUser('id') userId: string) {
     return this.vulnerabilitiesService.createChangeRequest(id, body, userId);
   }
 
   @Get('change-requests/pending')
-  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @Permission('vulns.review_requests')
   @ApiOperation({ summary: 'List pending vulnerability edit requests (scoped to Admin or the requester\'s TL)' })
   async findPendingChangeRequests(@CurrentUser() user: User) {
     return this.vulnerabilitiesService.findPendingChangeRequests(user);
   }
 
   @Put('change-requests/:id/approve')
-  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @Permission('vulns.approve_changes')
   @ApiOperation({ summary: 'Approve a pending vulnerability edit request' })
   async approveChangeRequest(@Param('id') id: string, @CurrentUser() user: User) {
     return this.vulnerabilitiesService.approveChangeRequest(id, user);
   }
 
   @Put('change-requests/:id/reject')
-  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @Permission('vulns.approve_changes')
   @ApiOperation({ summary: 'Reject a pending vulnerability edit request' })
   async rejectChangeRequest(@Param('id') id: string, @CurrentUser() user: User) {
     return this.vulnerabilitiesService.rejectChangeRequest(id, user);
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN)
+  @Permission('vulns.delete')
   @ApiOperation({ summary: 'Soft delete vulnerability (Admin)' })
   async remove(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.vulnerabilitiesService.remove(id, userId);
   }
 
   @Put(':id/approve')
-  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @Permission('vulns.approve_requests')
   @ApiOperation({ summary: 'Approve vulnerability request' })
   async approve(
     @Param('id') id: string,
@@ -181,7 +188,7 @@ export class VulnerabilitiesController {
   }
 
   @Put(':id/reject')
-  @Roles(UserRole.ADMIN, UserRole.AVP, UserRole.TEAM_LEAD)
+  @Permission('vulns.approve_requests')
   @ApiOperation({ summary: 'Reject vulnerability request' })
   async reject(
     @Param('id') id: string,

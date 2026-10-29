@@ -4,8 +4,9 @@ import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } fro
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles, Public } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators/roles.decorator';
 import { User, UserRole, TemplateCategory, TemplateSubType, ReportFormat } from '@prisma/client';
+import { Permission } from '../common/permissions';
 
 @ApiTags('Reports & Templates')
 @Controller('reports')
@@ -14,7 +15,7 @@ export class ReportsController {
 
   // Template Management
   @Post('templates')
-  @Roles(UserRole.ADMIN)
+  @Permission('templates.upload')
   @UseGuards(AttachmentSizeGuard('template'))
   @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('template')))
   @ApiConsumes('multipart/form-data')
@@ -53,6 +54,7 @@ export class ReportsController {
   }
 
   @Get('templates')
+  @Permission('templates.view')
   @ApiOperation({ summary: 'List active templates with optional filtering' })
   async getTemplates(
     @Query('category') category?: TemplateCategory,
@@ -64,7 +66,7 @@ export class ReportsController {
   }
 
   @Get('templates/all')
-  @Roles(UserRole.ADMIN)
+  @Permission('templates.view_all')
   @ApiOperation({ summary: 'List all templates including inactive drafts (admin)' })
   async getAllTemplates(
     @Query('category') category?: TemplateCategory,
@@ -75,7 +77,7 @@ export class ReportsController {
   }
 
   @Post('templates/:id/fields')
-  @Roles(UserRole.ADMIN)
+  @Permission('templates.edit_fields')
   @ApiOperation({ summary: 'Manually add a field the extractor missed' })
   async addTemplateField(
     @Param('id') id: string,
@@ -86,7 +88,7 @@ export class ReportsController {
   }
 
   @Put('templates/fields/:fieldId')
-  @Roles(UserRole.ADMIN)
+  @Permission('templates.edit_fields')
   @ApiOperation({ summary: 'Edit a template field label/category/description/parameter mapping' })
   async updateTemplateField(
     @Param('fieldId') fieldId: string,
@@ -96,20 +98,21 @@ export class ReportsController {
   }
 
   @Get('templates/parameters')
-  @Roles(UserRole.ADMIN)
+  @Permission('templates.edit_fields')
   @ApiOperation({ summary: 'List canonical application parameters a template field can be mapped to' })
   getTemplateParameters() {
     return this.reportsService.getTemplateParameters();
   }
 
   @Get('templates/:id/fields')
+  @Permission('templates.view')
   @ApiOperation({ summary: 'Get extracted fields for a template' })
   async getTemplateFields(@Param('id') id: string) {
     return this.reportsService.getTemplateFields(id);
   }
 
   @Put('templates/:id/activate')
-  @Roles(UserRole.ADMIN)
+  @Permission('templates.activate')
   @ApiOperation({ summary: 'Activate template' })
   async activateTemplate(
     @Param('id') id: string,
@@ -122,7 +125,7 @@ export class ReportsController {
   }
 
   @Put('templates/:id/deactivate')
-  @Roles(UserRole.ADMIN)
+  @Permission('templates.activate')
   @ApiOperation({ summary: 'Deactivate template' })
   async deactivateTemplate(
     @Param('id') id: string,
@@ -135,7 +138,7 @@ export class ReportsController {
   }
 
   @Delete('templates/:id')
-  @Roles(UserRole.ADMIN)
+  @Permission('templates.delete')
   @ApiOperation({ summary: 'Permanently delete an inactive template (file + metadata + mappings)' })
   async deleteTemplate(
     @Param('id') id: string,
@@ -149,6 +152,7 @@ export class ReportsController {
 
   // Report Generation
   @Post('generate')
+  @Permission('reports.generate')
   @ApiOperation({ summary: 'Generate report — all data pulled automatically from project, profiles and findings' })
   async generateReport(
     @Body() body: { projectId: string; reportFormat?: ReportFormat },
@@ -188,12 +192,14 @@ export class ReportsController {
   }
 
   @Get('generate/:id/status')
+  @Permission('reports.generate')
   @ApiOperation({ summary: 'Poll a queued/in-progress report generation for completion' })
   async getGenerationStatus(@Param('id') id: string, @CurrentUser() user: User) {
     return this.reportsService.getReportGenerationStatus(id, user);
   }
 
   @Get('preflight/:projectId')
+  @Permission('reports.generate')
   @ApiOperation({ summary: 'Pre-generation completeness check (missing data report)' })
   async preflight(
     @Param('projectId') projectId: string,
@@ -203,12 +209,14 @@ export class ReportsController {
   }
 
   @Get('issue-log/:projectId')
+  @Permission('reports.issue_log')
   @ApiOperation({ summary: 'Generate the Issue Log CSV (columns per Admin Settings > Issue Log Parameters)' })
   async issueLog(@Param('projectId') projectId: string, @CurrentUser() user: User) {
     return this.reportsService.generateIssueLog(projectId, user);
   }
 
   @Get('history/:projectId')
+  @Permission('reports.history')
   @ApiOperation({ summary: 'Get report generation history for a project' })
   async getReportHistory(
     @Param('projectId') projectId: string,
@@ -218,6 +226,7 @@ export class ReportsController {
   }
 
   @Delete(':id')
+  @Permission('reports.delete')
   @ApiOperation({ summary: 'Delete a generated report (project owner or Admin only)' })
   async removeReport(
     @Param('id') id: string,

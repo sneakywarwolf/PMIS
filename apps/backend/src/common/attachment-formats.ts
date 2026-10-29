@@ -30,8 +30,10 @@ export const ATTACHMENT_PURPOSES: AttachmentPurpose[] = [
   { id: 'vulnBulk', label: 'Vulnerability library bulk upload', description: 'Admin upload of many library entries.' },
   { id: 'userBulk', label: 'User bulk upload', description: 'Admin upload of many users.' },
   { id: 'nessus', label: 'Nessus scan import', description: 'Scan results for a Network project. The file is read while it uploads and is not stored.' },
+  { id: 'fortify', label: 'SCR Fortify import', description: 'Fortify results (.fpr, .xml, .fvdl) for an SCR project. The file is read in memory and is not stored.' },
   { id: 'nmap', label: 'Nmap port scan import', description: 'Port scan results for a Network project.' },
   { id: 'scope', label: 'Network scope import', description: 'List of in-scope addresses for a Network project.' },
+  { id: 'siteMap', label: 'Site Map import', description: 'Directory and file list for an SCR project.' },
   { id: 'findingsImport', label: 'Project findings import', description: 'Findings added to one project from a spreadsheet.' },
 ];
 
@@ -52,12 +54,17 @@ export const ATTACHMENT_FORMATS: AttachmentFormat[] = [
   f('userBulk', 'xlsx', 'Excel workbook (.xlsx)', 10, 100),
   f('nessus', 'nessus', 'Nessus export (.nessus)', 500, 500),
   f('nessus', 'csv', 'Nessus CSV export', 500, 500),
+  f('fortify', 'fpr', 'Fortify project (.fpr)', 500, 1024),
+  f('fortify', 'xml', 'Fortify FVDL XML (.xml)', 500, 1024),
+  f('fortify', 'fvdl', 'Fortify FVDL (.fvdl)', 500, 1024),
   f('nmap', 'xml', 'Nmap XML (.xml)', 25, 100),
   f('nmap', 'txt', 'Nmap text output (.txt)', 25, 100),
   f('nmap', 'nmap', 'Nmap output (.nmap)', 25, 100),
   f('scope', 'txt', 'Text list (.txt)', 25, 100),
   f('scope', 'csv', 'CSV file', 25, 100),
   f('scope', 'xlsx', 'Excel workbook (.xlsx)', 25, 100),
+  f('siteMap', 'csv', 'CSV file', 25, 100),
+  f('siteMap', 'xlsx', 'Excel workbook (.xlsx)', 25, 100),
   f('findingsImport', 'csv', 'CSV file', 100, 100),
   f('findingsImport', 'xlsx', 'Excel workbook (.xlsx)', 100, 100),
 ];

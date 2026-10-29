@@ -2,8 +2,9 @@ import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { User, UserRole } from '@prisma/client';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+
 import { PresenceService } from './presence.service';
+import { Permission } from '../common/permissions';
 
 @ApiTags('Presence')
 @Controller('presence')
@@ -23,7 +24,7 @@ export class PresenceController {
   }
 
   @Get('active-users')
-  @Roles(UserRole.ADMIN, UserRole.TEAM_LEAD, UserRole.AVP)
+  @Permission('dashboard.live_users')
   @ApiOperation({ summary: 'Signed-in users (active and idle) within the caller’s scope (Admin, Team Lead, AVP only)' })
   async activeUsers(@CurrentUser() user: User) {
     const users = await this.presence.listFor(user);

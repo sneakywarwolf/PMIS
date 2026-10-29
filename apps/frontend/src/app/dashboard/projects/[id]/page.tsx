@@ -33,6 +33,7 @@ import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
 import { PasswordGeneratorButton } from '@/components/password-generator-button';
 import { NessusImportDialog } from '@/components/nessus-import-dialog';
+import { FortifyImportDialog } from '@/components/fortify-import-dialog';
 import { PillSwitch } from '@/components/pill-switch';
 import { useSeverity } from '@/lib/severity';
 import { ProjectFindingsImportDialog, ImportFormatInfo, IMPORT_MAX_BYTES } from '@/components/project-findings-import-dialog';
@@ -154,6 +155,7 @@ interface Project {
   totalScopeCount?: number;
   networkScope?: { ip: string; domainHostname: string; purpose: string }[];
   toolsUsedTable?: { name: string; version: string; licenseType: string }[];
+  siteMap?: { directoryName: string; fileName: string }[] | null;
   nmapPorts?: { ip: string; port: string; protocol: string; service: string; status: string }[];
   quarter?: string;
   complianceType?: string;
@@ -197,7 +199,7 @@ export default function ProjectDetailPage() {
   const { id } = useParams();
   const router = useRouter();
   const { user } = useAuth();
-  const { settings: appSettings } = useBranding();
+  const { settings: appSettings, can } = useBranding();
   const confirmDialog = useConfirm();
   const showToast = useToast();
   const [project, setProject] = useState<Project | null>(null);
@@ -211,6 +213,8 @@ export default function ProjectDetailPage() {
   const [showFormatMenu, setShowFormatMenu] = useState(false);
   const [nessusCount, setNessusCount] = useState(0);
   const [deletingNessus, setDeletingNessus] = useState(false);
+  const [fortifyCount, setFortifyCount] = useState(0);
+  const [deletingFortify, setDeletingFortify] = useState(false);
   const [findingFilter, setFindingFilter] = useState<'ALL' | 'VA' | 'PT'>('ALL');
 
   const fetchProject = useCallback(async () => {
@@ -220,6 +224,9 @@ export default function ProjectDetailPage() {
       // How many Nessus-imported VA findings the caller may bulk-delete (drives the "Delete All VA Findings" button).
       if (response.data.subType === 'NETWORK') {
         api.get(`/findings/project/${id}/nessus-count`).then((r) => setNessusCount(r.data.count)).catch(() => setNessusCount(0));
+      }
+      if (response.data.subType === 'SCR') {
+        api.get(`/findings/project/${id}/fortify-count`).then((r) => setFortifyCount(r.data.count)).catch(() => setFortifyCount(0));
       }
     } catch (error) {
       console.error('Failed to fetch project:', error);
@@ -251,6 +258,28 @@ export default function ProjectDetailPage() {
       showToast(error.response?.data?.message || 'Failed to delete VA findings — nothing was changed.', 'error');
     } finally {
       setDeletingNessus(false);
+      await fetchProject();
+    }
+  };
+
+  // Deletes ALL of this project's Fortify-imported findings (server-side), after an explicit confirm.
+  const handleDeleteAllFortify = async () => {
+    if (!project) return;
+    const ok = await confirmDialog({
+      title: 'Delete all Fortify findings?',
+      message: `This will permanently delete all ${fortifyCount} Fortify-imported finding${fortifyCount === 1 ? '' : 's'} in this project. Other findings, the Vulnerability Database and reports are not affected. This cannot be undone.`,
+      confirmLabel: `Delete ${fortifyCount} Fortify finding${fortifyCount === 1 ? '' : 's'}`,
+      danger: true,
+    });
+    if (!ok) return;
+    setDeletingFortify(true);
+    try {
+      const res = await api.delete(`/findings/project/${project.id}/fortify`);
+      showToast(res.data.deleted === 0 ? 'No Fortify-imported findings were left to delete.' : `Deleted ${res.data.deleted} Fortify-imported finding${res.data.deleted === 1 ? '' : 's'}.`, 'success');
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to delete Fortify findings — nothing was changed.', 'error');
+    } finally {
+      setDeletingFortify(false);
       await fetchProject();
     }
   };
@@ -331,6 +360,41 @@ export default function ProjectDetailPage() {
       return;
     }
     setNessusFile(file);
+  };
+
+  const siteMapInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingSiteMap, setUploadingSiteMap] = useState(false);
+  const handleSiteMapFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !project) return;
+    setUploadingSiteMap(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post(`/projects/${project.id}/site-map`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const { rowsImported, duplicates, errorCount } = res.data;
+      showToast(`Site Map uploaded: ${rowsImported} row${rowsImported === 1 ? '' : 's'}${duplicates ? `, ${duplicates} duplicate${duplicates === 1 ? '' : 's'} skipped` : ''}${errorCount ? `, ${errorCount} row${errorCount === 1 ? '' : 's'} rejected` : ''}.`, errorCount ? 'error' : 'success');
+      await fetchProject();
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to upload the Site Map — nothing was changed.', 'error');
+    } finally {
+      setUploadingSiteMap(false);
+    }
+  };
+
+  const fortifyInputRef = useRef<HTMLInputElement>(null);
+  const [fortifyFile, setFortifyFile] = useState<File | null>(null);
+  const handleFortifyFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    // The most an Admin can allow for a Fortify result file (Settings > Attachments); the server checks the limit actually set.
+    if (file.size > 1024 * 1024 * 1024) {
+      showToast('This file is larger than 1 GB, which is the highest upload limit.', 'error');
+      return;
+    }
+    setFortifyFile(file);
   };
 
   const handleGenerateReport = async (reportFormat: 'WORD' | 'EXCEL' = 'WORD') => {
@@ -420,7 +484,7 @@ export default function ProjectDetailPage() {
           <h1 className="text-2xl font-bold text-white">{project.name}</h1>
           <p className="text-gray-400 text-sm">{project.clientName}</p>
         </div>
-        {user?.role === 'ADMIN' && (
+        {can('projects.delete') && (
           <button
             onClick={handleDeleteProject}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-all text-sm"
@@ -471,13 +535,15 @@ export default function ProjectDetailPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">Project Details<ChangedMark changes={[...changesFor('name'), ...changesFor('clientName')]} /></h2>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowEditModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-medium transition-all"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              Edit
-            </button>
+            {can('projects.edit') && (
+              <button
+                onClick={() => setShowEditModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 text-xs font-medium transition-all"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edit
+              </button>
+            )}
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[project.status] || 'bg-gray-700 text-gray-300'}`}>
               {project.status.replace('_', ' ')}
             </span>
@@ -548,7 +614,7 @@ export default function ProjectDetailPage() {
           )}
           <InfoField label="Quarter/Frequency" value={project.quarter || 'N/A'} changes={changesFor('quarter')} />
           <InfoField label="Compliance Type" value={project.complianceType || 'N/A'} changes={changesFor('complianceType')} />
-          {user?.role !== 'TESTER' ? (
+          {can('projects.reassign') ? (
             <AssignedTesterField project={project} onChanged={fetchProject} />
           ) : (
             <InfoField label="Tester" value={project.tester.fullName || project.tester.username} />
@@ -683,7 +749,7 @@ export default function ProjectDetailPage() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <h2 className="text-lg font-semibold text-white">Findings ({project.findings.length})</h2>
           <div className="flex items-center gap-2">
-            {canEditFindings && (
+            {canEditFindings && can('findings.add') && (
               <button
                 onClick={() => { setEditingFinding(null); setShowAddModal(true); }}
                 className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all text-sm"
@@ -692,7 +758,7 @@ export default function ProjectDetailPage() {
                 Add Finding
               </button>
             )}
-            {canEditFindings && project.subType === 'NETWORK' && (
+            {canEditFindings && project.subType === 'NETWORK' && (can('projects.scope_import') || can('findings.nessus_import')) && (
               <>
                 <input
                   ref={nmapInputRef}
@@ -701,7 +767,7 @@ export default function ProjectDetailPage() {
                   className="hidden"
                   onChange={handleNmapFileSelected}
                 />
-                <button
+                {can('projects.scope_import') && <button
                   onClick={() => nmapInputRef.current?.click()}
                   disabled={uploadingNmap}
                   title="Upload Nmap port scan result (adds ports)"
@@ -709,7 +775,7 @@ export default function ProjectDetailPage() {
                 >
                   {uploadingNmap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                   Nmap Ports
-                </button>
+                </button>}
                 <input
                   ref={nessusInputRef}
                   type="file"
@@ -717,14 +783,14 @@ export default function ProjectDetailPage() {
                   className="hidden"
                   onChange={handleNessusFileSelected}
                 />
-                <button
+                {can('findings.nessus_import') && <button
                   onClick={() => nessusInputRef.current?.click()}
-                  title="Add VA findings here"
+                  title="Import VA findings from a Nessus scan. Supported formats: .nessus (XML), .csv"
                   className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm"
                 >
                   <ShieldAlert className="w-4 h-4" />
                   Nessus
-                </button>
+                </button>}
                 {nessusFile && (
                   <NessusImportDialog
                     projectId={project.id}
@@ -735,14 +801,44 @@ export default function ProjectDetailPage() {
                 )}
               </>
             )}
-            <button
+            {canEditFindings && project.subType === 'SCR' && can('projects.scope_import') && (
+              <>
+                <input ref={siteMapInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleSiteMapFileSelected} />
+                <button
+                  onClick={() => siteMapInputRef.current?.click()}
+                  disabled={uploadingSiteMap}
+                  title={'Upload the Site Map. Accepted formats: .csv, .xlsx\nHeader row: Directory Name, File Name\nA new upload replaces the previous Site Map.'}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm disabled:opacity-50"
+                >
+                  {uploadingSiteMap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  Site Map{project.siteMap?.length ? ` (${project.siteMap.length})` : ''}
+                </button>
+              </>
+            )}
+            {canEditFindings && project.subType === 'SCR' && can('findings.fortify_import') && (
+              <>
+                <input ref={fortifyInputRef} type="file" accept=".fpr,.xml,.fvdl" className="hidden" onChange={handleFortifyFileSelected} />
+                <button
+                  onClick={() => fortifyInputRef.current?.click()}
+                  title="Import SCR findings from a Fortify scan. Supported formats: .fpr, .xml, .fvdl (FVDL)"
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-white rounded-lg transition-all text-sm"
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  Fortify
+                </button>
+                {fortifyFile && (
+                  <FortifyImportDialog projectId={project.id} file={fortifyFile} onClose={() => setFortifyFile(null)} onImported={fetchProject} />
+                )}
+              </>
+            )}
+            {can('reports.issue_log') && <button
               onClick={handleGenerateIssueLog}
               className="flex items-center gap-2 px-4 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/20 rounded-lg transition-all text-sm"
             >
               <AlertTriangle className="w-4 h-4" />
               Issue Log
-            </button>
-            <div className="relative">
+            </button>}
+            {can('reports.generate') && <div className="relative">
               <button
                 onClick={() => (project.subType === 'NETWORK' ? setShowFormatMenu((v) => !v) : handleGenerateReport())}
                 disabled={generatingReport || !reportReady}
@@ -765,7 +861,7 @@ export default function ProjectDetailPage() {
                   </button>
                 </div>
               )}
-            </div>
+            </div>}
             <PasswordGeneratorButton />
           </div>
         </div>
@@ -791,7 +887,7 @@ export default function ProjectDetailPage() {
                 </button>
               );
             })}
-            {canEditFindings && nessusCount > 0 && (
+            {canEditFindings && can('findings.nessus_delete_all') && nessusCount > 0 && (
               <button
                 onClick={handleDeleteAllNessus}
                 disabled={deletingNessus}
@@ -805,11 +901,25 @@ export default function ProjectDetailPage() {
           </div>
         )}
 
+        {project.subType === 'SCR' && canEditFindings && can('findings.fortify_delete_all') && fortifyCount > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleDeleteAllFortify}
+              disabled={deletingFortify}
+              title="Permanently delete every Fortify-imported finding in this project"
+              className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+            >
+              {deletingFortify ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete All Fortify Findings ({fortifyCount})
+            </button>
+          </div>
+        )}
+
         {project.findings.length === 0 ? (
           <div className="text-center py-12 glass-card rounded-xl">
             <ShieldAlert className="w-12 h-12 text-gray-600 mx-auto mb-3" />
             <p className="text-gray-400">No findings yet</p>
-            {canEditFindings && (
+            {canEditFindings && can('findings.add') && (
               <button
                 onClick={() => { setEditingFinding(null); setShowAddModal(true); }}
                 className="mt-2 text-emerald-400 hover:text-emerald-300 text-sm"
@@ -828,7 +938,8 @@ export default function ProjectDetailPage() {
                 key={finding.id}
                 finding={finding}
                 index={index}
-                canEdit={canEditFindings}
+                canEdit={canEditFindings && can('findings.edit')}
+                canDelete={canEditFindings && can('findings.delete')}
                 network={project.subType === 'NETWORK'}
                 typeIndicator={project.subType === 'NETWORK' && findingFilter === 'ALL' ? finding.findingType ?? null : null}
                 onEdit={() => { setEditingFinding(finding); setShowAddModal(true); }}
@@ -839,11 +950,13 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      <GeneratedReportsSection
-        projectId={project.id}
-        refreshKey={reportResult}
-        canDelete={user?.role === 'ADMIN' || user?.id === project.tester.id}
-      />
+      {can('reports.history') && (
+        <GeneratedReportsSection
+          projectId={project.id}
+          refreshKey={reportResult}
+          canDelete={can('reports.delete') && (user?.role === 'ADMIN' || user?.id === project.tester.id)}
+        />
+      )}
 
       {/* Add/Edit Finding Modal */}
       {showAddModal && (
@@ -1316,10 +1429,11 @@ function InfoField({ label, value, changes = [] }: { label: string; value: strin
   );
 }
 
-function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, onDelete }: {
+function FindingCard({ finding, index, canEdit, canDelete, network, typeIndicator, onEdit, onDelete }: {
   finding: Finding;
   index: number;
   canEdit: boolean;
+  canDelete: boolean;
   // Network projects: show CVSS vector and CVE IDs, and the VA/PT indicator instead of the classification badge.
   network: boolean;
   // 'VA' | 'PT' only while the All tab is selected; null under a VA/PT tab (the tab already says which).
@@ -1330,6 +1444,8 @@ function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, 
   const sev = useSeverity();
   const [expanded, setExpanded] = useState(false);
   const cvss = finding.cvssScoreOverride ?? finding.vulnerability.cvssScore ?? '-';
+  // An overridden CVSS score (e.g. from the calculator) decides the severity, as it does in the reports.
+  const severity = finding.cvssScoreOverride != null ? (cvssSeverity(finding.cvssScoreOverride) === 'None' ? 'Info' : cvssSeverity(finding.cvssScoreOverride)) : finding.vulnerability.severity;
 
   // PoC completion indicator — backend getPocReadiness is the single source of truth
   const pocComplete = finding.pocComplete;
@@ -1357,8 +1473,8 @@ function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
             <h3 className="text-sm font-medium text-white truncate">{finding.vulnerability.name}</h3>
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={sev.badgeStyle(finding.vulnerability.severity)}>
-              {sev.label(finding.vulnerability.severity)}
+            <span className="px-2 py-0.5 rounded-full text-xs font-medium border" style={sev.badgeStyle(severity)}>
+              {sev.label(severity)}
             </span>
             {!network && finding.classification && (
               <span className="px-2 py-0.5 rounded-full text-xs font-medium border bg-cyan-500/10 text-cyan-400 border-cyan-500/20">
@@ -1398,6 +1514,11 @@ function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, 
             CVSS: {cvss} {finding.cvssScoreOverride !== null && finding.cvssScoreOverride !== undefined && (
               <span className="text-amber-400">(overridden)</span>
             )}
+            {finding.classification && finding.vulnerability.cvssScore == null && finding.cvssScoreOverride == null && (
+              <span className="inline-flex align-middle ml-1 text-amber-400" title="No CVSS score in Nessus" aria-label="No CVSS score in Nessus">
+                <AlertCircle className="w-3 h-3" />
+              </span>
+            )}
             {network && (
               <>
                 {' | '}
@@ -1420,20 +1541,20 @@ function FindingCard({ finding, index, canEdit, network, typeIndicator, onEdit, 
             {pocComplete ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
           </span>
           {canEdit && (
-            <>
-              <button
-                onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); onDelete(); }}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </>
+            <button
+              onClick={(e) => { e.stopPropagation(); onEdit(); }}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           )}
           {expanded ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
         </div>
@@ -1530,6 +1651,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
   onSaved: () => void;
 }) {
   const sev = useSeverity();
+  const { can } = useBranding();
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchCategory, setSearchCategory] = useState<'BOTH' | 'APPLICATION_API' | 'NETWORK'>('BOTH');
@@ -1932,16 +2054,20 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                     >
                       Add Manually
                     </button>
-                    <input ref={importInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleImportSelected} />
-                    <button
-                      type="button"
-                      onClick={() => importInputRef.current?.click()}
-                      title="Import findings for this project from a .csv or .xlsx file (project only; not added to the Vulnerability Database)"
-                      className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm"
-                    >
-                      Import Project Findings
-                    </button>
-                    <ImportFormatInfo />
+                    {can('findings.file_import') && (
+                      <>
+                        <input ref={importInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleImportSelected} />
+                        <button
+                          type="button"
+                          onClick={() => importInputRef.current?.click()}
+                          title="Import findings for this project from a .csv or .xlsx file (project only; not added to the Vulnerability Database)"
+                          className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm"
+                        >
+                          Import Project Findings
+                        </button>
+                        <ImportFormatInfo />
+                      </>
+                    )}
                   </div>
                   <div className="flex justify-end gap-3">
                   <button

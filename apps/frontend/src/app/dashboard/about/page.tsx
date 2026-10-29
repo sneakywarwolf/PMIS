@@ -5,6 +5,7 @@ import { Mascot } from 'page-mascot';
 import { BookOpen, CalendarClock, ExternalLink, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
 import { formatDateTime } from '@/lib/datetime';
+import { useBranding } from '@/contexts/branding-context';
 
 interface Release {
   version: string;
@@ -48,7 +49,8 @@ function defaultWhen() {
 
 export default function AboutPage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { can } = useBranding();
+  const isAdmin = can('updates.schedule');
   const [status, setStatus] = useState<AboutStatus | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'check' | 'schedule' | 'cancel' | null>(null);

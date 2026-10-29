@@ -4,10 +4,12 @@ import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } fro
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { Roles } from '../auth/decorators/roles.decorator';
+
 import { CreateProjectDto, UpdateProjectDto, ReassignProjectDto } from './dto/project.dto';
 import { User, UserRole } from '@prisma/client';
 import { parseNetworkScopeFile } from '../common/network-scope-import.util';
+import { parseSiteMapFile } from '../common/site-map-import.util';
+import { Permission } from '../common/permissions';
 
 @ApiTags('Projects')
 @Controller('projects')
@@ -15,6 +17,7 @@ export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
   @Get()
+  @Permission('projects.view')
   @ApiOperation({ summary: 'List projects (role-filtered)' })
   async findAll(@CurrentUser() user: User) {
     return this.projectsService.findAll(user);
@@ -22,18 +25,21 @@ export class ProjectsController {
 
   // Declared before ':id' so "search" isn't treated as a project id.
   @Get('search')
+  @Permission('projects.view')
   @ApiOperation({ summary: 'Projects the caller may open, for the Ctrl+K palette' })
   async search(@CurrentUser() user: User) {
     return this.projectsService.searchProjects(user);
   }
 
   @Get(':id')
+  @Permission('projects.view')
   @ApiOperation({ summary: 'Get project by ID' })
   async findOne(@Param('id') id: string, @CurrentUser() user: User) {
     return this.projectsService.findOne(id, user);
   }
 
   @Post()
+  @Permission('projects.create')
   @ApiOperation({ summary: 'Create new project' })
   async create(
     @Body() dto: CreateProjectDto,
@@ -51,6 +57,7 @@ export class ProjectsController {
   }
 
   @Put(':id')
+  @Permission('projects.edit')
   @ApiOperation({ summary: 'Update project' })
   async update(
     @Param('id') id: string,
@@ -64,7 +71,7 @@ export class ProjectsController {
   }
 
   @Post(':id/reassign')
-  @Roles(UserRole.TEAM_LEAD, UserRole.AVP, UserRole.ADMIN)
+  @Permission('projects.reassign')
   @ApiOperation({ summary: 'Reassign project to another tester' })
   async reassign(
     @Param('id') id: string,
@@ -78,7 +85,7 @@ export class ProjectsController {
   }
 
   @Delete(':id')
-  @Roles(UserRole.ADMIN)
+  @Permission('projects.delete')
   @ApiOperation({ summary: 'Permanently delete a project and all related data (Admin only)' })
   async remove(@Param('id') id: string, @CurrentUser('id') adminId: string, @Req() request: any) {
     const ipAddress = request.ip || 'unknown';
@@ -88,6 +95,7 @@ export class ProjectsController {
 
   // Stateless: validates and returns rows; the caller adds them to its scope table and saves with the project as usual.
   @Post('network-scope/parse')
+  @Permission('projects.scope_import')
   @UseGuards(AttachmentSizeGuard('scope'))
   @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('scope')))
   @ApiConsumes('multipart/form-data')
@@ -106,7 +114,19 @@ export class ProjectsController {
     return parseNetworkScopeFile(file, rows);
   }
 
+  @Post(':id/site-map')
+  @Permission('projects.scope_import')
+  @UseGuards(AttachmentSizeGuard('siteMap'))
+  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('siteMap')))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload the Site Map (.csv/.xlsx with Directory Name, File Name) of an SCR project; replaces the previous one' })
+  async importSiteMap(@Param('id') id: string, @UploadedFile() file: Express.Multer.File, @CurrentUser() user: User) {
+    assertAttachmentSize('siteMap', file);
+    return this.projectsService.importSiteMap(id, file, user);
+  }
+
   @Post(':id/nmap-import')
+  @Permission('projects.scope_import')
   @UseGuards(AttachmentSizeGuard('nmap'))
   @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('nmap')))
   @ApiConsumes('multipart/form-data')

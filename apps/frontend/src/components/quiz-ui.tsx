@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Award, Flame, Lock, Medal, Star, Target, Trophy, Zap } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
 
 /** Shared hover treatment for Quiz controls (same turquoise glass used app-wide). */
 export const QUIZ_HOVER =
@@ -31,7 +32,8 @@ export function QuizHeader({ title, subtitle }: { title: string; subtitle?: stri
   const pathname = usePathname();
   const { user } = useAuth();
   const m = useQuizMotion();
-  const tabs = user?.role === 'ADMIN' ? [...TABS, { href: '/dashboard/quiz/manage', label: 'Manage' }] : TABS;
+  const { can } = useBranding();
+  const tabs = can('quiz.manage_questions') ? [...TABS, { href: '/dashboard/quiz/manage', label: 'Manage' }] : TABS;
 
   return (
     <div className="space-y-4">

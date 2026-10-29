@@ -75,3 +75,11 @@ describe('upload size checks', () => {
     expect(() => guard.canActivate(ctx(20 * MB))).toThrow(PayloadTooLargeException);
   });
 });
+
+describe('Fortify (SCR) upload limits', () => {
+  it('defaults to 500 MB for .fpr / .xml / .fvdl and can be raised to 1 GB', () => {
+    attachmentLimits.set(undefined);
+    for (const n of ['a.fpr', 'a.xml', 'a.fvdl']) expect(attachmentLimits.maxBytes('fortify', n)).toBe(500 * 1024 * 1024);
+    expect(ATTACHMENT_FORMATS.filter((f) => f.purpose === 'fortify').every((f) => f.maxMb === 1024)).toBe(true);
+  });
+});

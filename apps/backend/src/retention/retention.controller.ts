@@ -5,6 +5,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { projectScopeWhere } from '../common/project-access.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { Permission } from '../common/permissions';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -17,6 +18,7 @@ export class RetentionController {
   ) {}
 
   @Get('tracker')
+  @Permission('retention.view')
   @ApiOperation({ summary: 'Completed projects with their retention countdown (visible to all roles)' })
   async getTracker(@CurrentUser() user: User) {
     const { settings } = await this.settingsService.get();

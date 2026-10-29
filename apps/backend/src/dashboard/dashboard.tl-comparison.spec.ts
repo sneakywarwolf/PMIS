@@ -52,7 +52,9 @@ describe('DashboardService.getTlComparison', () => {
   });
 
   it('is restricted to ADMIN/AVP on the controller', () => {
-    const roles = Reflect.getMetadata('roles', DashboardController.prototype.getTlComparison);
-    expect([...roles].sort()).toEqual(['ADMIN', 'AVP']);
+    const key = Reflect.getMetadata('permission', DashboardController.prototype.getTlComparison);
+    expect(key).toBe('dashboard.tl_comparison');
+    const { permissionRules } = require('../common/permissions');
+    expect(['ADMIN', 'AVP', 'TEAM_LEAD', 'TESTER'].filter((r) => permissionRules.can(r, key))).toEqual(['ADMIN', 'AVP']);
   });
 });

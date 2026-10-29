@@ -80,6 +80,7 @@ export const PLATFORM_TYPE_LABELS: Record<string, string> = {
   THICK_CLIENT: 'Thick Client',
   NETWORK: 'Network',
   APPLICATION: 'Application',
+  SCR: 'Secure Code Review',
 };
 
 /**

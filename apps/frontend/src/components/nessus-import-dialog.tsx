@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { X, Loader2, Search } from 'lucide-react';
+import { UploadStatus, useUploadStatus } from '@/components/upload-status';
+import { describeUploadError } from '@/lib/upload-error';
 import { api } from '@/contexts/auth-context';
 import { stripCvssPrefix } from '@/lib/cvss';
 import { useSeverity } from '@/lib/severity';
@@ -45,8 +47,9 @@ const STATUS: Record<Status, { label: string; cls: string; hint: string; selecta
 const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Info'];
 
 // Nessus mixes real vulnerabilities with informational plugins (OS fingerprint, open ports,
-// service detection...). Only plugins that carry a CVSS score are treated as vulnerabilities.
-const isVuln = (i: Item) => i.cvssScore !== null && i.cvssScore > 0;
+// service detection...). A plugin is a vulnerability if it carries a CVSS score OR Nessus rates its risk above Info
+// (some Medium/Low plugins ship without any CVSS score and must still be pre-selected).
+const isVuln = (i: Item) => (i.cvssScore !== null && i.cvssScore > 0) || i.severity !== 'Info';
 
 export function NessusImportDialog({
   projectId,
@@ -67,6 +70,8 @@ export function NessusImportDialog({
   const [severity, setSeverity] = useState('');
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const upload = useUploadStatus();
+  const [attempt, setAttempt] = useState(0);
 
   const body = () => {
     const form = new FormData();
@@ -76,22 +81,19 @@ export function NessusImportDialog({
   };
 
   useEffect(() => {
+    upload.begin(file.size);
     api
-      .post('/findings/nessus/preview', body(), { headers: { 'Content-Type': 'multipart/form-data' } })
+      .post('/findings/nessus/preview', body(), { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress })
       .then((res) => {
         const found: Item[] = res.data.items;
         setItems(found);
         // Pre-select every importable vulnerability (has a CVSS score); informational stays opt-in.
         setSelected(new Set(found.filter((i) => isVuln(i) && STATUS[i.status].selectable).map((i) => i.key)));
       })
-      .catch((e) =>
-        setError(
-          e.response?.data?.message ||
-            (e.response?.status === 413 ? 'This file is larger than the upload limit set by your Admin.' : 'Could not read this file.'),
-        ),
-      );
+      .catch((e) => setError(describeUploadError(e, { fileSize: file.size, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Could not read this file.')))
+      .finally(() => upload.finish());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [attempt]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !importing && close();
@@ -134,14 +136,16 @@ export function NessusImportDialog({
   const runImport = async () => {
     setImporting(true);
     setError('');
+    upload.begin(file.size);
     try {
       const form = body();
       form.append('selected', JSON.stringify([...selected]));
-      const res = await api.post('/findings/nessus/import', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const res = await api.post('/findings/nessus/import', form, { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress });
       setResult(res.data);
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Import failed.');
+      setError(describeUploadError(e, { fileSize: file.size, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Import failed. Nothing was imported.'));
     } finally {
+      upload.finish();
       setImporting(false);
     }
   };
@@ -215,9 +219,17 @@ export function NessusImportDialog({
             ))}
           </div>
         ) : error && !items ? (
-          <p role="alert" className="m-6 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
+          <div className="m-6 space-y-3">
+            <p role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{error}</p>
+            <button
+              onClick={() => { setError(''); setAttempt((a) => a + 1); }}
+              className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-sm"
+            >
+              Try again
+            </button>
+          </div>
         ) : !items ? (
-          <div className="p-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-emerald-400" /></div>
+          <div className="p-6"><UploadStatus snap={upload.snap} fileName={file.name} working="Reading the scan and matching plugins" /></div>
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-3 px-6 py-3 border-b border-gray-800">
@@ -280,6 +292,7 @@ export function NessusImportDialog({
               </table>
             </div>
 
+            {importing && <div className="px-4 pt-4"><UploadStatus snap={upload.snap} fileName={file.name} working="Creating the findings" /></div>}
             <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-t border-gray-700">
               <p className="text-xs text-amber-400">
                 {infoSelected > 0 && `${infoSelected} informational item${infoSelected === 1 ? ' is' : 's are'} selected and will be imported as findings. `}

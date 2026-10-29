@@ -4,6 +4,7 @@ import { SettingsService } from './settings.service';
 import { Public, Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole } from '@prisma/client';
+import { permissionRules } from '../common/permissions';
 
 @ApiTags('Settings')
 @Controller('settings')
@@ -22,6 +23,12 @@ export class SettingsController {
   @ApiOperation({ summary: 'Get effective application settings (any authenticated user)' })
   async get() {
     return this.settingsService.get();
+  }
+
+  @Get('my-permissions')
+  @ApiOperation({ summary: 'What the caller\'s role may do (Settings > RBAC), for showing and hiding features' })
+  myPermissions(@CurrentUser('role') role: UserRole) {
+    return { role, permissions: permissionRules.forRole(role) };
   }
 
   @Put()

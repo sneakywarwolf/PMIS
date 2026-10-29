@@ -10,6 +10,7 @@ import { attachmentLimits } from '../common/attachment-formats';
 import { parseCsv, validateExactCsvHeaders } from '../common/csv-validation.util';
 import { ProjectFindingFields, validateProjectFindingFields } from '../common/project-finding-fields.util';
 import { VULN_INCLUDE, withVulnerability } from '../common/finding-vulnerability.util';
+import { permissionRules } from '../common/permissions';
 
 /** Most data rows one import may carry. */
 export const IMPORT_MAX_ROWS = 5000;
@@ -42,7 +43,6 @@ interface ParsedRow {
 }
 
 /** Roles that may also ask for a vulnerability to be added to the global DB (same as POST /vulnerabilities/request). */
-const SYNC_ROLES: UserRole[] = [UserRole.TESTER, UserRole.TEAM_LEAD, UserRole.ADMIN];
 
 /**
  * Findings that belong to ONE project and were not picked from the Vulnerability DB: entered by hand, or imported
@@ -226,7 +226,7 @@ export class ProjectFindingsService {
    * already has, or is already waiting on, an entry with that name, no second request is made.
    */
   private async requestGlobalEntry(fields: ProjectFindingFields, category: 'NETWORK' | 'APPLICATION_API', user: User): Promise<SyncOutcome> {
-    if (!SYNC_ROLES.includes(user.role)) return { status: 'not_permitted' };
+    if (!permissionRules.can(user.role, 'vulns.request_new')) return { status: 'not_permitted' };
     try {
       const outcome = await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`vuln-request:${normalizeVulnName(fields.name)}`}))`;

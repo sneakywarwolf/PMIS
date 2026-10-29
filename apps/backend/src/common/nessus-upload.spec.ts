@@ -66,7 +66,7 @@ describe('streaming .nessus parser', () => {
   it('still rejects empty, binary, wrong-root, malformed and finding-less input', () => {
     expect(() => new NessusXmlStream().end()).toThrow(/empty/);
     expect(() => { const s = new NessusXmlStream(); s.write(Buffer.from([0x50, 0x4b, 0x03, 0x04, 1, 2])); }).toThrow(/archive/);
-    expect(() => parseNessusXml(doc(item('h', 1)).replace('Plugin 1', 'a\u0001b'))).toThrow(/text Nessus export/);
+    expect(() => parseNessusXml(doc(item('h', 1)).replace('Plugin 1', 'a\u0000b').replace('<?xml', '\u0000<?xml'))).toThrow(/binary data/);
     expect(() => parseNessusXml('<html/>')).toThrow(/Unsupported XML/);
     expect(() => parseNessusXml('<NessusClientData_v2><Report>')).toThrow(/not valid XML/);
     expect(() => parseNessusXml(doc(''))).toThrow(/No findings/);
@@ -206,7 +206,9 @@ describe('streaming Nessus .csv reader', () => {
     expect(() => parseNessusCsv(csv([',,,,,,,,,,,']))).toThrow(/no data rows/); // an all-empty row is blank
     expect(() => parseNessusCsv(csv([',,5,High,h,tcp,1,,s,d,x,']))).toThrow(/No findings/); // no plugin id or name
     expect(() => parseNessusCsv(HEAD + '\n' + Array(250).fill('x').join(',') + '\n')).toThrow(/200 columns/);
-    expect(() => parseNessusCsv(csv([row(1, 'h')]).replace('syn', 'a\u0001b'))).toThrow(/text Nessus export/);
+    expect(() => parseNessusCsv('\u0000\u0000' + csv([row(1, 'h')]))).toThrow(/binary data/);
+    // Stray control characters further in are scan output, not a reason to refuse the file.
+    expect(parseNessusCsv(csv([row(1, 'h')]).replace('syn', 'a\u0001b'))).toHaveLength(1);
     expect(() => { const s = new NessusCsvStream(); s.write(Buffer.from([0x50, 0x4b, 0x03, 0x04, 1])); }).toThrow(/archive/);
     expect(() => new NessusCsvStream().end()).toThrow(/empty/);
   });

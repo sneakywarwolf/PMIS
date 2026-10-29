@@ -11,6 +11,7 @@ import { NetworkLimitationCaution } from '@/components/network-limitation-cautio
 import { triggerDownload } from '@/lib/download';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
+import { useBranding } from '@/contexts/branding-context';
 import { usePagination } from '@/lib/pagination';
 import { Pager } from '@/components/pager';
 
@@ -73,6 +74,7 @@ function ProjectsPageContent() {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const { user } = useAuth();
+  const { can } = useBranding();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -197,13 +199,15 @@ function ProjectsPageContent() {
           <h1 className="text-2xl font-bold text-white">Projects</h1>
           <p className="text-gray-400 text-sm mt-1">Manage your VAPT assessments</p>
         </div>
-        <Link
-          href="/dashboard/projects/new"
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          New Project
-        </Link>
+        {can('projects.create') && (
+          <Link
+            href="/dashboard/projects/new"
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            New Project
+          </Link>
+        )}
       </div>
 
       {/* Filters + Toggle */}
@@ -324,13 +328,13 @@ function ProjectsPageContent() {
 
               <div className="space-y-2 mb-3" onClick={(e) => e.stopPropagation()}>
                 <div className="grid grid-cols-2 gap-2">
-                  <button
+                  {can('projects.edit') && <button
                     onClick={() => setEditProject(project)}
                     className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-gray-700/50 hover:bg-gray-700 text-gray-300 text-xs font-medium transition-all"
                   >
                     <Edit className="w-3.5 h-3.5" />
                     Edit
-                  </button>
+                  </button>}
                   <Link
                     href={`/dashboard/projects/${project.id}`}
                     className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 text-xs font-medium transition-all"
@@ -340,14 +344,14 @@ function ProjectsPageContent() {
                   </Link>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <button
+                  {can('reports.issue_log') && <button
                     onClick={() => handleGenerateIssueLog(project.id)}
                     className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-medium transition-all"
                   >
                     <AlertTriangle className="w-3.5 h-3.5" />
                     Issue Log
-                  </button>
-                  <button
+                  </button>}
+                  {can('reports.generate') && <button
                     onClick={() => handleGenerateReport(project.id)}
                     disabled={generatingReport === project.id || ((project._count?.findings ?? 0) === 0 && project.complianceStatus !== 'Compliant')}
                     className="flex items-center justify-center gap-2 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-xs font-medium transition-all disabled:opacity-50"
@@ -358,9 +362,9 @@ function ProjectsPageContent() {
                       <FileText className="w-3.5 h-3.5" />
                     )}
                     {generatingReport === project.id ? 'Generating...' : 'Report'}
-                  </button>
+                  </button>}
                 </div>
-                {user?.role === 'ADMIN' && (
+                {can('projects.delete') && (
                   <button
                     onClick={() => handleDeleteProject(project)}
                     className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-medium transition-all"
@@ -431,13 +435,13 @@ function ProjectsPageContent() {
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1.5">
-                        <button
+                        {can('projects.edit') && <button
                           onClick={() => setEditProject(project)}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
                           title="Edit"
                         >
                           <Edit className="w-3.5 h-3.5" />
-                        </button>
+                        </button>}
                         <Link
                           href={`/dashboard/projects/${project.id}`}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
@@ -445,14 +449,14 @@ function ProjectsPageContent() {
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </Link>
-                        <button
+                        {can('reports.issue_log') && <button
                           onClick={() => handleGenerateIssueLog(project.id)}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-amber-400 hover:bg-amber-500/10 transition-all"
                           title="Issue Log"
                         >
                           <AlertTriangle className="w-3.5 h-3.5" />
-                        </button>
-                        <button
+                        </button>}
+                        {can('reports.generate') && <button
                           onClick={() => handleGenerateReport(project.id)}
                           disabled={generatingReport === project.id || ((project._count?.findings ?? 0) === 0 && project.complianceStatus !== 'Compliant')}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all disabled:opacity-50"
@@ -463,8 +467,8 @@ function ProjectsPageContent() {
                           ) : (
                             <FileText className="w-3.5 h-3.5" />
                           )}
-                        </button>
-                        {user?.role === 'ADMIN' && (
+                        </button>}
+                        {can('projects.delete') && (
                           <button
                             onClick={() => handleDeleteProject(project)}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"

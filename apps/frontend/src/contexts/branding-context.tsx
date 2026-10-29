@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import axios from 'axios';
 import { api, useAuth } from '@/contexts/auth-context';
 import { configureFormats } from '@/lib/datetime';
+import { defaultPermissionsFor } from '@/lib/rbac-defaults';
 
 const DEFAULT_APP_NAME = 'PMIS - Project Management for Information Security';
 
@@ -31,6 +32,9 @@ interface SettingsContextValue extends Branding, Identity {
   // need other sections (workflow, appearance, ...) don't each re-fetch it.
   settings: any;
   settingsLoaded: boolean;
+  // What the signed-in user's role may do (Settings > RBAC). Admins may do everything.
+  permissionsLoaded: boolean;
+  can: (feature: string) => boolean;
   // Re-reads /settings (the settings page calls it after a save so the change applies without a reload).
   refreshSettings: () => Promise<void>;
 }
@@ -43,16 +47,41 @@ const DEFAULT_CONTEXT: SettingsContextValue = {
   shortName: 'PMIS',
   settings: null,
   settingsLoaded: false,
+  permissionsLoaded: false,
+  can: () => false,
   refreshSettings: async () => {},
 };
 
 const BrandingContext = createContext<SettingsContextValue>(DEFAULT_CONTEXT);
 
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * What the signed-in role may do (Settings > RBAC). A failed request is retried; if the server still cannot answer
+ * (for example it is an older version without the endpoint), the shipped defaults for the role are used rather than
+ * hiding everything. The server enforces the real rules on every request either way.
+ * With `quiet`, a failure returns null so a screen that is already showing the right thing is left alone.
+ */
+async function loadPermissions(role: string, quiet = false): Promise<Record<string, boolean> | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await api.get('/settings/my-permissions');
+      if (res.data?.permissions && typeof res.data.permissions === 'object') return res.data.permissions;
+    } catch (e: any) {
+      if (e?.response?.status === 404) break; // an older server: retrying will not help
+      if (attempt < 2) await wait(500 * (attempt + 1));
+    }
+  }
+  return quiet ? null : defaultPermissionsFor(role);
+}
+
 export function BrandingProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const userRole = user?.role;
   const [branding, setBranding] = useState<Branding>(DEFAULT_BRANDING);
   const [settings, setSettings] = useState<any>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [permissions, setPermissions] = useState<Record<string, boolean> | null>(null);
   const [publicIdentity, setPublicIdentity] = useState<Identity | null>(null);
   const pathname = usePathname();
 
@@ -77,9 +106,11 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
     setBranding(DEFAULT_BRANDING);
     setSettings(null);
     setSettingsLoaded(false);
+    setPermissions(null);
     configureFormats();
     if (!user) return;
     let cancelled = false;
+    loadPermissions(user.role).then((p) => { if (!cancelled && p) setPermissions(p); });
     api.get('/settings').then((res) => {
       if (cancelled) return;
       if (res.data?.branding) setBranding({ ...DEFAULT_BRANDING, ...res.data.branding });
@@ -94,12 +125,13 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
   }, [branding.primaryColor]);
 
   const refreshSettings = useCallback(async () => {
+    if (userRole) { const p = await loadPermissions(userRole, true); if (p) setPermissions(p); }
     try {
       const res = await api.get('/settings');
       if (res.data?.branding) setBranding({ ...DEFAULT_BRANDING, ...res.data.branding });
       setSettings(res.data?.settings ?? null);
     } catch { /* keep what is shown */ }
-  }, []);
+  }, [userRole]);
 
   const general = settings?.general;
   const identity: Identity = general
@@ -150,8 +182,23 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
     link.href = identity.faviconUrl;
   }, [identity.faviconUrl]);
 
+  // Admins can do everything. Others only what the matrix allows; until it has loaded, nothing is assumed.
+  const isAdmin = user?.role === 'ADMIN';
+  const can = useCallback((feature: string) => isAdmin || permissions?.[feature] === true, [isAdmin, permissions]);
+
+  // Another Admin may change the matrix: pick it up when the tab is shown again, so a switch applies without a sign-out.
+  useEffect(() => {
+    if (!user) return;
+    const onShow = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (user.role) loadPermissions(user.role, true).then((p) => { if (p) setPermissions(p); });
+    };
+    document.addEventListener('visibilitychange', onShow);
+    return () => document.removeEventListener('visibilitychange', onShow);
+  }, [user?.id]);
+
   return (
-    <BrandingContext.Provider value={{ ...branding, ...identity, shortName, settings, settingsLoaded, refreshSettings }}>
+    <BrandingContext.Provider value={{ ...branding, ...identity, shortName, settings, settingsLoaded, permissionsLoaded: isAdmin || permissions !== null, can, refreshSettings }}>
       <div key={formatKey} style={{ display: 'contents' }}>
       {children}
       </div>

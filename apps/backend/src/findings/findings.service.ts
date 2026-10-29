@@ -10,6 +10,7 @@ import type { ScanUpload } from '../common/nessus-upload.storage';
 import { assertPocKey, assertPocKeys } from '../common/upload-security.util';
 import { splitPocImagePaths } from '../common/poc-images.util';
 import { StorageService } from '../reports/storage.service';
+import { permissionRules } from '../common/permissions';
 
 /** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) · merge: same plugin already imported, but this file adds affected hosts */
 // 'refresh' = already imported, but its plugin output was not captured then (older import): the same file can add it.
@@ -271,17 +272,17 @@ export class FindingsService {
    * The Nessus-imported VA findings of one project, identified by the project-scoped record's source
    * (never by name or severity). A tester can only touch findings they created, as with single delete.
    */
-  private nessusFindingsWhere(projectId: string, user: User) {
+  private nessusFindingsWhere(projectId: string, user: User, source = 'nessus') {
     return {
       projectId,
-      projectVulnerability: { is: { projectId, source: 'nessus' } },
+      projectVulnerability: { is: { projectId, source } },
       ...(user.role === UserRole.TESTER && { createdById: user.id }),
     };
   }
 
-  async countNessusFindings(projectId: string, user: User) {
+  async countNessusFindings(projectId: string, user: User, source = 'nessus') {
     await this.checkProjectAccess(projectId, user);
-    return { count: await this.prisma.finding.count({ where: this.nessusFindingsWhere(projectId, user) }) };
+    return { count: await this.prisma.finding.count({ where: this.nessusFindingsWhere(projectId, user, source) }) };
   }
 
   /**
@@ -291,13 +292,14 @@ export class FindingsService {
    * scope and reports are never selected. Stored PoC/evidence files are removed after the commit, and only
    * those no remaining finding still points at. Repeating the call deletes nothing and returns 0.
    */
-  async removeAllNessusFindings(projectId: string, user: User, ipAddress: string, userAgent: string) {
+  // `source` is 'nessus' (default) or 'fortify': the same bulk delete, for the other scan import.
+  async removeAllNessusFindings(projectId: string, user: User, ipAddress: string, userAgent: string, source = 'nessus') {
     await this.checkProjectAccess(projectId, user);
 
     const { deleted, files } = await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM projects WHERE id = ${projectId} FOR UPDATE`;
       const targets = await tx.finding.findMany({
-        where: this.nessusFindingsWhere(projectId, user),
+        where: this.nessusFindingsWhere(projectId, user, source),
         select: { id: true, evidencePaths: true, pocSteps: { select: { imagePath: true } } },
       });
       if (targets.length === 0) return { deleted: 0, files: [] as string[] };
@@ -307,7 +309,7 @@ export class FindingsService {
 
       const result = await tx.finding.deleteMany({ where: { id: { in: ids } } });
       // Records left without any finding (this delete, or an interrupted earlier import) go too; ones still in use stay.
-      await tx.projectVulnerability.deleteMany({ where: { projectId, source: 'nessus', findings: { none: {} } } });
+      await tx.projectVulnerability.deleteMany({ where: { projectId, source, findings: { none: {} } } });
 
       // Only files nothing else references are safe to remove.
       const stillUsed = new Set<string>();
@@ -327,7 +329,7 @@ export class FindingsService {
         targetId: projectId,
         ipAddress,
         userAgent,
-        details: { bulkDeleteNessusFindings: true, deletedCount: result.count },
+        details: { [source === 'fortify' ? 'bulkDeleteFortifyFindings' : 'bulkDeleteNessusFindings']: true, deletedCount: result.count },
       });
       return { deleted: result.count, files: candidates.filter((p) => !stillUsed.has(p)) };
     });
@@ -456,6 +458,11 @@ export class FindingsService {
     return withVulnerability(finding);
   }
 
+  /** A tester may edit what they created, and every finding of a project assigned to them (whoever added it). */
+  private testerOwns(finding: { createdById: string; project?: { testerId: string | null } | null }, user: User) {
+    return finding.createdById === user.id || finding.project?.testerId === user.id;
+  }
+
   async update(id: string, data: any, user: User, ipAddress: string, userAgent: string) {
     const finding = await this.prisma.finding.findUnique({
       where: { id },
@@ -469,14 +476,14 @@ export class FindingsService {
     await this.checkProjectAccess(finding.projectId, user);
 
     if (user.role === UserRole.TESTER) {
-      if (finding.createdById !== user.id || finding.status !== FindingStatus.DRAFT) {
+      if (!this.testerOwns(finding, user) || finding.status !== FindingStatus.DRAFT) {
         throw new ForbiddenException('Cannot edit this finding');
       }
     }
 
     if (data.status !== undefined) {
       if (!Object.values(FindingStatus).includes(data.status)) throw new BadRequestException('Invalid status');
-      if (user.role === UserRole.TESTER) throw new ForbiddenException('Testers cannot change finding status');
+      if (!permissionRules.can(user.role, 'findings.change_status')) throw new ForbiddenException('Your role cannot change finding status');
     }
 
     const updated = await this.prisma.finding.update({
@@ -570,7 +577,7 @@ export class FindingsService {
 
     await this.checkProjectAccess(finding.projectId, user);
 
-    if (user.role === UserRole.TESTER && finding.createdById !== user.id) {
+    if (user.role === UserRole.TESTER && !this.testerOwns(finding, user)) {
       throw new ForbiddenException('Cannot modify this finding');
     }
 

@@ -123,8 +123,9 @@ function VulnerabilitiesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingFileRef = useRef<File | null>(null);
 
-  const isAdminOrTL = user?.role === 'ADMIN' || user?.role === 'AVP' || user?.role === 'TEAM_LEAD';
-  const isAdmin = user?.role === 'ADMIN';
+  const { can } = useBranding();
+  // Who sees the Pending Approval tab and who may decide on requests follow Settings > RBAC.
+  const isAdminOrTL = can('vulns.review_requests');
 
   // A notification link (/dashboard/vulnerabilities?tab=pending&focus=<id>) opens the Pending Approval tab and
   // highlights that request. Only roles that may see the queue honour it; for anyone else it is ignored, and the
@@ -386,7 +387,7 @@ function VulnerabilitiesPage() {
             <RefreshCw className="w-4 h-4" />
             Refresh
           </button>
-          {isAdmin && (
+          {can('vulns.bulk_upload') && (
             <>
               <input
                 type="file"
@@ -404,20 +405,20 @@ function VulnerabilitiesPage() {
               </button>
             </>
           )}
-          <button
+          {can('vulns.export') && <button
             onClick={handleDownload}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 border border-blue-500/20 rounded-lg transition-all text-sm"
           >
             <Download className="w-4 h-4" />
             Export CSV
-          </button>
-          <button
+          </button>}
+          {(can('vulns.create') || can('vulns.request_new')) && <button
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all text-sm"
           >
             <Plus className="w-4 h-4" />
             Add New
-          </button>
+          </button>}
         </div>
       </div>
 
@@ -445,7 +446,7 @@ function VulnerabilitiesPage() {
               </span>
             )}
           </button>
-          {isAdmin && (
+          {can('vulns.change_tracker') && (
             <button
               onClick={() => setActiveTab('changeTracker')}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
@@ -564,20 +565,20 @@ function VulnerabilitiesPage() {
                     <div className="flex items-center gap-2">
                       {activeTab === 'pending' && isAdminOrTL ? (
                         <>
-                          <button
+                          {(vuln.isChangeRequest ? can('vulns.approve_changes') : can('vulns.approve_requests')) && <button
                             onClick={(e) => { e.stopPropagation(); handleApprove(vuln.id, vuln.isChangeRequest); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
                             title="Approve"
                           >
                             <CheckCircle className="w-3.5 h-3.5" />
-                          </button>
-                          <button
+                          </button>}
+                          {(vuln.isChangeRequest ? can('vulns.approve_changes') : can('vulns.approve_requests')) && <button
                             onClick={(e) => { e.stopPropagation(); handleReject(vuln.id, vuln.isChangeRequest); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
                             title="Reject"
                           >
                             <XCircle className="w-3.5 h-3.5" />
-                          </button>
+                          </button>}
                           {vuln.isChangeRequest ? (
                             <button
                               onClick={(e) => { e.stopPropagation(); setViewingChangeRequest(vuln._cr); }}
@@ -586,7 +587,7 @@ function VulnerabilitiesPage() {
                             >
                               <Search className="w-3.5 h-3.5" />
                             </button>
-                          ) : (
+                          ) : (can('vulns.edit') ? (
                             <button
                               onClick={(e) => { e.stopPropagation(); openEditModal(vuln); }}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
@@ -594,18 +595,18 @@ function VulnerabilitiesPage() {
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
-                          )}
+                          ) : null)}
                         </>
                       ) : (
                         <>
-                          <button
+                          {(can('vulns.edit') || can('vulns.propose_edit')) && <button
                             onClick={(e) => { e.stopPropagation(); openEditModal(vuln); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-all"
-                            title="Edit"
+                            title={can('vulns.edit') ? 'Edit' : 'Propose an edit'}
                           >
                             <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          {user?.role === 'ADMIN' && (
+                          </button>}
+                          {can('vulns.delete') && (
                             <button
                               onClick={(e) => { e.stopPropagation(); handleDelete(vuln.id); }}
                               className="p-1.5 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
@@ -770,7 +771,7 @@ function VulnerabilitiesPage() {
         <VulnModal
           onClose={() => setShowAddModal(false)}
           onSaved={() => { fetchVulnerabilities(); setShowAddModal(false); }}
-          isRequest={user?.role !== 'ADMIN'}
+          isRequest={!can('vulns.create')}
         />
       )}
 
@@ -1046,7 +1047,9 @@ function VulnModal({ vuln, onClose, onSaved, isRequest }: {
   const toast = useToast();
   const sev = useSeverity();
   const { user } = useAuth();
-  const isTesterEditingExisting = !!vuln && user?.role === 'TESTER';
+  const { can } = useBranding();
+  // Without the right to edit directly, an edit is a proposal that a reviewer has to approve.
+  const isTesterEditingExisting = !!vuln && !can('vulns.edit') && can('vulns.propose_edit');
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     name: vuln?.name || '',

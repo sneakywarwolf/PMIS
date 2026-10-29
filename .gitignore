@@ -65,3 +65,4 @@ coverage/
 .claude/
 skills-lock.json
 scripts/e2e-output/
+tmp/

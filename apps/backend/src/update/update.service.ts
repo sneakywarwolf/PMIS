@@ -207,9 +207,9 @@ export class UpdateService implements OnModuleInit {
    * scheduled for now (the 20s tick runs it), reusing schedule()'s guards. Other roles only get the status.
    * If an update cannot be started (no updater configured, one already running) the check result is still returned.
    */
-  async checkAndUpdate(isAdmin: boolean, userId: string) {
+  async checkAndUpdate(isAdmin: boolean, userId: string, canInstall: boolean = isAdmin) {
     const status = await this.getStatus(true, isAdmin);
-    if (!isAdmin || !status.latest?.available || !status.updaterConfigured) return status;
+    if (!canInstall || !status.latest?.available || !status.updaterConfigured) return status;
     if (status.update.status === 'SCHEDULED' || status.update.status === 'IN_PROGRESS') return status;
     try {
       await this.schedule(new Date().toISOString(), userId);
