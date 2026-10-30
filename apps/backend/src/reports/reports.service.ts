@@ -21,8 +21,9 @@ import { canAccessProject } from '../common/project-access.util';
 import { assertSafeDocx, safeFileName } from '../common/docx-package.util';
 import { coveredSubTypes, coversSubType, coversAnySubType, eligibleForProject, isEligibleTemplate, parseExtraSubTypes } from './template-subtypes';
 import { ISSUE_LOG_CATALOG, resolveIssueLogColumns, buildIssueLogCsv } from './issue-log';
-import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT } from '../common/report-date-format';
+import { formatReportDate as formatReportDateByPattern, DEFAULT_REPORT_DATE_FORMAT, placeholderDateFormats, PlaceholderDateKey } from '../common/report-date-format';
 import { permissionRules } from '../common/permissions';
+import { defaultRiskPair } from '../common/risk-matrix.util';
 
 const SEVERITY_ORDER = ['critical', 'high', 'medium', 'low', 'info'];
 const severityRank = (sev: string) => {
@@ -199,7 +200,7 @@ export class ReportsService {
     if (!includeInactive) where.isActive = true;
     if (reportFormat) where.reportFormat = reportFormat;
     if (category) where.category = category;
-    // forProject: the project-eligibility rule (Cert-In Application umbrella); otherwise plain Activity Type coverage.
+    // forProject: the project-eligibility rule (Cert-In Application umbrella, except Network and SCR); otherwise plain Activity Type coverage.
     if (subType) Object.assign(where, forProject && category ? eligibleForProject(category, subType) : coversSubType(subType));
 
     return this.prisma.reportTemplate.findMany({
@@ -247,7 +248,7 @@ export class ReportsService {
     'manager', 'manager_designation', 'manager_phone', 'manager_email',
     'team_lead_designation', 'team_lead_phone', 'team_lead_email',
     'tester_designation', 'tester_phone', 'tester_email',
-    'android_ios', 'sha_1', 'sha1', 'report_date',
+    'android_ios', 'sha_1', 'sha1', 'code_location', 'system_username', 'system_hostname', 'report_date',
     'external_internal', 'total_scope_count', 'quarter',
     'testing_type', 'platform_type', 'testing_approach', 'location',
     'client_spoc_name', 'client_spoc_designation', 'client_spoc_email',
@@ -641,7 +642,9 @@ export class ReportsService {
       throw new BadRequestException(
         reportFormat === ReportFormat.EXCEL
           ? `No active Excel template is available for ${project.category} / ${project.subType}. Ask an Admin to upload and activate one, or generate the Word report instead.`
-          : `No active template found for ${project.category} / ${project.subType}`,
+          : project.category === TemplateCategory.CERT_IN && project.subType === TemplateSubType.SCR
+            ? 'No active template is assigned to the SCR Activity Type for Cert-In. Ask an Admin to upload and activate a Cert-In SCR template; the Application template is not used for SCR projects.'
+            : `No active template found for ${project.category} / ${project.subType}`,
       );
     }
 
@@ -813,7 +816,7 @@ export class ReportsService {
         (project.nmapPorts as NmapPortRecord[] | null) || [],
         (project.toolsUsedTable as { name: string; version: string; licenseType: string }[] | null) || [],
         fileName,
-        { splitVaPt: project.subType === 'NETWORK', activityType: project.subType === 'NETWORK' ? project.networkActivityType : null, complianceStatus: project.complianceStatus },
+        { splitVaPt: project.subType === 'NETWORK', activityType: project.subType === 'NETWORK' ? project.networkActivityType : null, complianceStatus: project.complianceStatus, projectCategory: project.category, projectSubType: project.subType, siteMap: (project.siteMap as { directoryName: string; fileName: string }[] | null) || [] },
       );
 
       const docxName = `reports/${project.id}/${Date.now()}_${fileName}`;
@@ -1038,6 +1041,10 @@ export class ReportsService {
       pocText: f.classification ? nessusTextForReport(f.proofOfConcept) || null : null,
       findingType: f.findingType,
       pocSteps,
+      // Fortify findings only (classification 'SCR Finding'), from the severity printed for this finding.
+      ...(f.classification === 'SCR Finding' && {
+        scrRisk: { likelihood: defaultRiskPair(severity)?.likelihood ?? '', impact: defaultRiskPair(severity)?.impact ?? '' },
+      }),
     };
   }
 
@@ -1060,6 +1067,10 @@ export class ReportsService {
         return (raw: string) => this.docxManipulator.resolveFindingParameter(this.slugifyFieldName(raw).substring(0, 100), data)?.split(LINE_SEP).join('\n');
       });
     const lc = (names: string[]) => names.map((n) => n.toLowerCase());
+    const siteMap = ((project.siteMap as { directoryName: string; fileName: string }[] | null) || []).map((e) => (raw: string) => {
+      const n = raw.toLowerCase();
+      return n === 'directory name' ? e.directoryName || '' : n === 'file name' ? e.fileName || '' : undefined;
+    });
     const scope = ((project.networkScope as { ip: string; domainHostname: string; purpose: string }[] | null) || []).map((e) => (raw: string) => {
       const n = raw.toLowerCase();
       if (n === 'ip') return e.ip || 'NA';
@@ -1081,6 +1092,7 @@ export class ReportsService {
       { claims: (names) => lc(names).includes('port') && lc(names).some((n) => n.includes('nmap')), rows: ports },
       { claims: (names) => lc(names).some((n) => n.startsWith('va ')), rows: resolversFor(sorted.filter((f: any) => f.findingType === 'VA')) },
       { claims: (names) => lc(names).includes('vulnerability name'), rows: resolversFor(split ? sorted.filter((f: any) => f.findingType !== 'VA') : sorted) },
+      { claims: (names) => lc(names).includes('directory name') && lc(names).includes('file name'), rows: siteMap },
     ];
   }
 
@@ -1382,7 +1394,7 @@ export class ReportsService {
 
     for (const f of fields) {
       if (!f.mappedParameter) continue;
-      const value = resolveTemplateParameter(f.mappedParameter, project, (d) => this.formatReportDate(d), version, reportDate, reportName);
+      const value = resolveTemplateParameter(f.mappedParameter, project, (d) => this.formatReportDate(d), version, reportDate, reportName, (d) => this.formatEndDate(d), (d) => this.formatReportDate(d, 'generationDate'));
       if (!value) {
         unresolved.push({ field: f.name, parameter: f.mappedParameter });
         continue;
@@ -1401,14 +1413,18 @@ export class ReportsService {
     const appLabel = project.subType === 'API' ? 'API' : 'Application';
 
     return [
+      // SCR fields. Before every other rule: "code_location" also contains "location", which would otherwise win.
+      { match: ['code_location'], value: project.codeLocation || '' },
+      { match: ['system_username'], value: project.systemUsername || '' },
+      { match: ['system_hostname'], value: project.systemHostname || '' },
       {
         // Merged run containing both dates, e.g. "Start Date {…}, to End Date {…}"
         match: ['start_date', 'end_date'],
         requireAll: true,
-        value: `Start Date ${this.formatReportDate(project.startDate)}, to End Date ${this.formatReportDate(project.endDate)}`,
+        value: `Start Date ${this.formatReportDate(project.startDate)}, to End Date ${this.formatEndDate(project.endDate)}`,
       },
       { match: ['start_date'], value: this.formatReportDate(project.startDate) },
-      { match: ['end_date'], value: this.formatReportDate(project.endDate) },
+      { match: ['end_date'], value: this.formatEndDate(project.endDate) },
       { match: ['qa_reviewer_name'], value: project.qaReviewerName || 'N/A' },
       { match: ['team_lead_name'], value: tl?.fullName || tl?.username || '' },
       { match: ['tester_name'], value: tester?.fullName || tester?.username || '' },
@@ -1439,7 +1455,7 @@ export class ReportsService {
       { match: ['client_spoc_email'], value: project.clientSpocEmail || 'N/A' },
       { match: ['client_name_location'], value: [project.clientName, project.location].filter(Boolean).join(', ') },
       { match: ['client_name'], value: project.clientName || '' },
-      { match: ['month_dd_yyyy'], value: this.formatReportDate(new Date()) },
+      { match: ['month_dd_yyyy'], value: this.formatReportDate(new Date(), 'generationDate') },
       { match: ['tools_name', 'tools_used'], value: project.toolsUsed || '' },
       { match: ['details_scope'], value: [project.applicationDetails, project.scope].filter(Boolean).join('\n') },
       // total_scope_count must be checked before the bare 'scope' rule below —
@@ -1544,11 +1560,20 @@ export class ReportsService {
     return `1.${project?.reportVersionCounter ?? 0}`;
   }
 
-  private formatReportDate(date: Date | string | null | undefined): string {
+  /** {End Date}: Settings > Formatting > Additional date placeholder formats (default DD-MM-YYYY). */
+  private formatEndDate(date: Date | string | null | undefined): string {
+    return this.formatPlaceholderDate(date, 'endDate');
+  }
+
+  /** {Start Date} and the other long-form dates, each in its own configured format (default "October 05, 2026"). */
+  private formatReportDate(date: Date | string | null | undefined, key: PlaceholderDateKey = 'startDate'): string {
+    return this.formatPlaceholderDate(date, key);
+  }
+
+  private formatPlaceholderDate(date: Date | string | null | undefined, key: PlaceholderDateKey): string {
     if (!date) return '';
     const d = new Date(date);
-    if (isNaN(d.getTime())) return '';
-    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: '2-digit' });
+    return isNaN(d.getTime()) ? '' : formatReportDateByPattern(d, placeholderDateFormats.get(key));
   }
 
   /**

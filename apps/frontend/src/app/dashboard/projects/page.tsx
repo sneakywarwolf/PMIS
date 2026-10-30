@@ -678,19 +678,23 @@ function EditProjectModal({ project, onClose, onSaved }: { project: Project; onC
                 <option value="Production">Production</option>
               </select>
             </div>
-            <div>
-              <label className={labelCls}>Testing Approach</label>
-              <select value={form.testingType} onChange={(e) => set('testingType', e.target.value)} className={inputCls}>
-                <option value="">Select</option>
-                <option value="Black Box">Black Box</option>
-                <option value="Grey Box">Grey Box</option>
-                <option value="White Box">White Box</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Types of Login System</label>
-              <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} />
-            </div>
+            {project?.subType !== 'SCR' && (
+              <>
+                <div>
+                  <label className={labelCls}>Testing Approach</label>
+                  <select value={form.testingType} onChange={(e) => set('testingType', e.target.value)} className={inputCls}>
+                    <option value="">Select</option>
+                    <option value="Black Box">Black Box</option>
+                    <option value="Grey Box">Grey Box</option>
+                    <option value="White Box">White Box</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Types of Login System</label>
+                  <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} />
+                </div>
+              </>
+            )}
           </div>
 
           <div>

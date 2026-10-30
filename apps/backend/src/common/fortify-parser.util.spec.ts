@@ -138,3 +138,12 @@ describe('limits', () => {
     await expect(parseFortifyFile(upload('x.xml', fvdl(v)))).rejects.toThrow(/too large/);
   });
 });
+
+describe('CWE extraction stays fast on hostile text', () => {
+  it('handles a long run of separators in well under a second', () => {
+    const t = Date.now();
+    extractCweIds('CWE' + ' '.repeat(200000) + 'x');
+    expect(Date.now() - t).toBeLessThan(1000);
+    expect(extractCweIds('CWE-79, CWE ID: 89')).toBe('CWE-79, CWE-89');
+  });
+});

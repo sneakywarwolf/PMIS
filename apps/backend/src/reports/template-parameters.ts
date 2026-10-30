@@ -33,6 +33,9 @@ export const CANONICAL_TEMPLATE_PARAMETERS: { key: string; label: string }[] = [
   { key: 'project.applicationDetails', label: 'Build Details' },
   { key: 'project.mobilePlatform', label: 'Mobile Platform (Android/iOS)' },
   { key: 'project.sha1', label: 'SHA-1 Hash' },
+  { key: 'project.codeLocation', label: 'Code Location (SCR)' },
+  { key: 'project.systemUsername', label: 'Scanning System Username (SCR)' },
+  { key: 'project.systemHostname', label: 'Scanning System Hostname (SCR)' },
   { key: 'project.externalInternal', label: 'Scope Exposure (External/Internal)' },
   { key: 'project.networkActivityType', label: 'Network Activity Type (VA/PT/VAPT)' },
   { key: 'project.totalScopeCount', label: 'Total Scope Count' },
@@ -94,7 +97,7 @@ export const PLATFORM_TYPE_LABELS: Record<string, string> = {
  * buildReportFileName() has run, so it's undefined while resolving the
  * filename pattern itself.
  */
-export function resolveTemplateParameter(key: string, project: any, formatDate: (d: any) => string, version?: string, reportDate?: string, reportName?: string): string {
+export function resolveTemplateParameter(key: string, project: any, formatDate: (d: any) => string, version?: string, reportDate?: string, reportName?: string, formatEndDate: (d: any) => string = formatDate, formatGenerationDate: (d: any) => string = formatDate): string {
   const tl = project.tl;
   const tester = project.tester;
   const manager = project.tl?.manager;
@@ -103,7 +106,7 @@ export function resolveTemplateParameter(key: string, project: any, formatDate: 
 
   switch (key) {
     case 'project.startDate': return formatDate(project.startDate);
-    case 'project.endDate': return formatDate(project.endDate);
+    case 'project.endDate': return formatEndDate(project.endDate);
     case 'project.startEndDateRange':
       return `Start Date ${formatDate(project.startDate)}, to End Date ${formatDate(project.endDate)}`;
     case 'project.qaReviewerName': return project.qaReviewerName || 'N/A';
@@ -128,7 +131,7 @@ export function resolveTemplateParameter(key: string, project: any, formatDate: 
     case 'project.clientSpocName': return project.clientSpocName || 'N/A';
     case 'project.clientSpocDesignation': return project.clientSpocDesignation || 'N/A';
     case 'project.clientSpocEmail': return project.clientSpocEmail || 'N/A';
-    case 'report.generationDate': return formatDate(new Date());
+    case 'report.generationDate': return formatGenerationDate(new Date());
     case 'project.toolsUsed': return project.toolsUsed || '';
     case 'project.detailsAndScope': return [project.applicationDetails, project.scope].filter(Boolean).join('\n');
     case 'project.scope': return project.scope || '';
@@ -140,6 +143,9 @@ export function resolveTemplateParameter(key: string, project: any, formatDate: 
     case 'project.applicationDetails': return project.applicationDetails || '';
     case 'project.mobilePlatform': return project.mobilePlatform || '';
     case 'project.sha1': return project.sha1 || '';
+    case 'project.codeLocation': return project.codeLocation || '';
+    case 'project.systemUsername': return project.systemUsername || '';
+    case 'project.systemHostname': return project.systemHostname || '';
     case 'project.externalInternal': return project.externalInternal || '';
     case 'project.networkActivityType': return project.networkActivityType || '';
     case 'project.totalScopeCount': return project.totalScopeCount != null ? String(project.totalScopeCount) : '';

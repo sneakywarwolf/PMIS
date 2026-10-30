@@ -5,7 +5,7 @@ import { RedisService } from '../redis/redis.service';
 import { StorageService } from '../reports/storage.service';
 import { DEFAULT_SETTINGS } from './settings.defaults';
 import { validateIssueLogColumns } from '../reports/issue-log';
-import { REPORT_DATE_FORMAT_OPTIONS } from '../common/report-date-format';
+import { REPORT_DATE_FORMAT_OPTIONS, PLACEHOLDER_DATE_FORMAT_OPTIONS, DEFAULT_PLACEHOLDER_DATE_FORMATS, placeholderDateFormats } from '../common/report-date-format';
 import { ATTACHMENT_FORMATS, ATTACHMENT_FORMAT_BY_KEY, ATTACHMENT_PURPOSES, attachmentLimits } from '../common/attachment-formats';
 import { CONFIGURABLE_NOTIFICATION_ROLES, NOTIFICATION_TYPES } from '../notifications/notification-types';
 import { resetQuotaCache } from '../common/quota';
@@ -186,6 +186,19 @@ function validatePatch(patch: any) {
     errors.push(`formatting.reportDateFormat must be one of ${REPORT_DATE_FORMAT_OPTIONS.join(', ')}`);
   }
 
+  if (formatting?.placeholderDates !== undefined) {
+    const pd = formatting.placeholderDates;
+    if (!pd || typeof pd !== 'object' || Array.isArray(pd)) errors.push('formatting.placeholderDates must be an object');
+    else {
+      for (const [key, value] of Object.entries(pd)) {
+        if (!(key in DEFAULT_PLACEHOLDER_DATE_FORMATS)) errors.push(`Unknown date placeholder "${key}"`);
+        else if (!(PLACEHOLDER_DATE_FORMAT_OPTIONS as readonly string[]).includes(value as string)) {
+          errors.push(`formatting.placeholderDates.${key} must be one of ${PLACEHOLDER_DATE_FORMAT_OPTIONS.join(', ')}`);
+        }
+      }
+    }
+  }
+
   const system = patch.system;
   if (system?.attachmentRetentionDays !== undefined) {
     const v = system.attachmentRetentionDays;
@@ -243,6 +256,7 @@ export class SettingsService implements OnModuleInit {
     const { settings, updatedAt, updatedById } = await readEffectiveSettings(this.prisma);
     attachmentLimits.set(settings.attachments.maxSizeMb);
     permissionRules.set(settings.rbac.permissions);
+    placeholderDateFormats.setFromSettings(settings.formatting);
     return {
       settings,
       updatedAt,

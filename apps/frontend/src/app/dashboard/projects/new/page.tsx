@@ -44,6 +44,9 @@ export default function NewProjectPage() {
     testingLimitation: '',
     mobilePlatform: '',
     sha1: '',
+    codeLocation: '',
+    systemUsername: '',
+    systemHostname: '',
     externalInternal: '',
     networkActivityType: '',
     totalScopeCount: '',
@@ -116,10 +119,20 @@ export default function NewProjectPage() {
         'endDate', 'appVersion', 'location', 'clientSpocName', 'clientSpocDesignation', 'clientSpocEmail', 'documentVersion', 'toolsUsed',
         'testingEnvironment', 'qaReviewerName', 'applicationDetails', 'testingType',
         'loginSystemTypes', 'applicationNature', 'testingLimitation',
-        'mobilePlatform', 'sha1', 'externalInternal', 'networkActivityType', 'quarter',
+        'mobilePlatform', 'sha1', 'codeLocation', 'systemUsername', 'systemHostname', 'externalInternal', 'networkActivityType', 'quarter',
       ];
       for (const key of optional) {
         if ((form as any)[key]) payload[key] = (form as any)[key];
+      }
+      // SCR-only fields: kept in the form if the type is switched, but never saved on a project of another type.
+      // Not asked for on SCR projects: anything typed before switching to SCR is not saved.
+      if (form.subType === 'SCR') {
+        delete payload.testingType;
+        delete payload.loginSystemTypes;
+      } else {
+        delete payload.codeLocation;
+        delete payload.systemUsername;
+        delete payload.systemHostname;
       }
       if (form.category !== 'CERT_IN') {
         delete payload.clientSpocName;
@@ -200,7 +213,7 @@ export default function NewProjectPage() {
             {form.subType !== 'NETWORK' && (
               <div>
                 <label className={labelCls}>Application Name *</label>
-                <input type="text" required value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} placeholder="e.g. Payments Portal" />
+                <input type="text" required value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} placeholder={form.subType === 'SCR' ? 'Enter Application Name' : 'e.g. Payments Portal'} />
               </div>
             )}
             <div>
@@ -252,7 +265,7 @@ export default function NewProjectPage() {
           {form.subType !== 'NETWORK' && (
             <div>
               <label className={labelCls}>Scope *</label>
-              <textarea rows={3} required value={form.scope} onChange={(e) => set('scope', e.target.value)} className={inputCls} placeholder="In-scope URLs, endpoints, IP ranges..." />
+              <textarea rows={3} required value={form.scope} onChange={(e) => set('scope', e.target.value)} className={inputCls} placeholder={form.subType === 'SCR' ? 'Enter File/zip name whose SHA1 is calculated.' : 'In-scope URLs, endpoints, IP ranges...'} />
             </div>
           )}
         </motion.section>
@@ -277,16 +290,18 @@ export default function NewProjectPage() {
                 <option value="Production">Production</option>
               </select>
             </div>
-            <div>
-              <label className={labelCls}>Testing Approach</label>
-              <select value={form.testingType} onChange={(e) => set('testingType', e.target.value)} className={inputCls}>
-                <option value="">Select approach</option>
-                <option value="Black Box">Black Box</option>
-                <option value="Grey Box">Grey Box</option>
-                <option value="White Box">White Box</option>
-              </select>
-            </div>
-            {form.subType !== 'NETWORK' && (
+            {form.subType !== 'SCR' && (
+              <div>
+                <label className={labelCls}>Testing Approach</label>
+                <select value={form.testingType} onChange={(e) => set('testingType', e.target.value)} className={inputCls}>
+                  <option value="">Select approach</option>
+                  <option value="Black Box">Black Box</option>
+                  <option value="Grey Box">Grey Box</option>
+                  <option value="White Box">White Box</option>
+                </select>
+              </div>
+            )}
+            {form.subType !== 'NETWORK' && form.subType !== 'SCR' && (
               <div>
                 <label className={labelCls}>Types of Login System</label>
                 <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} placeholder="e.g. Admin, Manager, Customer roles" />
@@ -302,7 +317,23 @@ export default function NewProjectPage() {
                 </select>
               </div>
             )}
-            {(form.subType === 'MOBILE' || form.subType === 'THICK_CLIENT') && (
+            {form.subType === 'SCR' && (
+              <>
+                <div>
+                  <label className={labelCls}>Code Location</label>
+                  <input type="text" maxLength={500} value={form.codeLocation} onChange={(e) => set('codeLocation', e.target.value)} className={inputCls} placeholder="Enter location of source code" />
+                </div>
+                <div>
+                  <label className={labelCls}>Scanning System Username</label>
+                  <input type="text" maxLength={255} value={form.systemUsername} onChange={(e) => set('systemUsername', e.target.value)} className={inputCls} placeholder="Logged in Username of user during scanning." />
+                </div>
+                <div>
+                  <label className={labelCls}>Scanning System Hostname</label>
+                  <input type="text" maxLength={255} value={form.systemHostname} onChange={(e) => set('systemHostname', e.target.value)} className={inputCls} placeholder="Hostname of system where scanning was performed." />
+                </div>
+              </>
+            )}
+            {(form.subType === 'MOBILE' || form.subType === 'THICK_CLIENT' || form.subType === 'SCR') && (
               <div>
                 <label className={labelCls}>SHA-1</label>
                 <input type="text" value={form.sha1} onChange={(e) => set('sha1', e.target.value)} className={inputCls} placeholder="e.g. AA:BB:CC:..." />

@@ -143,12 +143,13 @@ export function cleanRichText(raw: string, replacements: Record<string, string> 
 }
 
 export function extractCweIds(...values: (string | null | undefined)[]): string {
-  const explicit = /\bCWE\b\s*(?:(?:ID|identifier|number)\s*)?(?:[-:#]\s*|\s+)?(\d{1,5})\b/gi;
+  // Bounded separators (no overlapping optional groups), so a long run of spaces cannot cause heavy backtracking.
+  const explicit = /\bCWE(?:[\s:#-]{1,8}(?:ID|identifier|number))?[\s:#-]{0,8}(\d{1,5})\b/gi;
   const mitre = /cwe\.mitre\.org\/(?:data\/)?definitions\/(\d{1,5})(?:\.html)?/gi;
   const found: number[] = [];
   for (const value of values) {
     if (value == null) continue;
-    const text = unescapeHtml(String(value));
+    const text = unescapeHtml(String(value).slice(0, MAX_TEXT_CHARS * 4));
     const hits: [number, number][] = [];
     for (const re of [explicit, mitre]) {
       re.lastIndex = 0;

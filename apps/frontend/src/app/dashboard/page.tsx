@@ -425,7 +425,7 @@ export default function DashboardPage() {
                 description="Review pending vuln requests"
               />
             )}
-            {(can('reports.generate') || can('templates.view')) && <QuickAction
+            {can('reports.page') && <QuickAction
               href="/dashboard/reports"
               icon={FileText}
               label="Reports"

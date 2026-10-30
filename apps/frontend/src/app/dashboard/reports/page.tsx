@@ -1,15 +1,13 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FileText, Upload, Download, Eye, ChevronRight, ChevronLeft,
-  Shield, Server, Smartphone, Monitor, CheckCircle, Loader2,
+  FileText, Upload, Eye,
+  Server, Smartphone, Monitor, Loader2,
   AlertTriangle, XCircle, Check, ArrowLeftRight, CheckCircle2, Trash2,
 } from 'lucide-react';
 import { api, useAuth } from '@/contexts/auth-context';
-import { triggerDownload } from '@/lib/download';
 import { useToast } from '@/components/toast-provider';
 import { useConfirm } from '@/components/confirm-provider';
 import { toDateInputValue } from '@/lib/datetime';
@@ -41,7 +39,7 @@ const categoryLabel = (c: string) => (c === 'CERT_IN' ? 'Cert-In' : c);
 // Activity Types a template can be uploaded for, per category (the same two lists the upload form always offered).
 const activityTypesFor = (category: string): string[] =>
   category === 'CERT_IN'
-    ? ['APPLICATION', 'NETWORK']
+    ? ['APPLICATION', 'NETWORK', 'SCR']
     : category === 'PCI' || category === 'VAPT'
       ? ['WEB', 'API', 'MOBILE', 'THICK_CLIENT', 'NETWORK', 'SCR']
       : ['WEB', 'API', 'MOBILE', 'THICK_CLIENT', 'NETWORK', 'APPLICATION'];
@@ -52,7 +50,7 @@ const templateSubTypes = (t: any): string[] => [t.subType, ...(t.extraSubTypes ?
 export default function ReportsPage() {
   const { user } = useAuth();
   const { can } = useBranding();
-  const [activeTab, setActiveTab] = useState(can('reports.generate') ? 'generate' : 'templates');
+  const [activeTab, setActiveTab] = useState(can('templates.view') ? 'templates' : can('templates.upload') ? 'upload' : 'mapping');
 
   return (
     <div className="space-y-6">
@@ -63,16 +61,6 @@ export default function ReportsPage() {
 
       {/* Tabs */}
       <div className="flex gap-2">
-        {can('reports.generate') && <button
-          onClick={() => setActiveTab('generate')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-            activeTab === 'generate'
-              ? 'bg-emerald-600 text-white'
-              : 'bg-gray-800/50 text-gray-400 hover:text-white'
-          }`}
-        >
-          Generate Report
-        </button>}
         {can('templates.view') && <button
           onClick={() => setActiveTab('templates')}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -110,17 +98,6 @@ export default function ReportsPage() {
       </div>
 
       <AnimatePresence mode="wait">
-        {activeTab === 'generate' && (
-          <motion.div key="generate" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <Suspense fallback={
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
-              </div>
-            }>
-              <ReportGenerator />
-            </Suspense>
-          </motion.div>
-        )}
         {activeTab === 'templates' && (
           <motion.div key="templates" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <TemplateBrowser />
@@ -137,264 +114,6 @@ export default function ReportsPage() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Report generation: select project → preflight check → generate (DOCX)
-// ---------------------------------------------------------------------------
-
-function ReportGenerator() {
-  const toast = useToast();
-  const searchParams = useSearchParams();
-  const preselectedProjectId = searchParams.get('project');
-
-  const [step, setStep] = useState(1);
-  const [projects, setProjects] = useState<any[]>([]);
-  const [selectedProject, setSelectedProject] = useState<any>(null);
-  const [preflight, setPreflight] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [result, setResult] = useState<any>(null);
-
-  useEffect(() => {
-    fetchProjects();
-  }, []);
-
-  useEffect(() => {
-    if (preselectedProjectId && projects.length > 0 && !selectedProject) {
-      const project = projects.find(p => p.id === preselectedProjectId);
-      if (project) handleSelectProject(project);
-    }
-  }, [preselectedProjectId, projects]);
-
-  const fetchProjects = async () => {
-    try {
-      const response = await api.get('/projects');
-      setProjects(response.data);
-    } catch (error) {
-      console.error('Failed to fetch projects:', error);
-    }
-  };
-
-  const handleSelectProject = async (project: any) => {
-    setSelectedProject(project);
-    setLoading(true);
-    setStep(2);
-    try {
-      const response = await api.get(`/reports/preflight/${project.id}`);
-      setPreflight(response.data);
-    } catch (error: any) {
-      toast(error.response?.data?.message || 'Preflight check failed', 'error');
-      setStep(1);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGenerate = async () => {
-    if (!selectedProject) return;
-    setGenerating(true);
-    try {
-      // Generation runs in a background queue (so it doesn't block other
-      // users generating reports at the same time) — this just enqueues
-      // the job; we poll for completion below.
-      const queued = await api.post('/reports/generate', { projectId: selectedProject.id });
-      const reportId = queued.data.reportId;
-
-      let status = queued.data.status;
-      while (status === 'PENDING') {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        const poll = await api.get(`/reports/generate/${reportId}/status`);
-        status = poll.data.status;
-        if (status === 'COMPLETED') {
-          setResult({ ...poll.data, findingsCount: preflight?.approvedFindings ?? 0 });
-          if (poll.data.docxUrl) triggerDownload(poll.data.docxUrl, poll.data.fileName);
-          setStep(3);
-          toast('Report generated successfully');
-        } else if (status === 'FAILED') {
-          toast(poll.data.error || 'Report generation failed', 'error');
-        }
-      }
-    } catch (error: any) {
-      toast(error.response?.data?.message || 'Report generation failed', 'error');
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Step indicator */}
-      <div className="flex items-center gap-2 mb-6">
-        {[1, 2, 3].map((s) => (
-          <div key={s} className="flex items-center gap-2">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-              step >= s ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-gray-400'
-            }`}>
-              {step > s ? <CheckCircle className="w-4 h-4" /> : s}
-            </div>
-            {s < 3 && <div className={`w-12 h-0.5 ${step > s ? 'bg-emerald-600' : 'bg-gray-700'}`} />}
-          </div>
-        ))}
-        <span className="ml-3 text-sm text-gray-400">
-          {step === 1 ? 'Select Project' : step === 2 ? 'Preflight Check' : 'Done'}
-        </span>
-      </div>
-
-      {/* Step 1: Select Project */}
-      {step === 1 && (
-        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
-          <h2 className="text-lg font-semibold text-white">Select Project</h2>
-          <p className="text-sm text-gray-400">
-            The report is filled automatically from project details, team profiles, and approved findings.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {projects.map((project) => (
-              <button
-                key={project.id}
-                onClick={() => handleSelectProject(project)}
-                className="text-left p-4 rounded-xl glass-card hover:border-emerald-500/30 transition-all"
-              >
-                <p className="font-medium text-white">{project.name}</p>
-                <p className="text-sm text-gray-400">{project.clientName}</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {project.category} • {subTypeLabels[project.subType] || project.subType} • {project._count?.findings || 0} findings
-                </p>
-              </button>
-            ))}
-          </div>
-          {projects.length === 0 && (
-            <p className="text-gray-500 text-sm py-8 text-center">No projects available</p>
-          )}
-        </motion.div>
-      )}
-
-      {/* Step 2: Preflight */}
-      {step === 2 && (
-        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-white">Preflight Check — {selectedProject?.name}</h2>
-            <button onClick={() => setStep(1)} className="text-sm text-gray-400 hover:text-white flex items-center gap-1">
-              <ChevronLeft className="w-4 h-4" /> Back
-            </button>
-          </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
-              <span className="ml-2 text-gray-400">Checking report data...</span>
-            </div>
-          ) : preflight && (
-            <div className="glass-card rounded-xl p-6 space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div className="p-3 rounded-lg bg-gray-800/50">
-                  <p className="text-gray-500 text-xs">Template</p>
-                  <p className="text-white">{preflight.templateName || 'None'}</p>
-                </div>
-                <div className="p-3 rounded-lg bg-gray-800/50">
-                  <p className="text-gray-500 text-xs">Approved Findings</p>
-                  <p className="text-white">{preflight.approvedFindings}</p>
-                </div>
-                <div className="p-3 rounded-lg bg-gray-800/50">
-                  <p className="text-gray-500 text-xs">Output File</p>
-                  <p className="text-white text-xs break-all">{preflight.suggestedFileName}</p>
-                </div>
-              </div>
-
-              {preflight.missing.length > 0 ? (
-                <div className={`rounded-lg p-4 border ${preflight.pocGateBlocked ? 'bg-red-500/10 border-red-500/20' : 'bg-amber-500/10 border-amber-500/20'}`}>
-                  <p className={`text-sm font-medium flex items-center gap-2 mb-2 ${preflight.pocGateBlocked ? 'text-red-400' : 'text-amber-400'}`}>
-                    <AlertTriangle className="w-4 h-4" />
-                    {preflight.pocGateBlocked
-                      ? 'Report Generation not allowed until Steps and PoC are added.'
-                      : `${preflight.missing.length} item(s) missing — the report will contain blanks for these`}
-                  </p>
-                  <ul className="space-y-1">
-                    {preflight.missing.map((m: any) => (
-                      <li key={m.field} className="text-xs text-gray-300 flex items-center gap-2">
-                        <XCircle className="w-3 h-3 text-amber-400 shrink-0" />
-                        <span className="text-white">{m.label}</span>
-                        <span className="text-gray-500">— fix in {m.source}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-4">
-                  <p className="text-sm text-emerald-400 flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4" />
-                    All report data is complete
-                  </p>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
-                <button
-                  onClick={() => setStep(1)}
-                  className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white text-sm"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleGenerate}
-                  disabled={generating || preflight.approvedFindings === 0 || preflight.pocGateBlocked}
-                  className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm flex items-center gap-2 disabled:opacity-50"
-                >
-                  {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                  {generating ? 'Generating...' : 'Generate DOCX Report'}
-                </button>
-              </div>
-              {preflight.approvedFindings === 0 && (
-                <p className="text-xs text-amber-400 text-right">
-                  At least one approved finding is required
-                </p>
-              )}
-            </div>
-          )}
-        </motion.div>
-      )}
-
-      {/* Step 3: Result */}
-      {step === 3 && result && (
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-4">
-          <div className="text-center py-8">
-            <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-8 h-8 text-emerald-400" />
-            </div>
-            <h2 className="text-xl font-bold text-white">Report Generated!</h2>
-            <p className="text-gray-400 text-sm mt-1">
-              {result.findingsCount} findings included
-            </p>
-            <p className="text-gray-500 text-xs mt-1 font-mono break-all px-8">{result.fileName}</p>
-          </div>
-
-          <div className="glass-card rounded-xl p-6 space-y-4">
-            <a
-              href={result.docxUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-all"
-            >
-              <Download className="w-4 h-4" />
-              Download DOCX
-            </a>
-            <p className="text-xs text-gray-500 text-center">
-              Open in Word to make final adjustments before delivery.
-            </p>
-          </div>
-
-          <div className="flex justify-center">
-            <button
-              onClick={() => { setStep(1); setSelectedProject(null); setPreflight(null); setResult(null); }}
-              className="text-sm text-gray-400 hover:text-white"
-            >
-              Generate Another Report
-            </button>
-          </div>
-        </motion.div>
-      )}
     </div>
   );
 }

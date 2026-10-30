@@ -44,7 +44,7 @@ const DETAIL_FIELDS = [
   'appVersion', 'location', 'clientSpocName', 'clientSpocDesignation', 'clientSpocEmail', 'documentVersion', 'toolsUsed', 'testingEnvironment',
   'qaReviewerName', 'applicationDetails', 'testingType', 'loginSystemTypes',
   'applicationNature', 'testingLimitation', 'complianceType',
-  'mobilePlatform', 'sha1', 'externalInternal', 'networkActivityType', 'totalScopeCount', 'networkScope', 'quarter',
+  'mobilePlatform', 'sha1', 'codeLocation', 'systemUsername', 'systemHostname', 'externalInternal', 'networkActivityType', 'totalScopeCount', 'networkScope', 'quarter',
   'toolsUsedTable',
 ] as const;
 
@@ -209,6 +209,9 @@ export class ProjectsService {
         testingLimitation: dto.testingLimitation,
         mobilePlatform: dto.mobilePlatform,
         sha1: dto.sha1,
+        codeLocation: dto.codeLocation,
+        systemUsername: dto.systemUsername,
+        systemHostname: dto.systemHostname,
         externalInternal: dto.externalInternal,
         networkActivityType: dto.networkActivityType,
         totalScopeCount: dto.totalScopeCount,

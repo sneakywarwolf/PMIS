@@ -78,7 +78,7 @@
     <div class="table-wrap"><table>
       <thead><tr><th>Placeholder</th><th>Value</th><th>Source</th></tr></thead>
       <tbody>
-        <tr><td><code class="ph">{Start Date}</code> <code class="ph">{End Date}</code></td><td>Project start and end dates, in the report date format set in Settings. Both in one text run give &ldquo;Start Date …, to End Date …&rdquo;.</td><td>Project form</td></tr>
+        <tr><td><code class="ph">{Start Date}</code> <code class="ph">{End Date}</code></td><td>Project start and end dates. each date placeholder has its own format under Settings &gt; Formatting &gt; Additional date placeholder formats. Defaults: <code>{Start Date}</code> October 05, 2026 and <code>{End Date}</code> DD-MM-YYYY. Both in one text run give &ldquo;Start Date …, to End Date …&rdquo;.</td><td>Project form</td></tr>
         <tr><td><code class="ph">{QA Reviewer Name}</code></td><td>QA reviewer. Prints N/A when empty.</td><td>Project form</td></tr>
         <tr><td><code class="ph">{Tester Name}</code> <code class="ph">{Team Lead Name}</code></td><td>Assigned tester and Team Lead. Empty if unassigned.</td><td>Project</td></tr>
         <tr><td><code class="ph">{Manager}</code></td><td>The Team Lead&rsquo;s manager. Prints N/A when empty.</td><td>User management</td></tr>
@@ -143,6 +143,9 @@
         <tr data-key="project.qaReviewerName"><td>Project</td><td>QA Reviewer Name</td><td>Person who reviewed the report. Prints N/A when empty.</td><td>Project form: QA Name</td></tr>
         <tr data-key="project.mobilePlatform"><td>Project</td><td>Mobile Platform (Android/iOS)</td><td>Android or iOS, for mobile projects.</td><td>Project form: Android/iOS</td></tr>
         <tr data-key="project.sha1"><td>Project</td><td>SHA-1 Hash</td><td>Hash of the tested build.</td><td>Project form: SHA-1</td></tr>
+        <tr data-key="project.codeLocation"><td>SCR</td><td>Code Location (SCR)</td><td>Where the source code is. Placeholder <code>{Code Location}</code>. Blank when empty.</td><td>Project form: Code Location (SCR only)</td></tr>
+        <tr data-key="project.systemUsername"><td>SCR</td><td>Scanning System Username (SCR)</td><td>User logged in on the system used for the scan. Placeholder <code>{system username}</code>. Blank when empty.</td><td>Project form: Scanning System Username (SCR only)</td></tr>
+        <tr data-key="project.systemHostname"><td>SCR</td><td>Scanning System Hostname (SCR)</td><td>Hostname of the system where the scan ran. Placeholder <code>{system hostname}</code>. Blank when empty.</td><td>Project form: Scanning System Hostname (SCR only)</td></tr>
         <tr data-key="project.externalInternal"><td>Network</td><td>Scope Exposure (External/Internal)</td><td>Whether the scope is external or internal.</td><td>Project form: Exposure</td></tr>
         <tr data-key="project.networkActivityType"><td>Network</td><td>Network Activity Type (VA/PT/VAPT)</td><td>Which activities the engagement covers.</td><td>Project form: Activity Type</td></tr>
         <tr data-key="project.totalScopeCount"><td>Network</td><td>Total Scope Count</td><td>Number of IPs or hosts in scope.</td><td>Project form: Scope Count</td></tr>
@@ -182,7 +185,8 @@
         <tr><td><code class="ph">{CVE ID}</code> <code class="ph">{CVE}</code></td><td>CVE ID.</td><td>N/A</td></tr>
         <tr><td><code class="ph">{CWE ID}</code> <code class="ph">{CWE}</code></td><td>CWE ID.</td><td>N/A</td></tr>
         <tr><td><code class="ph">{Description}</code> <code class="ph">{Vulnerability Description}</code></td><td>Description.</td><td>N/A</td></tr>
-        <tr><td><code class="ph">{Impact}</code> <code class="ph">{Vulnerability Impact}</code></td><td>Impact.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{Impact}</code> <code class="ph">{Vulnerability Impact}</code></td><td>Impact text. For a Fortify finding in an SCR project, <code class="ph">{Impact}</code> is instead the matrix Impact level (Low, Medium or High); <code class="ph">{Vulnerability Impact}</code> always stays the text.</td><td>N/A</td></tr>
+        <tr><td><code class="ph">{Likelihood}</code></td><td>Fortify findings in SCR projects only: Likelihood level (Low, Medium or High) from the Overall Risk Severity matrix, derived from the finding's severity (Critical: High/High, High: Medium/High, Medium: Medium/Medium, Low: Low/Medium, Info: Low/Low as Likelihood/Impact). Blank when the severity is not supported.</td><td>Left as is</td></tr>
         <tr><td><code class="ph">{Remediation}</code> <code class="ph">{Vulnerability Remediation}</code></td><td>Remediation.</td><td>N/A</td></tr>
         <tr><td><code class="ph">{Reference}</code> <code class="ph">{References}</code> <code class="ph">{Reference Link}</code> <code class="ph">{Vulnerability References}</code></td><td>References.</td><td>N/A</td></tr>
         <tr><td><code class="ph">{Affected}</code> <code class="ph">{Affected URL}</code> <code class="ph">{Affected Instances}</code></td><td>Affected URLs or hosts, one per line.</td><td>N/A</td></tr>
@@ -199,6 +203,7 @@
       <thead><tr><th>Format</th><th>Table or row set</th><th>How it is found</th><th>What is filled</th></tr></thead>
       <tbody>
         <tr><td>Word</td><td>Network scope table</td><td>A table whose text contains <code>{IP}</code> and <code>{Purpose}</code> (and <code>{Domain&amp;Hostname}</code>).</td><td>One row per scope entry.</td></tr>
+        <tr><td>Word, Excel</td><td>Site Map table (SCR)</td><td>A table whose text contains <code>{Directory Name}</code> and <code>{File Name}</code>.</td><td>One row per uploaded file. With no Site Map the row stays once, empty.</td></tr>
         <tr><td>Word</td><td>Tools used table</td><td>A table containing <code>{Tool Name}</code> and <code>{Tool Version}</code>.</td><td>One row per tool in the project&rsquo;s tools table.</td></tr>
         <tr><td>Word</td><td>Nmap port table</td><td>A table whose text contains &ldquo;nmap&rdquo; and <code>{Port}</code>, plus <code>{Protocol}</code>, <code>{Service}</code>, <code>{Status}</code>.</td><td>One row per imported Nmap record.</td></tr>
         <tr><td>Word</td><td>Findings tables</td><td>Summary table (<code>{Vulnerability Name}</code> or <code>{Finding Title}</code> with CVE/CWE or score) and detailed table (the same plus description or remediation).</td><td>One row or block per finding; PoC steps and screenshots go in the detailed table&rsquo;s PoC row. A step with several screenshots prints all of them, in the order set on the finding, each with a thin black border.</td></tr>
@@ -221,6 +226,8 @@
  ... PT-only paragraphs and tables ...
 {/PT}</code></pre>
     <p>A VA project keeps the VA blocks, a PT project keeps the PT blocks, and VAPT keeps both. If the activity type is not set, both are kept. Page and section breaks on marker lines are preserved. Excel templates do not use markers: their rows repeat as described above. In Word Network reports, the Scope and Detail Findings headings start on a new page.</p>
+
+<p>Two more optional block pairs work the same way: <code>{#network}...{/network}</code> is kept only for a Cert-In Network project, and <code>{#SCR}...{/SCR}</code> only for an SCR project (Cert-In, PCI or VAPT); each is removed for every other project. A template does not need to contain them, and a block whose closing marker is missing is left as it is, without an error.</p>
     <h3>Not supported</h3>
     <ul class="plain">
       <li>Excel text in drawings, headers, footers and comments is not scanned for placeholders.</li>
@@ -232,8 +239,8 @@
   <section id="upload">
     <h2>Uploading and activating (Admin)</h2>
     <ol class="plain">
-      <li>Open <em>Reports</em> and upload the template. Choose a name, the category (VAPT, PCI, CERT-In, ASV), the format (Word or Excel), one or more activity types, and the effective-from date.</li>
-      <li>PCI and VAPT templates cover Web, API, Mobile, Thick Client and Network. CERT-In also offers <em>Application</em>, a single template that serves every non-Network project.</li>
+      <li>Open <em>Reports</em> (in the menu for Admins; an Admin can switch it on for other roles in Settings &gt; RBAC, <em>Open the Reports page</em>) and upload the template. Choose a name, the category (VAPT, PCI, CERT-In, ASV), the format (Word or Excel), the activity type from the drop-down, and the effective-from date.</li>
+      <li>PCI and VAPT templates cover Web, API, Mobile, Thick Client and Network. CERT-In offers <em>Network</em>, <em>SCR</em> and <em>Application</em>; Application is one template that serves every project except Network and SCR, which each need their own CERT-In template.</li>
       <li>Review the detected fields. Add any the detector missed, and map fields to values if the names differ.</li>
       <li>Activate the template. Projects of the matching category and activity type then use it.</li>
     </ol>
@@ -244,8 +251,7 @@
   <section id="generate">
     <h2>Generating a report</h2>
     <ol class="plain">
-      <li>On the project, run the <strong>preflight check</strong>. It lists missing project details, profile details and findings that are not report-ready.</li>
-      <li>Choose <strong>Generate report</strong> and pick Word, or Excel for Network projects. Generation runs in the background, and the page updates when it finishes.</li>
+      <li>On the project page, choose <strong>Generate report</strong> and pick Word, or Excel for Network projects. Generation runs in the background, and the page updates when it finishes.</li>
       <li>The template is never picked by hand. A project uses the active Word template for its category and Testing Type (newest effective date wins), and is re-pointed automatically if that template is replaced. If none matches, generation names the missing template.</li>
       <li><strong>Download</strong> the file. Download links expire after one hour. Reopening the report history gives fresh links.</li>
     </ol>

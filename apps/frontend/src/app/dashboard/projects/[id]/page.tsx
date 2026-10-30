@@ -150,6 +150,9 @@ interface Project {
   testingLimitation?: string;
   mobilePlatform?: string;
   sha1?: string;
+  codeLocation?: string;
+  systemUsername?: string;
+  systemHostname?: string;
   externalInternal?: string;
   networkActivityType?: string;
   totalScopeCount?: number;
@@ -183,7 +186,7 @@ const CHANGE_LABELS: Record<string, string> = {
   toolsUsedTable: 'Tools Used', testingEnvironment: 'Testing Environment', qaReviewerName: 'QA Reviewer',
   applicationDetails: 'Application Details', testingType: 'Testing Type', loginSystemTypes: 'Login Systems',
   applicationNature: 'Application Nature', testingLimitation: 'Testing Limitation', mobilePlatform: 'Android/iOS',
-  sha1: 'SHA-1', externalInternal: 'Scope Exposure', networkActivityType: 'Network Activity Type',
+  sha1: 'SHA-1', codeLocation: 'Code Location', systemUsername: 'Scanning System Username', systemHostname: 'Scanning System Hostname', externalInternal: 'Scope Exposure', networkActivityType: 'Network Activity Type',
   totalScopeCount: 'Total Scope Count', networkScope: 'Network Scope', quarter: 'Quarter/Frequency',
 };
 
@@ -597,12 +600,23 @@ export default function ProjectDetailPage() {
           )}
           <InfoField label="Testing Environment" value={project.testingEnvironment || 'N/A'} changes={changesFor('testingEnvironment')} />
           <InfoField label="QA Reviewer" value={project.qaReviewerName || 'N/A'} changes={changesFor('qaReviewerName')} />
-          <InfoField label="Testing Type" value={project.testingType || 'N/A'} changes={changesFor('testingType')} />
-          <InfoField label="Login Systems" value={project.loginSystemTypes || 'N/A'} changes={changesFor('loginSystemTypes')} />
+          {project.subType !== 'SCR' && (
+            <>
+              <InfoField label="Testing Type" value={project.testingType || 'N/A'} changes={changesFor('testingType')} />
+              <InfoField label="Login Systems" value={project.loginSystemTypes || 'N/A'} changes={changesFor('loginSystemTypes')} />
+            </>
+          )}
           {project.subType === 'MOBILE' && (
             <InfoField label="Android/iOS" value={project.mobilePlatform || 'N/A'} changes={changesFor('mobilePlatform')} />
           )}
-          {(project.subType === 'MOBILE' || project.subType === 'THICK_CLIENT') && (
+          {project.subType === 'SCR' && (
+            <>
+              <InfoField label="Code Location" value={project.codeLocation || 'N/A'} changes={changesFor('codeLocation')} />
+              <InfoField label="Scanning System Username" value={project.systemUsername || 'N/A'} changes={changesFor('systemUsername')} />
+              <InfoField label="Scanning System Hostname" value={project.systemHostname || 'N/A'} changes={changesFor('systemHostname')} />
+            </>
+          )}
+          {(project.subType === 'MOBILE' || project.subType === 'THICK_CLIENT' || project.subType === 'SCR') && (
             <InfoField label="SHA-1" value={project.sha1 || 'N/A'} changes={changesFor('sha1')} />
           )}
           {project.subType === 'NETWORK' && (
@@ -699,6 +713,29 @@ export default function ProjectDetailPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {project.subType === 'SCR' && project.siteMap && project.siteMap.length > 0 && (
+          <div className="pt-3 border-t border-gray-700/50">
+            <p className="text-gray-500 text-xs mb-2">Site Map ({project.siteMap.length})</p>
+            <div className="max-h-64 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-gray-500 text-xs">
+                    <th className="text-left font-normal pb-1">Directory Name</th>
+                    <th className="text-left font-normal pb-1">File Name</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {project.siteMap.map((row, i) => (
+                    <tr key={i} className="text-white border-t border-gray-800">
+                      <td className="py-1 break-all">{row.directoryName}</td>
+                      <td className="py-1 break-all">{row.fileName}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
         {project.subType === 'NETWORK' && project.nmapPorts && project.nmapPorts.length > 0 && (
@@ -1005,6 +1042,9 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
     testingLimitation: project.testingLimitation || '',
     mobilePlatform: project.mobilePlatform || '',
     sha1: project.sha1 || '',
+    codeLocation: project.codeLocation || '',
+    systemUsername: project.systemUsername || '',
+    systemHostname: project.systemHostname || '',
     externalInternal: project.externalInternal || '',
     networkActivityType: project.networkActivityType || '',
     totalScopeCount: project.totalScopeCount != null ? String(project.totalScopeCount) : '',
@@ -1116,7 +1156,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
             {project.subType !== 'NETWORK' && (
               <div>
                 <label className={labelCls}>Project Name</label>
-                <input type="text" required value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} />
+                <input type="text" required value={form.name} onChange={(e) => set('name', e.target.value)} className={inputCls} placeholder={project.subType === 'SCR' ? 'Enter Application Name' : undefined} />
               </div>
             )}
             <div>
@@ -1169,16 +1209,18 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
                 <option value="Production">Production</option>
               </select>
             </div>
-            <div>
-              <label className={labelCls}>Testing Approach</label>
-              <select value={form.testingType} onChange={(e) => set('testingType', e.target.value)} className={inputCls}>
-                <option value="">Select</option>
-                <option value="Black Box">Black Box</option>
-                <option value="Grey Box">Grey Box</option>
-                <option value="White Box">White Box</option>
-              </select>
-            </div>
-            {project.subType !== 'NETWORK' && (
+            {project.subType !== 'SCR' && (
+              <div>
+                <label className={labelCls}>Testing Approach</label>
+                <select value={form.testingType} onChange={(e) => set('testingType', e.target.value)} className={inputCls}>
+                  <option value="">Select</option>
+                  <option value="Black Box">Black Box</option>
+                  <option value="Grey Box">Grey Box</option>
+                  <option value="White Box">White Box</option>
+                </select>
+              </div>
+            )}
+            {project.subType !== 'NETWORK' && project.subType !== 'SCR' && (
               <div>
                 <label className={labelCls}>Types of Login System</label>
                 <input type="text" value={form.loginSystemTypes} onChange={(e) => set('loginSystemTypes', e.target.value)} className={inputCls} />
@@ -1194,7 +1236,23 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
                 </select>
               </div>
             )}
-            {(project.subType === 'MOBILE' || project.subType === 'THICK_CLIENT') && (
+            {project.subType === 'SCR' && (
+              <>
+                <div>
+                  <label className={labelCls}>Code Location</label>
+                  <input type="text" maxLength={500} value={form.codeLocation} onChange={(e) => set('codeLocation', e.target.value)} className={inputCls} placeholder="Enter location of source code" />
+                </div>
+                <div>
+                  <label className={labelCls}>Scanning System Username</label>
+                  <input type="text" maxLength={255} value={form.systemUsername} onChange={(e) => set('systemUsername', e.target.value)} className={inputCls} placeholder="Logged in Username of user during scanning." />
+                </div>
+                <div>
+                  <label className={labelCls}>Scanning System Hostname</label>
+                  <input type="text" maxLength={255} value={form.systemHostname} onChange={(e) => set('systemHostname', e.target.value)} className={inputCls} placeholder="Hostname of system where scanning was performed." />
+                </div>
+              </>
+            )}
+            {(project.subType === 'MOBILE' || project.subType === 'THICK_CLIENT' || project.subType === 'SCR') && (
               <div>
                 <label className={labelCls}>SHA-1</label>
                 <input type="text" value={form.sha1} onChange={(e) => set('sha1', e.target.value)} className={inputCls} />
@@ -1275,7 +1333,7 @@ function EditProjectModal({ project, onClose, onSaved }: { project: any; onClose
           {project.subType !== 'NETWORK' && (
             <div>
               <label className={labelCls}>Scope</label>
-              <textarea rows={2} value={form.scope} onChange={(e) => set('scope', e.target.value)} className={inputCls} />
+              <textarea rows={2} value={form.scope} onChange={(e) => set('scope', e.target.value)} className={inputCls} placeholder={project.subType === 'SCR' ? 'Enter File/zip name whose SHA1 is calculated.' : undefined} />
             </div>
           )}
           {project.subType !== 'NETWORK' && (
@@ -2247,6 +2305,11 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                   <Plus className="w-3 h-3" /> Add Step
                 </button>
               </div>
+
+              <p role="note" className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-px" aria-hidden="true" />
+                <span>Make sure no sensitive information is included in screenshots/steps (passwords, tokens, personal or customer data). Mask or crop it before adding.</span>
+              </p>
 
               {pocSteps.length === 0 && (
                 <p className="text-xs text-gray-500">No POC steps added yet.</p>
