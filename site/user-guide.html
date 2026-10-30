@@ -72,21 +72,23 @@
       </tbody>
     </table></div>
     <p>"Within scope" means projects the user leads, or projects whose tester belongs to the user's team. Permissions are enforced by the server, not just hidden in the interface.</p>
-    <p><strong>The table shows the defaults.</strong> An Admin can change them under <em>Settings &gt; RBAC</em>, which lists every feature covered by access control (60, in 10 groups: Dashboard, Projects, Findings, Vulnerability Database, Reports, Report Templates, Quiz, Users, Retention, Updates) with a switch per role for AVP, Team Lead and Tester. Admins always have every feature, and the switch for Admin is locked on. The Settings panel is not a feature: it is only ever available to Admins. A switch decides whether a role may use a feature at all; the scope rules above (own projects, own team) still apply on top of it. Changes apply to everyone as soon as they are saved, and a menu item or button disappears for a role that has lost the feature. <em>Reset to defaults</em> restores the table above.</p>
+    <p><strong>The table shows the defaults.</strong> An Admin can change them under <em>Settings &gt; RBAC</em>, which lists every feature covered by access control (63, in 10 groups: Dashboard, Projects, Findings, Vulnerability Database, Reports, Report Templates, Quiz, Users, Retention, Updates) with a switch per role for AVP, Team Lead and Tester. Admins always have every feature, and the switch for Admin is locked on. The Settings panel is not a feature: it is only ever available to Admins. A switch decides whether a role may use a feature at all; the scope rules above (own projects, own team) still apply on top of it. Changes apply to everyone as soon as they are saved, and a menu item or button disappears for a role that has lost the feature. <em>Reset to defaults</em> restores the table above.</p>
   </section>
 
   <section id="projects">
     <h2>Projects</h2>
     <ol class="plain">
       <li>Open <em>Projects</em> and choose <em>New project</em>.</li>
-      <li>Choose the compliance category (VAPT, PCI, CERT-In or ASV) and the testing type: Web, API, Mobile, Thick Client or Network.</li>
-      <li>Fill in client, scope, dates, testing environment and the report details. These are entered once and reused in every report. Client SPOC fields appear for CERT-In projects.</li>
+      <li>Choose the compliance category (VAPT, PCI, CERT-In or ASV) and the testing type: Web, API, Mobile, Thick Client, Network or SCR.</li>
+      <li>Fill in client, scope, dates, testing environment and the report details. These are entered once and reused in every report. Client SPOC fields appear for CERT-In projects. SHA-1 is asked for Mobile, Thick Client and SCR projects.</li>
+      <li>SCR projects also ask for the Code Location and the Scanning System Username and Hostname (printed as <code>{Code Location}</code>, <code>{system username}</code> and <code>{system hostname}</code>), and do not ask for Testing Approach or Types of Login System.</li>
     </ol>
     <ul class="plain">
       <li><strong>Status</strong> updates automatically: <em>Not started</em> when created, <em>In progress</em> when the first finding is added, and <em>Completed</em> when a report is generated.</li>
       <li><strong>Compliance status</strong> (Compliant, Non-Compliant, In-Progress) is set by you and printed in reports.</li>
       <li><strong>Completed projects stay editable</strong> by authorized users. Every field change is recorded, and Team Leads, AVPs and Admins can see the change history on the project page.</li>
       <li>Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search projects you can open.</li>
+      <li>Hover tips throughout PMIS appear after one second.</li>
     </ul>
   </section>
 
@@ -96,7 +98,7 @@
       <li>On a project, add a finding by choosing a vulnerability from the library, so the standard wording is reused.</li>
       <li>Add the project-specific details: affected URLs or hosts, authentication type, dependencies and notes.</li>
       <li>If the library's CVSS score does not fit, set an override score and vector for this finding.</li>
-      <li>Add numbered proof-of-concept steps. Each step has a description and one or more screenshots (PNG, JPG, GIF or WebP, up to 20 per step). Screenshots print under their step in the order shown, which you can change with the arrows, and each one gets a thin black border in the Word report.</li>
+      <li>Add numbered proof-of-concept steps. A reminder asks you to make sure no sensitive information is included in screenshots or steps. Each step has a description and one or more screenshots (PNG, JPG, GIF or WebP, up to 20 per step). Screenshots print under their step in the order shown, which you can change with the arrows, and each one gets a thin black border in the Word report.</li>
       <li>On <strong>Network</strong> projects the steps and PoC section is hidden for VA findings: the evidence comes from the Nessus scan output.</li>
     </ol>
     <h3>Findings that are not in the library</h3>
@@ -139,8 +141,9 @@
       </tbody>
     </table></div>
     <ul class="plain">
+      <li>The project's Details page shows the imported Site Map below Tools Used.</li>
       <li>Fortify findings belong to that project only and are not added to the shared vulnerability library. <em>Delete All Fortify Findings</em> removes them together.</li>
-      <li>For PCI and VAPT, upload the template with SCR as its Activity Type. For Cert-In, an SCR project uses an Application template.</li>
+      <li>For PCI and VAPT, upload the template with SCR as its Activity Type. For Cert-In, upload a template with SCR as its Activity Type; an SCR project never falls back to the Application template.</li>
       <li>SCR reports leave the CVSS score and vector placeholders empty.</li>
     </ul>
   </section>

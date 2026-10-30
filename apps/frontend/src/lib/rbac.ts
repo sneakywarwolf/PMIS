@@ -11,7 +11,7 @@ export const ROUTE_PERMISSIONS: [string, string[]][] = [
   ['/dashboard/quiz', ['quiz.play']],
   ['/dashboard/projects/new', ['projects.create']],
   ['/dashboard/projects', ['projects.view']],
-  ['/dashboard/reports', ['reports.generate', 'templates.view']],
+  ['/dashboard/reports', ['reports.page']],
   ['/dashboard/vulnerabilities', ['vulns.view']],
   ['/dashboard/retention', ['retention.view']],
   ['/dashboard/users', ['users.page']],

@@ -60,7 +60,7 @@ interface Notification {
 const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Projects', href: '/dashboard/projects', icon: FolderKanban, features: ['projects.view'] },
-  { label: 'Reports', href: '/dashboard/reports', icon: FileText, features: ['reports.generate', 'templates.view'] },
+  { label: 'Reports', href: '/dashboard/reports', icon: FileText, features: ['reports.page'] },
   { label: 'Vulnerabilities', href: '/dashboard/vulnerabilities', icon: ShieldAlert, features: ['vulns.view'] },
   { label: 'Quiz', href: '/dashboard/quiz', icon: HelpCircle, features: ['quiz.play'] },
   { label: 'Retention', href: '/dashboard/retention', icon: Clock, features: ['retention.view'] },

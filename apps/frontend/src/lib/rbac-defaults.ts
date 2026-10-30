@@ -39,6 +39,7 @@ export const DEFAULT_PERMISSIONS: Record<string, [boolean, boolean, boolean]> = 
   'vulns.approve_requests': [true, true, false],
   'vulns.approve_changes': [true, true, false],
   'vulns.change_tracker': [false, false, false],
+  'reports.page': [false, false, false],
   'reports.generate': [true, true, true],
   'reports.download': [true, true, true],
   'reports.issue_log': [true, true, true],

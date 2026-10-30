@@ -83,6 +83,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'vulns.change_tracker', group: 'Vulnerability Database', label: 'Change Tracker', description: 'See every library change across the system.', defaults: NONE },
 
   // Reports
+  { key: 'reports.page', group: 'Reports', label: 'Open the Reports page', description: 'See the Reports item in the menu and open the Reports & Templates page. Generating a report from a project does not need it.', defaults: NONE },
   { key: 'reports.generate', group: 'Reports', label: 'Generate reports', description: 'Open the Reports page and generate a Word or Excel report (checks, progress).', defaults: ALL },
   { key: 'reports.download', group: 'Reports', label: 'Download reports', description: 'Download a generated report.', defaults: ALL },
   { key: 'reports.issue_log', group: 'Reports', label: 'Export the Issue Log', description: 'Download the Issue Log CSV of a project.', defaults: ALL },

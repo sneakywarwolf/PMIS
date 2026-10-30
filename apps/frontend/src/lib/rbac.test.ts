@@ -23,8 +23,10 @@ test('the quiz manage page is more specific than the quiz page', () => {
   assert.deepEqual(featuresForRoute('/dashboard/quiz/arcade'), ['quiz.play']);
 });
 
-test('Reports opens with generating or browsing templates', () => {
-  assert.equal(isRouteAllowed('/dashboard/reports', 'TESTER', only('templates.view')), true);
+test('the Reports page opens only with its own feature (Admin only by default)', () => {
+  assert.deepEqual(featuresForRoute('/dashboard/reports'), ['reports.page']);
+  assert.equal(isRouteAllowed('/dashboard/reports', 'TESTER', only('reports.page')), true);
+  assert.equal(isRouteAllowed('/dashboard/reports', 'TESTER', only('reports.generate', 'templates.view')), false);
   assert.equal(isRouteAllowed('/dashboard/reports', 'TESTER', only()), false);
 });
 

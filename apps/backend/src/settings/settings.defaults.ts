@@ -59,6 +59,8 @@ export const DEFAULT_SETTINGS = {
     // Controls the {Report Date} template parameter specifically (reports,
     // report filenames, Issue Log filenames, ...) — see common/report-date-format.ts.
     reportDateFormat: 'YYYY-MM-DD',
+    // Format of each other date placeholder in reports (the defaults are what reports always printed).
+    placeholderDates: { startDate: 'Month DD, YYYY', endDate: 'DD-MM-YYYY', generationDate: 'Month DD, YYYY' },
   },
   // Issue Log columns (order = array order) — see reports/issue-log.ts.
   issueLog: {

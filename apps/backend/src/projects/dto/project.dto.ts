@@ -132,6 +132,21 @@ export class CreateProjectDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(500)
+  codeLocation?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  systemUsername?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  systemHostname?: string;
+
+  @IsOptional()
+  @IsString()
   externalInternal?: string;
 
   @IsOptional()
@@ -260,6 +275,21 @@ export class UpdateProjectDto {
   @IsOptional()
   @IsString()
   sha1?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  codeLocation?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  systemUsername?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  systemHostname?: string;
 
   @IsOptional()
   @IsString()

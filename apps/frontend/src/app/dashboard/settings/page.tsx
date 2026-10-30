@@ -652,6 +652,8 @@ function EasterEggTab({ settings, setCategory }: any) {
   );
 }
 
+const PLACEHOLDER_DATE_DEFAULTS = { startDate: 'Month DD, YYYY', endDate: 'DD-MM-YYYY', generationDate: 'Month DD, YYYY' };
+
 function FormattingTab({ settings, setCategory }: any) {
   const f = settings.formatting;
   return (
@@ -690,6 +692,30 @@ function FormattingTab({ settings, setCategory }: any) {
           Controls every {'{Report Date}'} placeholder — generated reports, report filenames, and Issue Log filenames.
           Applies to reports/files generated after this is changed; already-generated files are unaffected.
         </p>
+      </div>
+      <div className="md:col-span-2 border-t border-gray-700/60 pt-4">
+        <h3 className="text-sm font-medium text-white mb-1">Additional date placeholder formats</h3>
+        <p className={hintCls}>Format of each date placeholder in generated reports. The Report Date placeholder above has its own setting. Applies to reports generated after this is changed; already-generated files are unaffected.</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
+          {([
+            ['startDate', '{Start Date}'],
+            ['endDate', '{End Date}'],
+            ['generationDate', '{Month DD, YYYY} / Report Generation Date'],
+          ] as const).map(([key, label]) => (
+            <div key={key}>
+              <label className={labelCls}>{label}</label>
+              <select
+                value={f.placeholderDates?.[key] ?? PLACEHOLDER_DATE_DEFAULTS[key]}
+                onChange={(e) => setCategory('formatting', { placeholderDates: { ...PLACEHOLDER_DATE_DEFAULTS, ...f.placeholderDates, [key]: e.target.value } })}
+                className={inputCls}
+              >
+                {['Month DD, YYYY', 'YYYY-MM-DD', 'DD-MM-YYYY', 'MM-DD-YYYY', 'DD/MM/YYYY', 'MM/DD/YYYY', 'DD.MM.YYYY', 'YYYY/MM/DD'].map((o) => (
+                  <option key={o} value={o}>{o === 'Month DD, YYYY' ? 'Month DD, YYYY (e.g. October 05, 2026)' : o}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
       </div>
       <p className={`${hintCls} md:col-span-2`}>Date Format, Time Format and Number Format Locale apply to every date, time and number shown in the application.</p>
     </div>

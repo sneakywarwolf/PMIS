@@ -234,6 +234,10 @@ model Project {
   testingLimitation  String?  @map("testing_limitation")
   mobilePlatform     String?  @map("mobile_platform")
   sha1               String?  @map("sha1")
+  // SCR projects: where the source code is, and the system the scan ran on.
+  codeLocation       String?  @map("code_location")
+  systemUsername     String?  @map("system_username")
+  systemHostname     String?  @map("system_hostname")
   externalInternal   String?  @map("external_internal")
   networkActivityType String? @map("network_activity_type")
   totalScopeCount    Int?     @map("total_scope_count")

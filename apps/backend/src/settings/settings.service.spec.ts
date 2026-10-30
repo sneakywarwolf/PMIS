@@ -151,6 +151,9 @@ describe('SettingsService.getSystemHealth', () => {
       await expect(service.update({ workflow: { severityLabels: { BOGUS: 'x' } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown severity/);
       await expect(service.update({ formatting: { dateFormat: 'YYYY-MM-DD', timeFormat: '12h', numberFormat: 'de-DE' } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
       await expect(service.update({ formatting: { dateFormat: 'DD.MM' } }, 'a', 'ip', 'ua')).rejects.toThrow(/dateFormat/);
+      await expect(service.update({ formatting: { placeholderDates: { endDate: 'DD/MM/YYYY' } } }, 'a', 'ip', 'ua')).resolves.toBeDefined();
+      await expect(service.update({ formatting: { placeholderDates: { endDate: 'D-M-Y' } } }, 'a', 'ip', 'ua')).rejects.toThrow(/placeholderDates/);
+      await expect(service.update({ formatting: { placeholderDates: { reportDate: 'DD-MM-YYYY' } } }, 'a', 'ip', 'ua')).rejects.toThrow(/Unknown date placeholder/);
       await expect(service.update({ formatting: { numberFormat: 'not a locale!!' } }, 'a', 'ip', 'ua')).rejects.toThrow(/numberFormat/);
     });
 

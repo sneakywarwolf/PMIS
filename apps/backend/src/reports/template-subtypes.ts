@@ -20,10 +20,13 @@ export const coversAnySubType = (subTypes: TemplateSubType[]) => ({
 
 /**
  * Prisma filter: templates eligible for a project of this category + Testing Type. For Cert-In, an `Application`
- * template is the umbrella for every non-Network Testing Type; elsewhere `Application` is not a wildcard.
+ * template is the umbrella for every Testing Type except Network and SCR, which need a template of their own;
+ * elsewhere `Application` is not a wildcard.
  */
+const hasOwnCertInTemplate = (subType: TemplateSubType) => subType === TemplateSubType.NETWORK || subType === TemplateSubType.SCR;
+
 export const eligibleForProject = (category: TemplateCategory, subType: TemplateSubType) =>
-  category === TemplateCategory.CERT_IN && subType !== TemplateSubType.NETWORK
+  category === TemplateCategory.CERT_IN && !hasOwnCertInTemplate(subType)
     ? coversAnySubType([subType, TemplateSubType.APPLICATION])
     : coversSubType(subType);
 
@@ -35,15 +38,15 @@ export const isEligibleTemplate = (
   reportFormat: string,
 ): boolean => {
   const covered = coveredSubTypes(t);
-  const fits = covered.includes(subType) || (category === TemplateCategory.CERT_IN && subType !== TemplateSubType.NETWORK && covered.includes(TemplateSubType.APPLICATION));
+  const fits = covered.includes(subType) || (category === TemplateCategory.CERT_IN && !hasOwnCertInTemplate(subType) && covered.includes(TemplateSubType.APPLICATION));
   return t.isActive && t.category === category && t.reportFormat === reportFormat && fits;
 };
 
 /** PCI / VAPT templates are uploaded per concrete Activity Type; the `Application` umbrella is Cert-In only. */
 const noApplicationCategories: TemplateCategory[] = [TemplateCategory.PCI, TemplateCategory.VAPT];
 
-/** Cert-In templates are only offered for these Activity Types (the same two the upload form offers). */
-const CERT_IN_SUB_TYPES: TemplateSubType[] = [TemplateSubType.APPLICATION, TemplateSubType.NETWORK];
+/** Cert-In templates are only offered for these Activity Types (the same ones the upload form offers). */
+const CERT_IN_SUB_TYPES: TemplateSubType[] = [TemplateSubType.APPLICATION, TemplateSubType.NETWORK, TemplateSubType.SCR];
 
 /**
  * Validates the additional Activity Types sent with an upload: a JSON array or comma-separated list. Every value

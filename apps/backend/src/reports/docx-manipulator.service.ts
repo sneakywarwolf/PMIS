@@ -52,6 +52,11 @@ export interface ContactValues {
   tester?: PersonValues;
 }
 
+export interface SiteMapRow {
+  directoryName: string;
+  fileName: string;
+}
+
 export interface NetworkScopeRow {
   ip: string;
   domainHostname: string;
@@ -72,6 +77,12 @@ export interface FindingData {
   cvssVector: string | null;
   /** SCR projects: CVSS score/vector placeholders print empty (Fortify supplies none and the report doesn't use it). */
   hideCvss?: boolean;
+  /**
+   * Set only for a Fortify finding in an SCR project (the risk-matrix context). {Likelihood} and {Impact} then print
+   * these matrix-derived levels (empty when the severity is not one the matrix supports). Everywhere else it is
+   * undefined and {Impact} keeps meaning the narrative impact text.
+   */
+  scrRisk?: { likelihood: string; impact: string };
   description: string;
   impact: string;
   remediation: string;
@@ -157,7 +168,7 @@ export class DocxManipulatorService {
       let match: RegExpExecArray | null;
       while ((match = re.exec(fullText))) {
         const raw = match[1].trim();
-        if (/^[#/]\s*(VA|PT)$/i.test(raw)) continue; // conditional block marker, not a field
+        if (/^[#/]\s*(VA|PT|NETWORK|SCR)$/i.test(raw)) continue; // conditional block marker, not a field
         if (!raw) continue;
 
         const normalizedName = this.normalizeFieldName(raw);
@@ -259,7 +270,7 @@ export class DocxManipulatorService {
     nmapPorts: NmapPortRecord[] = [],
     toolsUsed: ToolUsedRow[] = [],
     reportName?: string,
-    options?: { splitVaPt?: boolean; activityType?: string | null; complianceStatus?: string | null },
+    options?: { splitVaPt?: boolean; activityType?: string | null; complianceStatus?: string | null; projectCategory?: string | null; projectSubType?: string | null; siteMap?: SiteMapRow[] | null },
   ): Promise<Buffer> {
     const zip = await JSZip.loadAsync(templateBuffer);
     const documentXml = await zip.file('word/document.xml')?.async('text');
@@ -277,7 +288,7 @@ export class DocxManipulatorService {
     this.mergeAllHighlightedRuns(doc);
 
     // Step 1.2: {#VA}...{/VA} / {#PT}...{/PT} blocks, kept or dropped by the project's activity type
-    this.applyActivityBlocks(doc, options?.activityType);
+    this.applyActivityBlocks(doc, options?.activityType, options?.projectCategory, options?.projectSubType);
 
     // Step 1.25: a sub-heading must continue its parent heading's list, not restart another one ("2.1")
     this.alignSubheadingNumbering(doc);
@@ -310,6 +321,7 @@ export class DocxManipulatorService {
     // IP/Domain/Purpose entries stay independently associated.
     this.fillNetworkScopeTable(doc, networkScope);
     this.fillNmapPortsTable(doc, nmapPorts);
+    this.fillSiteMapTable(doc, options?.siteMap ?? []);
     this.fillToolsUsedTable(doc, toolsUsed);
 
     // Step 3: replace {Parameter} placeholders (project-info / contact / date)
@@ -439,12 +451,22 @@ export class DocxManipulatorService {
    * a section break that ended a section which still has retained content moves onto the paragraph
    * before the block. Blank paragraphs / page breaks that end up adjacent only because a block was
    * removed are collapsed to one, so no gap or blank page appears.
+   *
+   * `{#network}` and `{#SCR}` blocks use this same engine; only the keep rule differs. `{#network}` is kept for a
+   * Cert-In + Network project, `{#SCR}` for an SCR project, and each is dropped for everything else (never kept
+   * "by default"). Like {#VA} / {#PT}, both are optional: a template without them generates normally, and a block
+   * whose closing marker is missing is logged and left as it is, never an error.
    */
-  private applyActivityBlocks(doc: Document, activityType?: string | null): void {
+  private applyActivityBlocks(doc: Document, activityType?: string | null, projectCategory?: string | null, projectSubType?: string | null): void {
     const activity = (activityType || '').trim().toUpperCase();
-    const keep = (kind: string) => !['VA', 'PT', 'VAPT'].includes(activity) || activity.includes(kind);
+    const category = (projectCategory || '').trim().toUpperCase();
+    const subType = (projectSubType || '').trim().toUpperCase();
+    const keep = (kind: string) =>
+      kind === 'NETWORK' ? category === 'CERT_IN' && subType === 'NETWORK'
+      : kind === 'SCR' ? subType === 'SCR'
+      : !['VA', 'PT', 'VAPT'].includes(activity) || activity.includes(kind);
     const W = this.W_NS;
-    const MARKER_RE = /^\{\s*([#/])\s*(VA|PT)\s*\}$/i;
+    const MARKER_RE = /^\{\s*([#/])\s*(VA|PT|NETWORK|SCR)\s*\}$/i;
 
     const isPara = (n: Node | null): n is Element => !!n && n.nodeType === 1 && (n as Element).localName === 'p';
     const has = (el: Element, name: string) => el.getElementsByTagNameNS(W, name).length > 0;
@@ -1293,6 +1315,34 @@ export class DocxManipulatorService {
   }
 
   /**
+   * {Directory Name} | {File Name}: the SCR Site Map, one row per uploaded file. With no Site Map the row stays once
+   * with both cells empty. A no-op when the template has no such table.
+   */
+  private fillSiteMapTable(doc: Document, entries: SiteMapRow[]): void {
+    const body = doc.getElementsByTagNameNS(this.W_NS, 'body').item(0);
+    if (!body) return;
+    const tables = Array.from(body.getElementsByTagNameNS(this.W_NS, 'tbl')) as Element[];
+    const table = tables.find((t) => {
+      const x = this.getElementText(t).toLowerCase();
+      return x.includes('{directory name}') && x.includes('{file name}');
+    });
+    if (!table) return;
+    const placeholderRows = Array.from(table.getElementsByTagNameNS(this.W_NS, 'tr')).filter((r) => {
+      const x = this.getElementText(r).toLowerCase();
+      return x.includes('{directory name}') || x.includes('{file name}');
+    });
+    if (placeholderRows.length === 0) return;
+    const anchor = placeholderRows[0];
+    for (const entry of entries.length ? entries : [{ directoryName: '', fileName: '' }]) {
+      const clone = anchor.cloneNode(true) as Element;
+      const resolver = (n: string) => (n.includes('directory') ? entry.directoryName : n.includes('file') ? entry.fileName : undefined);
+      for (const para of Array.from(clone.getElementsByTagNameNS(this.W_NS, 'p')) as Element[]) this.replacePlaceholdersInParagraph(para, resolver);
+      table.insertBefore(clone, anchor);
+    }
+    for (const row of placeholderRows) table.removeChild(row);
+  }
+
+  /**
    * {Tool Name} / {Tool Version} / {Open Source/Licensed}: table of tools
    * used, one row per tool. Same clone-per-record approach as the Network
    * Scope table. A no-op when the template has no such table.
@@ -1540,6 +1590,11 @@ export class DocxManipulatorService {
       status: finding.reportStatus || 'Open',
       report_status: finding.reportStatus || 'Open',
     };
+    // Risk-matrix context: the categorical Impact replaces the narrative one for {Impact} only; {Vulnerability Impact} stays narrative.
+    if (finding.scrRisk) {
+      registry.likelihood = finding.scrRisk.likelihood;
+      registry.impact = finding.scrRisk.impact;
+    }
     return registry[normalizedName];
   }
 

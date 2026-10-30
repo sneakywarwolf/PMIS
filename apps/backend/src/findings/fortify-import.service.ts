@@ -58,7 +58,7 @@ export class FortifyImportService {
           ? knownLocations.has(item.key) && item.affected.some((l) => !knownLocations.get(item.key)!.has(l)) ? 'merge' : 'duplicate'
           : names.has(item.name.trim().toLowerCase()) ? 'duplicate' : 'new') as FortifyImportStatus,
     }));
-    return { items, parsed };
+    return { items, parsed, testerId: project.testerId };
   }
 
   async preview(projectId: string, file: Express.Multer.File | undefined, user: User) {
@@ -72,14 +72,14 @@ export class FortifyImportService {
     };
   }
 
-  private async mergeLocations(projectId: string, item: FortifyFinding, user: User, ipAddress: string, userAgent: string) {
+  private async mergeLocations(projectId: string, testerId: string | null, item: FortifyFinding, user: User, ipAddress: string, userAgent: string) {
     const records = await this.prisma.projectVulnerability.findMany({
       where: { projectId, source: SOURCE, sourceKey: item.key },
-      select: { findings: { where: { projectId }, select: { id: true, status: true, affectedInstances: true } } },
+      select: { findings: { where: { projectId }, select: { id: true, status: true, createdById: true, affectedInstances: true } } },
     });
     for (const finding of records.flatMap((r) => r.findings)) {
       // Same rule as editing a finding by hand: a tester may only change a finding that is still a draft.
-      if (user.role === UserRole.TESTER && finding.status !== FindingStatus.DRAFT) continue;
+      if (user.role === UserRole.TESTER && (finding.status !== FindingStatus.DRAFT || !(finding.createdById === user.id || testerId === user.id))) continue;
       const added = item.affected.filter((l) => !finding.affectedInstances.includes(l));
       if (added.length === 0) continue;
       await this.prisma.finding.update({ where: { id: finding.id }, data: { affectedInstances: [...finding.affectedInstances, ...added] } });
@@ -97,7 +97,7 @@ export class FortifyImportService {
 
   async import(projectId: string, file: Express.Multer.File | undefined, selected: string[], user: User, ipAddress: string, userAgent: string) {
     if (selected.length === 0) throw new BadRequestException('Select at least one finding to import');
-    const { items } = await this.plan(projectId, file, user);
+    const { items, testerId } = await this.plan(projectId, file, user);
     const byKey = new Map(items.map((i) => [i.key, i]));
     const result = {
       created: [] as { key: string; name: string; findingId: string }[],
@@ -122,7 +122,7 @@ export class FortifyImportService {
       }
       if (item.status === 'merge') {
         try {
-          await this.mergeLocations(projectId, item, user, ipAddress, userAgent);
+          await this.mergeLocations(projectId, testerId, item, user, ipAddress, userAgent);
           result.merged.push({ key, name: item.name });
         } catch (e: any) {
           result.failed.push({ key, name: item.name, error: e.message || 'Merge failed' });

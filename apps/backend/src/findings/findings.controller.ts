@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
 import { NESSUS_UPLOAD, NessusUploadSizeGuard } from '../common/nessus-upload.storage';
+import { FortifySlotGuard } from '../common/fortify-slot';
 import { FortifyImportService } from './fortify-import.service';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Res } from '@nestjs/common';
@@ -94,7 +95,7 @@ export class FindingsController {
 
   @Post('fortify/preview')
   @Permission('findings.fortify_import')
-  @UseGuards(AttachmentSizeGuard('fortify'))
+  @UseGuards(AttachmentSizeGuard('fortify'), FortifySlotGuard)
   @UseInterceptors(FileInterceptor('file', { ...attachmentMulterLimits('fortify'), storage: memoryStorage() }))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Parse a Fortify .fpr/.xml (FVDL) result file and list its findings (no data is written)' })
@@ -106,7 +107,7 @@ export class FindingsController {
 
   @Post('fortify/import')
   @Permission('findings.fortify_import')
-  @UseGuards(AttachmentSizeGuard('fortify'))
+  @UseGuards(AttachmentSizeGuard('fortify'), FortifySlotGuard)
   @UseInterceptors(FileInterceptor('file', { ...attachmentMulterLimits('fortify'), storage: memoryStorage() }))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Import only the selected findings (by key) from a Fortify result file into an SCR project' })
