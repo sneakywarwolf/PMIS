@@ -25,6 +25,7 @@ const KEV_PAGE = 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog';
 const ZERO_DAY_WORDS = /\b(zero[\s-]?day|0[\s-]?day)\b/i;
 const MAX_CVES_PER_CLAIM = 3; // a story naming many CVEs does not say which one is the zero-day
 const MIN_REASON = 5;
+const RESERVED_SOURCE_NAMES = new Set(['cisa kev', 'cisa known exploited vulnerabilities', 'kev', 'cisa kev catalog']);
 
 const toItem = (e: any): EvidenceItem => ({ id: e.id, kind: e.kind, sourceType: e.sourceType, sourceName: e.sourceName, url: e.url, eventDate: e.eventDate ?? null, retracted: !!e.retractedAt });
 
@@ -118,6 +119,8 @@ export class ZeroDayService {
     if (!(SOURCE_TYPES as readonly string[]).includes(input?.sourceType)) throw new BadRequestException('Unknown source type');
     const sourceName = String(input.sourceName ?? '').trim().slice(0, 200);
     if (!sourceName) throw new BadRequestException('The source name is required');
+    // The system's own evidence is labelled with these names; a person must not be able to pass off an entry as one of them.
+    if (RESERVED_SOURCE_NAMES.has(sourceName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim())) throw new BadRequestException('That source name is reserved for automatic evidence');
     const url = canonicalUrl(String(input.url ?? ''));
     if (!url) throw new BadRequestException('The evidence URL must be an http(s) link');
     let eventDate: Date | null = null;
@@ -247,7 +250,7 @@ export class ZeroDayService {
     let n = 0;
     for (const { cveId } of kevCves) {
       const c = await this.ensureCase(cveId);
-      const has = await this.prisma.digestZeroDayEvidence.findFirst({ where: { caseId: c.id, sourceName: 'CISA KEV', retractedAt: null } });
+      const has = await this.prisma.digestZeroDayEvidence.findFirst({ where: { caseId: c.id, sourceName: 'CISA KEV', addedById: null, retractedAt: null } }); // only the system's own row counts
       if (has) continue;
       await this.prisma.digestZeroDayEvidence.create({ data: { caseId: c.id, kind: 'EXPLOITATION_OBSERVED', sourceType: 'GOVERNMENT', sourceName: 'CISA KEV', url: KEV_PAGE, eventDate: null, note: 'Listed in the CISA Known Exploited Vulnerabilities catalog. The catalog does not say when exploitation began.', addedById: null } });
       await this.event(cveId, 'EVIDENCE_ADDED', { kind: 'EXPLOITATION_OBSERVED', source: 'CISA KEV', by: 'system' });
@@ -264,7 +267,7 @@ export class ZeroDayService {
       if (!ZERO_DAY_WORDS.test(`${s.title} ${s.summary ?? ''}`) || s.cveIds.length > MAX_CVES_PER_CLAIM) continue;
       for (const cveId of s.cveIds.filter(isValidCveId)) {
         const c = await this.ensureCase(cveId);
-        const has = await this.prisma.digestZeroDayEvidence.findFirst({ where: { caseId: c.id, url: s.canonicalUrl, kind: 'ZERO_DAY_CLAIM', retractedAt: null } });
+        const has = await this.prisma.digestZeroDayEvidence.findFirst({ where: { caseId: c.id, url: s.canonicalUrl, kind: 'ZERO_DAY_CLAIM', addedById: null, retractedAt: null } });
         if (has) continue;
         await this.prisma.digestZeroDayEvidence.create({ data: { caseId: c.id, kind: 'ZERO_DAY_CLAIM', sourceType: 'NEWS', sourceName: s.source.name, url: s.canonicalUrl, eventDate: s.publishedAt ?? null, note: 'Article uses the term zero-day and names this CVE. Reported, not verified.', addedById: null } });
         await this.event(cveId, 'EVIDENCE_ADDED', { kind: 'ZERO_DAY_CLAIM', source: s.source.name, by: 'system' });
