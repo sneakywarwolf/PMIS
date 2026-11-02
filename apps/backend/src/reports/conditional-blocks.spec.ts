@@ -16,22 +16,25 @@ async function render(body: string, category: string, subType: string) {
   return Array.from(new DOMParser().parseFromString(xml, 'text/xml').getElementsByTagNameNS(W, 'p')).map((x) => x.textContent);
 }
 
-const body = [p('intro'), p('{#network}'), p('net-text'), p('{/network}'), p('{#SCR}'), p('scr-text'), p('{/SCR}'), p('outro')].join('');
+const KINDS = ['network', 'web', 'mobile', 'tc', 'SCR'] as const;
+const body = [p('intro'), ...KINDS.flatMap((k) => [p(`{#${k}}`), p(`${k}-text`), p(`{/${k}}`)]), p('outro')].join('');
 
-describe('{#network} / {#SCR} conditional blocks', () => {
+describe('platform conditional blocks', () => {
+  // Persisted Testing Type (subType) -> the blocks that are kept. The project category plays no part.
   it.each([
-    ['CERT_IN', 'NETWORK', true, false],
-    ['CERT_IN', 'SCR', false, true],
-    ['PCI', 'SCR', false, true],
-    ['VAPT', 'SCR', false, true],
-    ['VAPT', 'NETWORK', false, false],
-    ['PCI', 'NETWORK', false, false],
-    ['CERT_IN', 'WEB', false, false],
-    ['VAPT', 'WEB', false, false],
-  ])('%s + %s: network=%s SCR=%s', async (category, subType, net, scr) => {
+    ['CERT_IN', 'NETWORK', ['network']],
+    ['PCI', 'NETWORK', ['network']],
+    ['VAPT', 'NETWORK', ['network']],
+    ['VAPT', 'WEB', ['web']],
+    ['PCI', 'API', ['web']],
+    ['VAPT', 'MOBILE', ['mobile']],
+    ['PCI', 'THICK_CLIENT', ['tc']],
+    ['CERT_IN', 'SCR', ['SCR']],
+    ['PCI', 'SCR', ['SCR']],
+    ['VAPT', 'APPLICATION', []],
+  ])('%s + %s keeps %j', async (category, subType, kept) => {
     const text = (await render(body, category, subType)).join('|');
-    expect(text.includes('net-text')).toBe(net);
-    expect(text.includes('scr-text')).toBe(scr);
+    for (const k of KINDS) expect(text.includes(`${k}-text`)).toBe(kept.includes(k));
     expect(text).toContain('intro');
     expect(text).toContain('outro');
     expect(text).not.toMatch(/\{[#/]/); // no marker is ever left behind
@@ -43,7 +46,7 @@ describe('{#network} / {#SCR} conditional blocks', () => {
     expect(text).not.toContain('{');
   });
 
-  it.each([['PCI'], ['VAPT'], ['CERT_IN']])('%s SCR template with no SCR or network markers generates normally', async (category) => {
+  it.each([['PCI'], ['VAPT'], ['CERT_IN']])('%s SCR template with no conditional markers generates normally', async (category) => {
     const text = (await render([p('intro'), p('body'), p('outro')].join(''), category, 'SCR')).join('|');
     expect(text).toBe('intro|body|outro');
   });

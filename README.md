@@ -39,7 +39,6 @@ Open http://localhost:3000, sign in as `admin` with that password, and set a new
 | `apps/frontend/` | Next.js web interface |
 | `docker-compose.yml` | Production stack (only the web port is published) |
 | `docker-compose.dev.yml` | Local development infrastructure, with fixed local-only credentials. Never use it in production |
-| `Report Template/` | Sample Word report templates (upload them under Reports) |
 | `docs/` | Design and review documents |
 | `site/` | Source of the documentation website |
 

@@ -305,7 +305,7 @@ describe('Activation (approval) replaces the previous template safely', () => {
     });
   });
 
-  it('rebinds projects, activates the new one, and deletes a replaced template nothing references (file after commit)', async () => {
+  it('rebinds projects, activates the new one, and deletes the replaced template (file after commit)', async () => {
     const { service, prisma, storage } = await run();
     await service.activateTemplate('new', 'admin1', 'ip', 'ua');
     expect(prisma.project.updateMany).toHaveBeenCalledWith({ where: { templateId: 'old' }, data: { templateId: 'new' } });
@@ -314,12 +314,12 @@ describe('Activation (approval) replaces the previous template safely', () => {
     expect(storage.deleteFile).toHaveBeenCalledWith('f-old');
   });
 
-  it('a replaced template that generated reports still point at is kept, inactive, with its file', async () => {
+  it('a replaced template that generated reports is deleted too (no inactive copy); the reports keep their own files', async () => {
     const { service, prisma, storage } = await run({ generations: 4 });
     await service.activateTemplate('new', 'admin1', 'ip', 'ua');
-    expect(prisma.reportTemplate.delete).not.toHaveBeenCalled();
-    expect(storage.deleteFile).not.toHaveBeenCalled();
-    expect(prisma.reportTemplate.update).toHaveBeenCalledWith({ where: { id: 'old' }, data: { isActive: false, effectiveTo: expect.any(Date) } });
+    expect(prisma.reportTemplate.delete).toHaveBeenCalledWith({ where: { id: 'old' } });
+    expect(storage.deleteFile).toHaveBeenCalledWith('f-old');
+    expect(prisma.reportTemplate.update).not.toHaveBeenCalledWith({ where: { id: 'old' }, data: expect.anything() });
     expect(prisma.project.updateMany).toHaveBeenCalledWith({ where: { templateId: 'old' }, data: { templateId: 'new' } });
   });
 

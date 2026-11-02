@@ -168,7 +168,7 @@ export class DocxManipulatorService {
       let match: RegExpExecArray | null;
       while ((match = re.exec(fullText))) {
         const raw = match[1].trim();
-        if (/^[#/]\s*(VA|PT|NETWORK|SCR)$/i.test(raw)) continue; // conditional block marker, not a field
+        if (/^[#/]\s*(VA|PT|NETWORK|WEB|MOBILE|TC|SCR)$/i.test(raw)) continue; // conditional block marker, not a field
         if (!raw) continue;
 
         const normalizedName = this.normalizeFieldName(raw);
@@ -288,7 +288,7 @@ export class DocxManipulatorService {
     this.mergeAllHighlightedRuns(doc);
 
     // Step 1.2: {#VA}...{/VA} / {#PT}...{/PT} blocks, kept or dropped by the project's activity type
-    this.applyActivityBlocks(doc, options?.activityType, options?.projectCategory, options?.projectSubType);
+    this.applyActivityBlocks(doc, options?.activityType, options?.projectSubType);
 
     // Step 1.25: a sub-heading must continue its parent heading's list, not restart another one ("2.1")
     this.alignSubheadingNumbering(doc);
@@ -452,21 +452,23 @@ export class DocxManipulatorService {
    * before the block. Blank paragraphs / page breaks that end up adjacent only because a block was
    * removed are collapsed to one, so no gap or blank page appears.
    *
-   * `{#network}` and `{#SCR}` blocks use this same engine; only the keep rule differs. `{#network}` is kept for a
-   * Cert-In + Network project, `{#SCR}` for an SCR project, and each is dropped for everything else (never kept
-   * "by default"). Like {#VA} / {#PT}, both are optional: a template without them generates normally, and a block
+   * `{#network}`, `{#web}`, `{#mobile}`, `{#tc}` and `{#SCR}` blocks use this same engine; only the keep rule differs.
+   * They are kept by the project's Testing Type (platform, i.e. subType): NETWORK, WEB or API, MOBILE, THICK_CLIENT, SCR,
+   * and dropped for everything else (never kept "by default"). Like {#VA} / {#PT}, all are optional: a template without them generates normally, and a block
    * whose closing marker is missing is logged and left as it is, never an error.
    */
-  private applyActivityBlocks(doc: Document, activityType?: string | null, projectCategory?: string | null, projectSubType?: string | null): void {
+  private applyActivityBlocks(doc: Document, activityType?: string | null, projectSubType?: string | null): void {
     const activity = (activityType || '').trim().toUpperCase();
-    const category = (projectCategory || '').trim().toUpperCase();
     const subType = (projectSubType || '').trim().toUpperCase();
     const keep = (kind: string) =>
-      kind === 'NETWORK' ? category === 'CERT_IN' && subType === 'NETWORK'
+      kind === 'NETWORK' ? subType === 'NETWORK'
+      : kind === 'WEB' ? subType === 'WEB' || subType === 'API'
+      : kind === 'MOBILE' ? subType === 'MOBILE'
+      : kind === 'TC' ? subType === 'THICK_CLIENT'
       : kind === 'SCR' ? subType === 'SCR'
       : !['VA', 'PT', 'VAPT'].includes(activity) || activity.includes(kind);
     const W = this.W_NS;
-    const MARKER_RE = /^\{\s*([#/])\s*(VA|PT|NETWORK|SCR)\s*\}$/i;
+    const MARKER_RE = /^\{\s*([#/])\s*(VA|PT|NETWORK|WEB|MOBILE|TC|SCR)\s*\}$/i;
 
     const isPara = (n: Node | null): n is Element => !!n && n.nodeType === 1 && (n as Element).localName === 'p';
     const has = (el: Element, name: string) => el.getElementsByTagNameNS(W, name).length > 0;

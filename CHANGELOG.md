@@ -1,6 +1,13 @@
 # Changelog
 
-## 1.1.2 (Unreleased)
+## 1.1.3 (Unreleased)
+- Word templates: new optional `{#web}...{/web}` (Web Application and API), `{#mobile}...{/mobile}` and `{#tc}...{/tc}` (Thick Client) blocks, same markers and formatting handling as `{#VA}` / `{#PT}`. `{#network}` is now kept for any Network project, not only Cert-In. Platform blocks follow the project's Testing Type (Platform); all are optional.
+- Templates: when a new template is activated and replaces an old one, the old one is now always deleted (file and field mappings included) instead of staying as an inactive copy in Browse Templates. Reports already generated keep their files; they only lose the link to the template that made them.
+- Fix: in SCR (Fortify) reports each reference ([1], [2], [3] ...) now starts on its own line in Word; before, the whole list ran together on one line.
+- Security scan fixes: the backend no longer uses the `minio` client library (its `decode-uri-component` dependency had a high-severity advisory). File storage now goes through the AWS S3 client against the same RustFS store; the `MINIO_*` settings, bucket and stored files are unchanged. The backend image also replaces the `undici` bundled inside npm with the patched 6.29.1. The backend `npm audit` and image scan pass at the high/critical level again.
+- Repository: the local design and review notes in `docs/` are no longer tracked by Git (the folder is ignored).
+
+## 1.1.2 (2026-10-30)
 - Word templates: `{#network}...{/network}` and `{#SCR}...{/SCR}` blocks (same markers as `{#VA}` / `{#PT}`). `{#network}` is kept only for a Cert-In + Network project, `{#SCR}` only for an SCR project (Cert-In, PCI or VAPT), and each is removed for every other project. Both are optional: a template without them generates normally, and a block with a missing closing marker is logged and left as it is, never an error.
 - SCR projects have three new project fields: Code Location (`{Code Location}`), Scanning System Username (`{system username}`) and Scanning System Hostname (`{system hostname}`). They show only for SCR, are saved per project, and fill the placeholders from that project's own values (blank when empty). They are in the parameter registry, so Admin template mapping can use them. On SCR projects the Application Name and Scope boxes show SCR-specific hint text. One additive migration.
 - Cert-In now has SCR as its own template Activity Type (Network, Application, SCR). A Cert-In SCR project uses only a Cert-In SCR template, for Word and Excel, and never falls back to the Application template; with none active, report generation says an SCR template is needed. Application keeps serving every other non-Network project. No data is migrated, and existing Application templates and projects are untouched.

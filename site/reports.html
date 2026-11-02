@@ -227,7 +227,21 @@
 {/PT}</code></pre>
     <p>A VA project keeps the VA blocks, a PT project keeps the PT blocks, and VAPT keeps both. If the activity type is not set, both are kept. Page and section breaks on marker lines are preserved. Excel templates do not use markers: their rows repeat as described above. In Word Network reports, the Scope and Detail Findings headings start on a new page.</p>
 
-<p>Two more optional block pairs work the same way: <code>{#network}...{/network}</code> is kept only for a Cert-In Network project, and <code>{#SCR}...{/SCR}</code> only for an SCR project (Cert-In, PCI or VAPT); each is removed for every other project. A template does not need to contain them, and a block whose closing marker is missing is left as it is, without an error.</p>
+<h3>Platform sections (Word)</h3>
+    <p>Conditional blocks are optional. A template works normally without any of them, and a missing block never raises an alert or an error. A block is processed only when its opening and closing marker are both present, each alone in its paragraph (any letter case), placed around the content exactly like the VA and PT markers above. If a closing marker is missing, the block is left as it is.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Conditional block</th><th>Included when</th></tr></thead>
+      <tbody>
+        <tr><td><code>{#VA}...{/VA}</code></td><td>Network Activity Type is VA (VAPT keeps both; not set keeps both)</td></tr>
+        <tr><td><code>{#PT}...{/PT}</code></td><td>Network Activity Type is PT (VAPT keeps both; not set keeps both)</td></tr>
+        <tr><td><code>{#network}...{/network}</code></td><td>Testing Type (Platform) is Network</td></tr>
+        <tr><td><code>{#web}...{/web}</code></td><td>Testing Type (Platform) is Web Application or API</td></tr>
+        <tr><td><code>{#mobile}...{/mobile}</code></td><td>Testing Type (Platform) is Mobile Application</td></tr>
+        <tr><td><code>{#tc}...{/tc}</code></td><td>Testing Type (Platform) is Thick Client</td></tr>
+        <tr><td><code>{#SCR}...{/SCR}</code></td><td>Testing Type (Platform) is SCR</td></tr>
+      </tbody>
+    </table></div>
+    <p>A platform block is removed for every other platform, whatever the project category (PCI, VAPT or Cert-In). VA/PT blocks are decided separately, by the Network Activity Type. Content outside the blocks is never changed. A kept block keeps its formatting, tables, numbering and page breaks; a removed block leaves no extra blank lines or blank pages.</p>
     <h3>Not supported</h3>
     <ul class="plain">
       <li>Excel text in drawings, headers, footers and comments is not scanned for placeholders.</li>
@@ -244,7 +258,7 @@
       <li>Review the detected fields. Add any the detector missed, and map fields to values if the names differ.</li>
       <li>Activate the template. Projects of the matching category and activity type then use it.</li>
     </ol>
-    <div class="warn"><strong>Activating replaces the previous template.</strong> When you activate a template, any active template with the same category and format that covers the same activity types is replaced. Projects that used the old template move to the new one. If the old template covered only those activity types, it is made inactive when generated reports still point at it, and <strong>deleted</strong> (file and field mappings included) when nothing does. If it also covered other activity types, it keeps those. Reports already generated are not affected. Keep your own copy of every template file.</div>
+    <div class="warn"><strong>Activating replaces the previous template.</strong> When you activate a template, any active template with the same category and format that covers the same activity types is replaced. Projects that used the old template move to the new one. If the old template covered only those activity types, it is <strong>deleted</strong> (file and field mappings included) and no longer appears in Browse Templates. If it also covered other activity types, it keeps those. Reports already generated are not affected. Keep your own copy of every template file.</div>
     <p>Inactive templates can be deleted from the same page.</p>
   </section>
 
