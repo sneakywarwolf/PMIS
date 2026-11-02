@@ -33,6 +33,13 @@ WORKDIR /app
 # carries vulnerable tar/minimatch/etc.)
 RUN apk upgrade --no-cache && npm install -g npm@latest
 
+# npm@latest still bundles undici 6.29.0 (three HIGH advisories, fixed in 6.29.1; same major, so npm is unaffected).
+# Swap the bundled copy until npm ships a fixed one; drop this block then.
+RUN cd /tmp && npm pack undici@6.29.1 >/dev/null && tar -xzf undici-6.29.1.tgz \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/undici \
+    && mv package /usr/local/lib/node_modules/npm/node_modules/undici \
+    && rm undici-6.29.1.tgz
+
 # Set Node.js to production
 ENV NODE_ENV=production
 ENV NODE_OPTIONS=--max-old-space-size=1024

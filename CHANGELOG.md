@@ -5,6 +5,7 @@
 - Templates: when a new template is activated and replaces an old one, the old one is now always deleted (file and field mappings included) instead of staying as an inactive copy in Browse Templates. Reports already generated keep their files; they only lose the link to the template that made them.
 - Fix: in SCR (Fortify) reports each reference ([1], [2], [3] ...) now starts on its own line in Word; before, the whole list ran together on one line.
 - Security scan fixes: the backend no longer uses the `minio` client library (its `decode-uri-component` dependency had a high-severity advisory). File storage now goes through the AWS S3 client against the same RustFS store; the `MINIO_*` settings, bucket and stored files are unchanged. The backend image also replaces the `undici` bundled inside npm with the patched 6.29.1. The backend `npm audit` and image scan pass at the high/critical level again.
+- Security scan fixes: the frontend pins `follow-redirects` to 1.16.2 (1.16.1 now has a high-severity advisory), and the frontend image gets the same bundled-npm `undici` patch as the backend image.
 - Repository: the local design and review notes in `docs/` are no longer tracked by Git (the folder is ignored).
 
 ## 1.1.2 (2026-10-30)

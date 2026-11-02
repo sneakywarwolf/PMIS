@@ -41,6 +41,6 @@
     "next": {
       "postcss": "^8.5.30"
     },
-    "follow-redirects": "1.16.1"
+    "follow-redirects": "1.16.2"
   }
 }
