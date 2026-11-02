@@ -30,7 +30,16 @@ const HEALTH_CLS: Record<string, string> = {
   HEALTHY: 'bg-emerald-500/15 text-emerald-300', STALE: 'bg-amber-500/15 text-amber-300', FAILING: 'bg-red-500/15 text-red-300',
   UNKNOWN: 'bg-gray-500/20 text-gray-300', DISABLED: 'bg-gray-500/20 text-gray-400',
 };
-const UNKNOWN = <span className="text-gray-500">unknown</span>;
+/** Only http(s) URLs become links; anything else (javascript:, data:, garbage) renders as plain text. */
+const safeUrl = (u: string): string | undefined => {
+  try {
+    const p = new URL(u);
+    return p.protocol === 'http:' || p.protocol === 'https:' ? p.href : undefined;
+  } catch {
+    return undefined;
+  }
+};
+const UNKNOWN =<span className="text-gray-500">unknown</span>;
 
 function NewsTab() {
   const [q, setQ] = useState('');
@@ -54,7 +63,7 @@ function NewsTab() {
       {data?.items.map((s) => (
         <div key={s.id} className="glass-card p-4 rounded-xl space-y-1">
           <div className="flex items-start justify-between gap-3">
-            <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-white font-medium hover:text-cyan-300">{s.title}</a>
+            <a href={safeUrl(s.url)} target="_blank" rel="noopener noreferrer" className="text-white font-medium hover:text-cyan-300">{s.title}</a>
             {pill('bg-amber-500/15 text-amber-300', 'Attributed reporting')}
           </div>
           <div className="text-xs text-gray-400">{s.publisher} · {s.publishedAt ? formatDateTime(s.publishedAt) : 'publication date not given by source'} · ingested {formatDateTime(s.ingestedAt)}</div>
@@ -144,7 +153,7 @@ function HealthTab() {
           <tbody>
             {h.sources.map((s) => (
               <tr key={s.slug} className="border-t border-gray-800">
-                <td className="p-3"><a href={s.website} target="_blank" rel="noopener noreferrer" className="text-white hover:text-cyan-300">{s.name}</a></td>
+                <td className="p-3"><a href={safeUrl(s.website)} target="_blank" rel="noopener noreferrer" className="text-white hover:text-cyan-300">{s.name}</a></td>
                 <td className="p-3 text-gray-300">{s.trustRole === 'AUTHORITATIVE' ? 'Authoritative' : 'Discovery'}</td>
                 <td className="p-3">{pill(HEALTH_CLS[s.health], s.health.toLowerCase())}{s.consecutiveFailures > 0 && <span className="ml-2 text-xs text-gray-500">{s.consecutiveFailures} failures</span>}</td>
                 <td className="p-3 text-gray-300">{s.lastSuccessAt ? formatDateTime(s.lastSuccessAt) : <span className="text-gray-500">never</span>}</td>
