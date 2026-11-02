@@ -82,6 +82,11 @@ enum AuditAction {
   QUIZ_QUESTION_CREATED
   QUIZ_QUESTION_UPDATED
   QUIZ_QUESTION_DELETED
+  CYBERDIGEST_EVIDENCE_ADDED
+  CYBERDIGEST_EVIDENCE_RETRACTED
+  CYBERDIGEST_ZERODAY_TRANSITION
+  CYBERDIGEST_ZERODAY_APPROVED
+  CYBERDIGEST_ZERODAY_WITHDRAWN
 }
 
 enum ComplianceType {
@@ -854,6 +859,56 @@ model DigestKevEntry {
   notes            String?
   catalogVersion   String
   syncedAt         DateTime  @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Cyberdigest phase 3: zero-day classification. CONFIRMED is reachable only
+// through an analyst approval that the evidence rules allow; never automatically.
+// ---------------------------------------------------------------------------
+
+enum DigestZeroDayState {
+  CONFIRMED // confirmed zero-day exploitation (evidence rules met AND analyst approved)
+  REPORTED_UNVERIFIED // someone reports a zero-day; qualifying evidence missing
+  KNOWN_EXPLOITED_UNCONFIRMED // exploitation established; zero-day timeline is not
+  NOT_SUBSTANTIATED // evidence contradicts or fails to support the claim
+  UNKNOWN // evidence unavailable, conflicting or inconclusive
+}
+
+model DigestZeroDayCase {
+  id            String             @id @default(uuid())
+  cveId         String             @unique
+  state         DigestZeroDayState @default(REPORTED_UNVERIFIED)
+  stateReasons  Json // why the case is in this state / what evidence is missing
+  stateSetById  String? // null = set by the system rules; otherwise the analyst who chose it
+  stateSetAt    DateTime           @default(now())
+  approvedById  String? // only ever set together with state CONFIRMED
+  approvedAt    DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  evidence DigestZeroDayEvidence[]
+
+  @@index([state])
+}
+
+// Immutable once written. A mistake is corrected by retracting and adding new evidence.
+model DigestZeroDayEvidence {
+  id           String            @id @default(uuid())
+  caseId       String
+  case         DigestZeroDayCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  kind         String // EXPLOITATION_OBSERVED | PATCH_RELEASED | NO_PATCH_AVAILABLE | VENDOR_AWARENESS | DISCLOSURE | POC_PUBLIC | ZERO_DAY_CLAIM | CONTRADICTS_EXPLOITATION | CONTRADICTS_ZERO_DAY
+  sourceType   String // VENDOR | RESEARCHER | GOVERNMENT | INCIDENT_REPORT | TECHNICAL_INVESTIGATION | NEWS | SOCIAL | OTHER
+  sourceName   String
+  url          String
+  eventDate    DateTime? // the date the SOURCE states for the event; null when it gives none
+  note         String?
+  addedById    String? // null = added by the system (KEV sync, story scan)
+  createdAt    DateTime          @default(now())
+  retractedAt  DateTime?
+  retractedById String?
+  retractReason String?
+
+  @@index([caseId])
 }
 
 // Append-only history of what changed and when, per entity.

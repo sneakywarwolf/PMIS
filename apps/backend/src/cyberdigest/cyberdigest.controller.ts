@@ -1,5 +1,9 @@
-import { BadRequestException, Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Query, Req } from '@nestjs/common';
+import { User } from '@prisma/client';
+import { Request } from 'express';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { isValidCveId } from './cve-clients';
+import { Actor, EvidenceInput, ZeroDayService } from './zero-day.service';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
 import { Permission } from '../common/permissions';
@@ -17,7 +21,10 @@ const parseDate = (v?: string) => {
 @ApiTags('Cyberdigest')
 @Controller('cyberdigest')
 export class CyberdigestController {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private zeroDay: ZeroDayService,
+  ) {}
 
   @Get('health')
   @Permission('cyberdigest.view')
@@ -104,6 +111,63 @@ export class CyberdigestController {
     if (!row) throw new NotFoundException('CVE has not been verified yet');
     const history = await this.prisma.digestEvent.findMany({ where: { entityType: 'CVE', entityId: cveId }, orderBy: { createdAt: 'desc' }, take: 50 });
     return { ...this.cveView(row), history };
+  }
+
+  private actor(user: User, req: Request): Actor {
+    return { id: user.id, ip: req.ip ?? '', userAgent: String(req.headers['user-agent'] ?? '') };
+  }
+
+  @Get('zero-days')
+  @Permission('cyberdigest.view')
+  @ApiOperation({ summary: 'Zero-day cases by section: confirmed (analyst-approved only), known_exploited, review' })
+  async zeroDays(@Query('section') section?: string) {
+    const s = section === 'confirmed' || section === 'known_exploited' ? section : 'review';
+    return { section: s, items: await this.zeroDay.list(s) };
+  }
+
+  @Get('zero-days/:id')
+  @Permission('cyberdigest.view')
+  async zeroDay1(@Param('id') id: string) {
+    const cveId = id.trim().toUpperCase();
+    if (!isValidCveId(cveId)) throw new BadRequestException('Malformed CVE id');
+    return this.zeroDay.view(cveId);
+  }
+
+  @Post('zero-days/:id/evidence')
+  @Permission('cyberdigest.review')
+  @ApiOperation({ summary: 'Record evidence for a zero-day case (analyst)' })
+  async addEvidence(@Param('id') id: string, @Body() body: EvidenceInput, @CurrentUser() user: User, @Req() req: Request) {
+    await this.zeroDay.addEvidence(id, body, this.actor(user, req));
+    return this.zeroDay.view(id.trim().toUpperCase());
+  }
+
+  @Post('zero-days/evidence/:evidenceId/retract')
+  @Permission('cyberdigest.review')
+  async retract(@Param('evidenceId') evidenceId: string, @Body() body: { reason?: string }, @CurrentUser() user: User, @Req() req: Request) {
+    await this.zeroDay.retractEvidence(evidenceId, body?.reason, this.actor(user, req));
+    return { ok: true };
+  }
+
+  @Post('zero-days/:id/transition')
+  @Permission('cyberdigest.review')
+  async transition(@Param('id') id: string, @Body() body: { state?: string; reason?: string }, @CurrentUser() user: User, @Req() req: Request) {
+    await this.zeroDay.transition(id, String(body?.state ?? ''), body?.reason, this.actor(user, req));
+    return this.zeroDay.view(id.trim().toUpperCase());
+  }
+
+  @Post('zero-days/:id/approve')
+  @Permission('cyberdigest.review')
+  @ApiOperation({ summary: 'Approve a zero-day as CONFIRMED. Refused unless the evidence rules are met.' })
+  async approve(@Param('id') id: string, @CurrentUser() user: User, @Req() req: Request) {
+    await this.zeroDay.approve(id, this.actor(user, req));
+    return this.zeroDay.view(id.trim().toUpperCase());
+  }
+
+  @Post('zero-days/:id/withdraw')
+  @Permission('cyberdigest.review')
+  async withdraw(@Param('id') id: string, @Body() body: { state?: string; reason?: string }, @CurrentUser() user: User, @Req() req: Request) {
+    await this.zeroDay.withdraw(id, String(body?.state ?? 'REPORTED_UNVERIFIED'), body?.reason, this.actor(user, req));
+    return this.zeroDay.view(id.trim().toUpperCase());
   }
 
   @Get('stories')

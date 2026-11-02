@@ -119,13 +119,65 @@ function CvesTab() {
   );
 }
 
-function ZeroDayTab() {
+type ZdEvidence = { id: string; kind: string; sourceType: string; primary: boolean; sourceName: string; url: string; eventDate: string | null; note: string | null; addedBy: string; retracted: boolean };
+type ZdCase = {
+  cveId: string; state: string; publishedAsConfirmed: boolean; eligibleForConfirmation: boolean; reasons: string[]; missing: string[]; conflicts: string[];
+  analystReason: string | null; stateSetBy: string; approvedBy: string | null; approvedAt: string | null; evidence: ZdEvidence[];
+  cve: { recordStatus: string; description: string | null } | null;
+};
+const KIND_LABEL: Record<string, string> = {
+  EXPLOITATION_OBSERVED: 'Exploitation', PATCH_RELEASED: 'Patch released', NO_PATCH_AVAILABLE: 'No patch available', VENDOR_AWARENESS: 'Vendor aware',
+  DISCLOSURE: 'Disclosure', POC_PUBLIC: 'Public PoC', ZERO_DAY_CLAIM: 'Zero-day claim', CONTRADICTS_EXPLOITATION: 'Contradicts exploitation', CONTRADICTS_ZERO_DAY: 'Contradicts zero-day',
+};
+
+function CaseCard({ c }: { c: ZdCase }) {
   return (
-    <div className="glass-card p-6 rounded-xl space-y-2">
-      <div className="text-white font-medium">Zero-day exploitation alerts: not available yet</div>
-      <p className="text-sm text-gray-400">
-        The analyst-approved zero-day workflow is not built yet (Phase 3). Nothing is classified as a zero-day, and no CVE should be read as a confirmed zero-day. CISA KEV listing shown on the CVEs tab means CISA has evidence of exploitation; it does not establish a zero-day timeline.
-      </p>
+    <div className="glass-card p-4 rounded-xl space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <a href={`https://www.cve.org/CVERecord?id=${c.cveId}`} target="_blank" rel="noopener noreferrer" className="text-white font-semibold hover:text-cyan-300">{c.cveId}</a>
+        {c.publishedAsConfirmed && pill('bg-red-500/15 text-red-300', 'Confirmed zero-day')}
+        {c.approvedBy && <span className="text-xs text-gray-400">approved by {c.approvedBy} {c.approvedAt ? formatDateTime(c.approvedAt) : ''}</span>}
+        {c.eligibleForConfirmation && pill('bg-amber-500/15 text-amber-300', 'Evidence qualifies, awaiting analyst approval')}
+      </div>
+      {c.cve?.description && <p className="text-sm text-gray-300">{c.cve.description}</p>}
+      {c.reasons.map((r, i) => <div key={i} className="text-xs text-gray-300">{r}</div>)}
+      {c.analystReason && <div className="text-xs text-gray-400">Analyst note ({c.stateSetBy}): {c.analystReason}</div>}
+      {c.conflicts.map((r, i) => <div key={i} className="text-xs text-red-300">Conflict: {r}</div>)}
+      {c.missing.length > 0 && <div className="text-xs text-amber-300/90">Still needed for a confirmed zero-day: {c.missing.join('; ')}</div>}
+      <div className="space-y-1 pt-1">
+        {c.evidence.map((e) => (
+          <div key={e.id} className={`text-xs ${e.retracted ? 'line-through text-gray-600' : 'text-gray-400'}`}>
+            <span className="text-gray-200">{KIND_LABEL[e.kind] ?? e.kind}</span> · {e.eventDate ? formatDateTime(e.eventDate).split(',')[0] : 'date not stated'} · {e.primary ? 'primary' : 'secondary'} source:{' '}
+            <a href={safeUrl(e.url)} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline">{e.sourceName}</a> ({e.addedBy})
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ZeroDayTab() {
+  const [data, setData] = useState<Record<string, ZdCase[]>>({});
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    Promise.all(['confirmed', 'known_exploited', 'review'].map((s) => api.get('/cyberdigest/zero-days', { params: { section: s } }).then((r) => [s, r.data.items as ZdCase[]] as const)))
+      .then((e) => { setData(Object.fromEntries(e)); setErr(''); })
+      .catch(() => setErr('Could not load zero-day cases.'));
+  }, []);
+  if (err) return <div className="text-red-300 text-sm">{err}</div>;
+  const sec = (key: string, title: string, note: string, empty: string) => (
+    <section className="space-y-2">
+      <h2 className="text-white font-medium">{title} <span className="text-gray-500 text-sm">({data[key]?.length ?? 0})</span></h2>
+      <p className="text-xs text-gray-400">{note}</p>
+      {(data[key] ?? []).length === 0 ? <div className="glass-card p-4 rounded-xl text-sm text-gray-500">{empty}</div> : data[key].map((c) => <CaseCard key={c.cveId} c={c} />)}
+    </section>
+  );
+  return (
+    <div className="space-y-6">
+      {sec('confirmed', 'Confirmed zero-day exploitation', 'Only cases with qualifying primary evidence and a recorded analyst approval appear here.', 'No confirmed zero-days.')}
+      {sec('known_exploited', 'Known exploited, zero-day status unconfirmed', 'Exploitation is established (for example CISA KEV). The evidence does not show it began before a fix existed, so these are not called zero-days.', 'None.')}
+      {sec('review', 'Review queue: reported, unsubstantiated or unknown', 'Not published as fact. A publisher reporting a zero-day lands here until primary evidence is recorded.', 'Nothing to review.')}
+      <p className="text-xs text-gray-500">Evidence entry and approval are available through the API (POST /cyberdigest/zero-days/:cve/evidence, /approve) for users with the review permission. A screen for them comes with the dashboard phase.</p>
     </div>
   );
 }
