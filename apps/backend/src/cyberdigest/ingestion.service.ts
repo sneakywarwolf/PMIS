@@ -4,9 +4,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SOURCES, ALLOWED_HOSTS } from './sources.config';
 import { safeFetch, SafeFetchError } from './safe-fetch';
 import { parseFeed, FeedParseError } from './feed-parser';
+import { KevService } from './kev.service';
+import { CveVerificationService } from './cve-verification.service';
 import { canonicalUrl, contentHash, dedupKey, extractCveIds, extractiveSummary } from './normalize';
 
-const FEED_TYPES = ['NEWS_RSS', 'RESEARCH_RSS'];
+const POLLABLE_TYPES = ['NEWS_RSS', 'RESEARCH_RSS', 'KEV_JSON']; // CVE.org / NVD are looked up per CVE, not polled
 const FEED_CONTENT_TYPES = /xml|rss|atom/i;
 const MAX_BACKOFF_DOUBLINGS = 4;
 const FAILING_AFTER = 3;
@@ -19,6 +21,8 @@ interface HealthInput {
   pollIntervalMinutes: number;
   lastSuccessAt: Date | null;
   consecutiveFailures: number;
+  /** CVE.org / NVD are queried on demand: with nothing to look up there is nothing to be stale about. */
+  type?: string;
 }
 
 /**
@@ -29,7 +33,8 @@ export function computeHealth(s: HealthInput, now = new Date()): HealthState {
   if (!s.enabled) return 'DISABLED';
   if (s.consecutiveFailures >= FAILING_AFTER) return 'FAILING';
   if (!s.lastSuccessAt) return s.consecutiveFailures > 0 ? 'FAILING' : 'UNKNOWN';
-  const ageMin = (now.getTime() - s.lastSuccessAt.getTime()) / 60000;
+  if (s.type === 'CVE_API' || s.type === 'NVD_API') return 'HEALTHY';
+  const ageMin =(now.getTime() - s.lastSuccessAt.getTime()) / 60000;
   return ageMin > s.pollIntervalMinutes * STALE_AFTER_INTERVALS ? 'STALE' : 'HEALTHY';
 }
 
@@ -55,7 +60,11 @@ export class IngestionService implements OnModuleInit {
   /** Tests inject a fake network; production uses global fetch. */
   fetchImpl?: typeof fetch;
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private kev: KevService,
+    private cves: CveVerificationService,
+  ) {}
 
   async onModuleInit() {
     try {
@@ -91,7 +100,7 @@ export class IngestionService implements OnModuleInit {
   }
 
   async pollDue(now = new Date()): Promise<PollResult[]> {
-    const sources = await this.prisma.digestSource.findMany({ where: { enabled: true, type: { in: FEED_TYPES as any } } });
+    const sources = await this.prisma.digestSource.findMany({ where: { enabled: true, type: { in: POLLABLE_TYPES as any } } });
     const results: PollResult[] = [];
     for (const s of sources) {
       const waitMs = nextDelayMinutes(s.pollIntervalMinutes, s.consecutiveFailures) * 60000;
@@ -104,26 +113,39 @@ export class IngestionService implements OnModuleInit {
   async pollSource(slug: string, now = new Date()): Promise<PollResult> {
     const source = await this.prisma.digestSource.findUnique({ where: { slug } });
     const result: PollResult = { slug, ok: false, fetched: 0, created: 0, updated: 0, skipped: 0 };
-    if (!source || !FEED_TYPES.includes(source.type)) {
-      result.error = 'not a pollable feed source';
+    if (!source || !POLLABLE_TYPES.includes(source.type)) {
+      result.error = 'not a pollable source';
       return result;
     }
     try {
-      const res = await safeFetch(source.endpoint, {
-        allowedHosts: ALLOWED_HOSTS,
-        contentTypes: FEED_CONTENT_TYPES,
-        fetchImpl: this.fetchImpl,
-        headers: {
-          ...(source.etag ? { 'if-none-match': source.etag } : {}),
-          ...(source.lastModified ? { 'if-modified-since': source.lastModified } : {}),
-        },
-      });
-      if (!res.notModified) {
-        const items = parseFeed(res.body);
-        result.fetched = items.length;
-        for (const item of items) {
-          const r = await this.storeItem(source, item);
-          result[r]++;
+      let res: { etag?: string; lastModified?: string };
+      if (source.type === 'KEV_JSON') {
+        this.kev.fetchImpl = this.fetchImpl;
+        const k = await this.kev.sync(source);
+        res = k;
+        result.fetched = k.added + k.updated;
+        result.created = k.added;
+        result.updated = k.updated;
+        // Tracked CVEs pick up KEV changes immediately, without a network call.
+        if (!k.notModified) await this.cves.reapplyKev();
+      } else {
+        const feed = await safeFetch(source.endpoint, {
+          allowedHosts: ALLOWED_HOSTS,
+          contentTypes: FEED_CONTENT_TYPES,
+          fetchImpl: this.fetchImpl,
+          headers: {
+            ...(source.etag ? { 'if-none-match': source.etag } : {}),
+            ...(source.lastModified ? { 'if-modified-since': source.lastModified } : {}),
+          },
+        });
+        res = feed;
+        if (!feed.notModified) {
+          const items = parseFeed(feed.body);
+          result.fetched = items.length;
+          for (const item of items) {
+            const r = await this.storeItem(source, item);
+            result[r]++;
+          }
         }
       }
       await this.prisma.digestSource.update({

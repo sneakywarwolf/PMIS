@@ -4,8 +4,8 @@
  * Endpoints were checked against the live publishers on 2026-11-03; nothing here is guessed.
  *
  * News publishers are DISCOVERY sources only: an article proves the publisher reported something, not that it is true.
- * CVE.org / NVD / CISA KEV are AUTHORITATIVE and are consumed by the Phase 2 verification services, not by the feed
- * ingester, so they are seeded disabled until that code exists (otherwise health would claim a check that never ran).
+ * CVE.org / NVD / CISA KEV are AUTHORITATIVE and are consumed by the verification services (cve-verification.service,
+ * kev.service), never by the news ingester.
  */
 export type DigestSourceTypeName = 'NEWS_RSS' | 'RESEARCH_RSS' | 'CVE_API' | 'NVD_API' | 'KEV_JSON';
 
@@ -29,10 +29,10 @@ export const SOURCES: SourceDef[] = [
   { slug: 'portswigger-blog', name: 'PortSwigger Blog', type: 'RESEARCH_RSS', endpoint: 'https://portswigger.net/blog/rss', website: 'https://portswigger.net/blog', trustRole: 'DISCOVERY', pollIntervalMinutes: 30, enabled: true },
   { slug: 'portswigger-research', name: 'PortSwigger Research', type: 'RESEARCH_RSS', endpoint: 'https://portswigger.net/research/rss', website: 'https://portswigger.net/research', trustRole: 'DISCOVERY', pollIntervalMinutes: 30, enabled: true },
   { slug: 'cloudflare-blog', name: 'Cloudflare Blog', type: 'RESEARCH_RSS', endpoint: 'https://blog.cloudflare.com/rss/', website: 'https://blog.cloudflare.com/', trustRole: 'DISCOVERY', pollIntervalMinutes: 30, enabled: true },
-  // Authoritative sources: wired in Phase 2.
-  { slug: 'cve-org', name: 'CVE Program', type: 'CVE_API', endpoint: 'https://cveawg.mitre.org/api/cve/', website: 'https://www.cve.org/', trustRole: 'AUTHORITATIVE', pollIntervalMinutes: 60, enabled: false },
-  { slug: 'nvd', name: 'NIST NVD', type: 'NVD_API', endpoint: 'https://services.nvd.nist.gov/rest/json/cves/2.0', website: 'https://nvd.nist.gov/', trustRole: 'AUTHORITATIVE', pollIntervalMinutes: 60, enabled: false },
-  { slug: 'cisa-kev', name: 'CISA KEV', type: 'KEV_JSON', endpoint: 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json', website: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog', trustRole: 'AUTHORITATIVE', pollIntervalMinutes: 45, enabled: false },
+  // Authoritative sources. CVE.org and NVD are queried per CVE (their health reflects the last lookups); KEV is polled.
+  { slug: 'cve-org', name: 'CVE Program', type: 'CVE_API', endpoint: 'https://cveawg.mitre.org/api/cve/', website: 'https://www.cve.org/', trustRole: 'AUTHORITATIVE', pollIntervalMinutes: 60, enabled: true },
+  { slug: 'nvd', name: 'NIST NVD', type: 'NVD_API', endpoint: 'https://services.nvd.nist.gov/rest/json/cves/2.0', website: 'https://nvd.nist.gov/', trustRole: 'AUTHORITATIVE', pollIntervalMinutes: 60, enabled: true },
+  { slug: 'cisa-kev', name: 'CISA KEV', type: 'KEV_JSON', endpoint: 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json', website: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog', trustRole: 'AUTHORITATIVE', pollIntervalMinutes: 45, enabled: true },
 ];
 
 /** Only these hosts may ever be fetched. Derived from the registry so the two cannot drift. */

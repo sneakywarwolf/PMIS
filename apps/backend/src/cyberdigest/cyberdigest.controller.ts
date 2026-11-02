@@ -1,4 +1,5 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
+import { isValidCveId } from './cve-clients';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
 import { Permission } from '../common/permissions';
@@ -50,6 +51,59 @@ export class CyberdigestController {
       pendingStories,
       sources: rows,
     };
+  }
+
+  private cveView(r: any) {
+    return {
+      cveId: r.cveId,
+      recordStatus: r.recordStatus, // existence/state of the official CVE.org record
+      description: r.description, // official text, verbatim
+      recordPublishedAt: r.recordPublishedAt,
+      recordUpdatedAt: r.recordUpdatedAt,
+      // One entry per provider; nothing merged. The label is the provider's, not PMIS's.
+      cvss: r.cvss ?? [],
+      nvd: { enrichment: r.nvdEnrichment, status: r.nvdStatus, lastModified: r.nvdLastModified },
+      // listed: null means the KEV catalog has not been retrieved, so exploitation status from KEV is unknown.
+      kev: { listed: r.kevListed, dateAdded: r.kevDateAdded, details: r.kevData },
+      affected: r.affected,
+      nvdAffected: r.nvdAffected,
+      references: r.references,
+      conflicts: r.conflicts,
+      provenance: r.provenance,
+      lastVerifiedAt: r.lastVerifiedAt,
+      lastAttemptAt: r.lastAttemptAt,
+      lastError: r.lastError,
+    };
+  }
+
+  @Get('cves')
+  @Permission('cyberdigest.view')
+  @ApiOperation({ summary: 'CVE records verified against CVE.org / NVD / CISA KEV' })
+  async cves(@Query('q') q?: string, @Query('status') status?: string, @Query('kev') kev?: string, @Query('nvd') nvd?: string, @Query('take') take?: string, @Query('skip') skip?: string) {
+    const where: any = {};
+    if (q) where.OR = [{ cveId: { contains: q.trim().toUpperCase().slice(0, 40) } }, { description: { contains: q.slice(0, 100), mode: 'insensitive' } }];
+    if (status && ['PUBLISHED', 'RESERVED', 'REJECTED', 'NOT_FOUND', 'UNAVAILABLE'].includes(status)) where.recordStatus = status;
+    if (kev === 'true') where.kevListed = true;
+    else if (kev === 'false') where.kevListed = false;
+    else if (kev === 'unknown') where.kevListed = null;
+    if (nvd && ['PENDING', 'ENRICHED', 'UNAVAILABLE'].includes(nvd)) where.nvdEnrichment = nvd;
+    const [total, rows] = await Promise.all([
+      this.prisma.digestCve.count({ where }),
+      this.prisma.digestCve.findMany({ where, orderBy: [{ kevListed: { sort: 'desc', nulls: 'last' } }, { recordUpdatedAt: { sort: 'desc', nulls: 'last' } }], take: clampInt(take, 25, 1, 100), skip: clampInt(skip, 0, 0, 100000) }),
+    ]);
+    return { total, items: rows.map((r) => this.cveView(r)) };
+  }
+
+  @Get('cves/:id')
+  @Permission('cyberdigest.view')
+  @ApiOperation({ summary: 'One verified CVE with its change history' })
+  async cve(@Param('id') id: string) {
+    const cveId = id.trim().toUpperCase();
+    if (!isValidCveId(cveId)) throw new BadRequestException('Malformed CVE id');
+    const row = await this.prisma.digestCve.findUnique({ where: { cveId } });
+    if (!row) throw new NotFoundException('CVE has not been verified yet');
+    const history = await this.prisma.digestEvent.findMany({ where: { entityType: 'CVE', entityId: cveId }, orderBy: { createdAt: 'desc' }, take: 50 });
+    return { ...this.cveView(row), history };
   }
 
   @Get('stories')

@@ -1,5 +1,6 @@
 import { IngestionService, computeHealth, nextDelayMinutes } from './ingestion.service';
 import { SOURCES } from './sources.config';
+import { SafeFetchError } from './safe-fetch';
 
 /** Tiny in-memory stand-in for the three Prisma delegates the service uses. */
 function fakePrisma() {
@@ -47,17 +48,19 @@ const xml = (body: string) => async () => new Response(body, { status: 200, head
 
 async function setup(fetchImpl: any) {
   const prisma = fakePrisma();
-  const svc = new IngestionService(prisma as any);
+  // KEV and CVE verification have their own specs; here KEV just fails like an outage would.
+  const kev = { fetchImpl: undefined, sync: async () => { throw new SafeFetchError('HTTP 503', 'http', 503); } };
+  const svc = new IngestionService(prisma as any, kev as any, { reapplyKev: async () => 0 } as any);
   svc.fetchImpl = fetchImpl;
   await svc.seedSources();
   return { prisma, svc };
 }
 
 describe('IngestionService', () => {
-  it('seeds all registry sources; authoritative ones start disabled (no fake health)', async () => {
+  it('seeds all nine registry sources, none yet healthy', async () => {
     const { prisma } = await setup(xml(''));
     expect(prisma.sources).toHaveLength(SOURCES.length);
-    expect(prisma.sources.filter((s) => !s.enabled).map((s) => s.slug).sort()).toEqual(['cisa-kev', 'cve-org', 'nvd']);
+    expect(prisma.sources.every((s) => s.health === 'UNKNOWN' && s.lastSuccessAt === null)).toBe(true);
   });
 
   it('seeding again keeps an admin-changed enabled/interval', async () => {
@@ -133,12 +136,13 @@ describe('IngestionService', () => {
     const t0 = new Date('2026-11-03T00:00:00Z');
     await svc.pollDue(t0);
     const first = calls.length;
-    expect(first).toBe(6); // enabled feed sources only
+    expect(first).toBe(6); // six feed fetches (the KEV stub makes no fetch); CVE.org / NVD are per-CVE lookups, not polled
     await svc.pollDue(new Date(t0.getTime() + 5 * 60000));
     expect(calls.length).toBe(first); // too soon
     await svc.pollDue(new Date(t0.getTime() + 41 * 60000)); // 20min * 2^1 = 40 min after one failure
     expect(calls.length).toBe(first + 3); // the three 20-min news sources are due again; 30-min sources need 60 min
-    expect(prisma.sources.find((s) => s.slug === 'cisa-kev').lastAttemptAt).toBeNull();
+    expect(prisma.sources.find((s) => s.slug === 'cisa-kev').lastAttemptAt).not.toBeNull(); // KEV is polled
+    expect(prisma.sources.find((s) => s.slug === 'cve-org').lastAttemptAt).toBeNull(); // CVE.org is not
   });
 
   it('an unchanged feed (304) counts as a successful check', async () => {
@@ -152,7 +156,7 @@ describe('IngestionService', () => {
 
   it('refuses to poll non-feed or unknown sources', async () => {
     const { svc } = await setup(xml(''));
-    expect((await svc.pollSource('cisa-kev')).ok).toBe(false);
+    expect((await svc.pollSource('cve-org')).ok).toBe(false);
     expect((await svc.pollSource('nope')).ok).toBe(false);
   });
 });

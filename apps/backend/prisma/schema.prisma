@@ -791,3 +791,79 @@ model DigestStory {
   @@index([publishedAt])
   @@index([groupId])
 }
+
+// ---------------------------------------------------------------------------
+// Cyberdigest phase 2: authoritative CVE / NVD / CISA KEV data.
+// Record existence, enrichment, severity and KEV status are SEPARATE facts and
+// are only ever written by the verification code from retrieved data.
+// ---------------------------------------------------------------------------
+
+enum DigestCveRecordStatus {
+  PUBLISHED
+  RESERVED
+  REJECTED
+  NOT_FOUND // CVE.org has no public record for this id (not the same as "invalid")
+  UNAVAILABLE // CVE.org could not be reached; nothing is known
+}
+
+enum DigestNvdEnrichment {
+  PENDING // NVD has no record yet, or has not finished analysis
+  ENRICHED
+  UNAVAILABLE // NVD could not be reached
+}
+
+model DigestCve {
+  id                String                @id @default(uuid())
+  cveId             String                @unique
+  recordStatus      DigestCveRecordStatus
+  description       String? // official CVE.org text, never rewritten
+  assigner          String?
+  recordPublishedAt DateTime?
+  recordUpdatedAt   DateTime?
+  affected          Json? // CNA affected products exactly as published
+  references        Json?
+  cvss              Json? // [{provider, source, version, score, vector, severity}] one entry per provider, never merged
+  nvdEnrichment     DigestNvdEnrichment   @default(PENDING)
+  nvdStatus         String? // NVD's own vulnStatus string
+  nvdLastModified   DateTime?
+  nvdAffected       Json? // CPE criteria from NVD
+  kevListed         Boolean? // null = KEV catalog unavailable, so unknown (false means checked and absent)
+  kevDateAdded      DateTime?
+  kevData           Json?
+  conflicts         Json? // authoritative sources disagree, e.g. [{field, detail}]
+  provenance        Json // {field: {source, url, retrievedAt}}
+  lastAttemptAt     DateTime?
+  lastVerifiedAt    DateTime? // last time CVE.org was successfully read
+  lastError         String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([recordStatus])
+  @@index([kevListed])
+}
+
+model DigestKevEntry {
+  cveId            String    @id
+  vendorProject    String
+  product          String
+  name             String
+  dateAdded        DateTime
+  dueDate          DateTime?
+  ransomwareUse    String
+  shortDescription String
+  notes            String?
+  catalogVersion   String
+  syncedAt         DateTime  @default(now())
+}
+
+// Append-only history of what changed and when, per entity.
+model DigestEvent {
+  id         String   @id @default(uuid())
+  entityType String
+  entityId   String
+  event      String
+  detail     Json
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+}
