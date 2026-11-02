@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/contexts/auth-context';
+import { useBranding } from '@/contexts/branding-context';
 import { formatDateTime } from '@/lib/datetime';
+
+// ----------------------------------------------------------------------------- types
 
 type Source = {
   slug: string; name: string; type: string; website: string; trustRole: string; enabled: boolean;
@@ -11,25 +14,43 @@ type Source = {
 };
 type Health = { checkedAt: string; allEnabledSourcesHealthy: boolean; coverageGaps: string[]; pendingStories: number; sources: Source[] };
 type Story = {
-  id: string; title: string; url: string; publisher: string; publishedAt: string | null; ingestedAt: string;
-  summary: string | null; cveIds: string[]; verificationState: string;
+  id: string; title: string; url: string; publisher: string; publishedAt: string | null; ingestedAt: string; summary: string | null;
+  categories: string[]; cves: { cveId: string; recordStatus: string | null }[]; zeroDay: { cveId: string; state: string }[];
+  verificationState: string; stateNote: string | null; lastVerifiedAt: string | null;
 };
 type Cvss = { provider: string; source: string; version: string; score: number; vector: string | null; severity: string | null };
 type Cve = {
-  cveId: string; recordStatus: string; description: string | null; cvss: Cvss[];
+  cveId: string; recordStatus: string; description: string | null; cvss: Cvss[]; vendors: string[];
   nvd: { enrichment: string; status: string | null };
   kev: { listed: boolean | null; dateAdded: string | null };
   conflicts: { field: string; detail: string }[] | null; lastVerifiedAt: string | null; lastError: string | null;
 };
+type ZdEvidence = { id: string; kind: string; sourceType: string; primary: boolean; sourceName: string; url: string; eventDate: string | null; note: string | null; addedBy: string; retracted: boolean; retractReason: string | null };
+type ZdCase = {
+  cveId: string; state: string; publishedAsConfirmed: boolean; eligibleForConfirmation: boolean; reasons: string[]; missing: string[]; conflicts: string[];
+  analystReason: string | null; stateSetBy: string; approvedBy: string | null; approvedAt: string | null; evidence: ZdEvidence[];
+  cve: { recordStatus: string; description: string | null } | null;
+};
+type Verification = {
+  pendingStories: number; conflictingStories: { id: string; title: string; canonicalUrl: string; stateNote: string | null }[];
+  cvesAwaitingNvd: number; cvesUnavailable: number; cveConflicts: { cveId: string; conflicts: { field: string; detail: string }[] }[];
+  zeroDayClaimsUnverified: number; zeroDayStatusUnknown: number;
+  rejectedStories: { id: string; title: string; canonicalUrl: string; stateNote: string | null }[];
+  corrections: { id: string; entityType: string; entityId: string; event: string; detail: any; createdAt: string }[];
+};
 
-const TABS = ['News', 'CVEs', 'Zero-days', 'Source health'] as const;
+const TABS = ['News', 'CVEs', 'Zero-days', 'Verification & source health'] as const;
 type Tab = (typeof TABS)[number];
 
-const pill = (cls: string, text: string) => <span className={`px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{text}</span>;
-const HEALTH_CLS: Record<string, string> = {
-  HEALTHY: 'bg-emerald-500/15 text-emerald-300', STALE: 'bg-amber-500/15 text-amber-300', FAILING: 'bg-red-500/15 text-red-300',
-  UNKNOWN: 'bg-gray-500/20 text-gray-300', DISABLED: 'bg-gray-500/20 text-gray-400',
-};
+// ----------------------------------------------------------------------------- helpers
+
+const pill = (cls: string, text: string, key?: string) => <span key={key} className={`px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{text}</span>;
+const GREEN = 'bg-emerald-500/15 text-emerald-300', AMBER = 'bg-amber-500/15 text-amber-300', RED = 'bg-red-500/15 text-red-300', GREY = 'bg-gray-500/20 text-gray-300';
+const HEALTH_CLS: Record<string, string> = { HEALTHY: GREEN, STALE: AMBER, FAILING: RED, UNKNOWN: GREY, DISABLED: 'bg-gray-500/20 text-gray-400' };
+const UNKNOWN = <span className="text-gray-500">unknown</span>;
+const inputCls = 'px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white';
+const btnCls = 'px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-700 text-gray-200 hover:bg-gray-800 disabled:opacity-50';
+
 /** Only http(s) URLs become links; anything else (javascript:, data:, garbage) renders as plain text. */
 const safeUrl = (u: string): string | undefined => {
   try {
@@ -39,105 +60,236 @@ const safeUrl = (u: string): string | undefined => {
     return undefined;
   }
 };
-const UNKNOWN =<span className="text-gray-500">unknown</span>;
+const errMsg = (e: any) => {
+  const m = e?.response?.data?.message;
+  return Array.isArray(m) ? m.join(', ') : typeof m === 'string' ? m : m?.message ? `${m.message}${m.missing?.length ? `: ${m.missing.join('; ')}` : ''}` : 'The action failed.';
+};
 
-function NewsTab() {
+const STORY_STATE: Record<string, [string, string]> = {
+  VERIFIED: [GREEN, 'Verified by analyst'],
+  ATTRIBUTED: [AMBER, 'Attributed reporting — not independently confirmed'],
+  PENDING: [GREY, 'Pending verification'],
+  CONFLICTING: [RED, 'Conflicting evidence'],
+  REJECTED: [RED, 'Rejected'],
+  SOURCE_UNAVAILABLE: [GREY, 'Source unavailable'],
+};
+const ZD_STATE: Record<string, [string, string]> = {
+  CONFIRMED: [RED, 'Confirmed zero-day'],
+  REPORTED_UNVERIFIED: [AMBER, 'Zero-day reported — unverified'],
+  KNOWN_EXPLOITED_UNCONFIRMED: [AMBER, 'Known exploited — zero-day not confirmed'],
+  NOT_SUBSTANTIATED: [GREY, 'Zero-day claim not substantiated'],
+  UNKNOWN: [GREY, 'Zero-day status unknown'],
+};
+const CATEGORIES = ['ransomware', 'malware', 'breach', 'vulnerability', 'appsec', 'cloud', 'threat-intel', 'other'];
+
+/** Small inline "why?" box: review actions always carry a reason, which is stored with the decision. */
+function ReasonAction({ label, onSubmit, danger }: { label: string; onSubmit: (reason: string) => Promise<void>; danger?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  if (!open) return <button className={`${btnCls} ${danger ? 'text-red-300' : ''}`} onClick={() => setOpen(true)}>{label}</button>;
+  const go = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      await onSubmit(reason);
+      setOpen(false);
+      setReason('');
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <input autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (required)" className={`${inputCls} w-64 !py-1`} />
+      <button className={btnCls} disabled={busy || reason.trim().length < 5} onClick={go}>{label}</button>
+      <button className={btnCls} onClick={() => { setOpen(false); setErr(''); }}>Cancel</button>
+      {err && <span className="text-xs text-red-300">{err}</span>}
+    </span>
+  );
+}
+
+// ----------------------------------------------------------------------------- News
+
+function NewsTab({ canReview }: { canReview: boolean }) {
   const [q, setQ] = useState('');
+  const [category, setCategory] = useState('');
+  const [state, setState] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [data, setData] = useState<{ total: number; items: Story[] } | null>(null);
   const [err, setErr] = useState('');
-  useEffect(() => {
-    const t = setTimeout(() => {
-      api.get('/cyberdigest/stories', { params: { q: q || undefined, take: 50 } }).then((r) => { setData(r.data); setErr(''); }).catch(() => setErr('Could not load stories.'));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [q]);
+  const load = useCallback(() => {
+    api.get('/cyberdigest/stories', { params: { q: q || undefined, category: category || undefined, state: state || undefined, from: from || undefined, to: to ? `${to}T23:59:59` : undefined, take: 50 } })
+      .then((r) => { setData(r.data); setErr(''); }).catch(() => setErr('Could not load stories.'));
+  }, [q, category, state, from, to]);
+  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+  const act = (id: string, what: 'approve' | 'reject' | 'correct') => async (reason: string) => { await api.post(`/cyberdigest/stories/${id}/${what}`, { reason }); load(); };
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search title or CVE id" className="w-72 px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white" />
+      <div className="flex flex-wrap items-center gap-3">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search title or CVE id" className={`${inputCls} w-64`} />
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
+          <option value="">All categories</option>{CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <select value={state} onChange={(e) => setState(e.target.value)} className={inputCls}>
+          <option value="">All states (except rejected)</option>{Object.entries(STORY_STATE).map(([k, [, l]]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+        <label className="text-xs text-gray-400">From <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${inputCls} ml-1`} /></label>
+        <label className="text-xs text-gray-400">To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${inputCls} ml-1`} /></label>
         {data && <span className="text-xs text-gray-400">{data.total} stories</span>}
       </div>
-      <p className="text-xs text-amber-300/90">Publisher reporting only. These items have not been independently verified; CVE ids shown are as the publisher wrote them.</p>
+      <p className="text-xs text-amber-300/90">Publisher reporting. Unless a story says "Verified by analyst", its claims have not been independently confirmed. CVE badges show what CVE.org says, not what the article says.</p>
       {err && <div className="text-red-300 text-sm">{err}</div>}
-      {data?.items.length === 0 && <div className="glass-card p-6 rounded-xl text-gray-400">No stories ingested yet. Sources are polled every 20–30 minutes.</div>}
-      {data?.items.map((s) => (
-        <div key={s.id} className="glass-card p-4 rounded-xl space-y-1">
-          <div className="flex items-start justify-between gap-3">
-            <a href={safeUrl(s.url)} target="_blank" rel="noopener noreferrer" className="text-white font-medium hover:text-cyan-300">{s.title}</a>
-            {pill('bg-amber-500/15 text-amber-300', 'Attributed reporting')}
+      {data?.items.length === 0 && <div className="glass-card p-6 rounded-xl text-gray-400">No stories match. Sources are polled every 20–30 minutes.</div>}
+      {data?.items.map((s) => {
+        const [cls, label] = STORY_STATE[s.verificationState] ?? [GREY, s.verificationState];
+        return (
+          <div key={s.id} className="glass-card p-4 rounded-xl space-y-1.5">
+            <div className="flex items-start justify-between gap-3">
+              <a href={safeUrl(s.url)} target="_blank" rel="noopener noreferrer" className="text-white font-medium hover:text-cyan-300">{s.title}</a>
+              {pill(cls, label)}
+            </div>
+            <div className="text-xs text-gray-400">{s.publisher} · {s.publishedAt ? formatDateTime(s.publishedAt) : 'publication date not given by source'} · ingested {formatDateTime(s.ingestedAt)}{s.lastVerifiedAt ? ` · last checked ${formatDateTime(s.lastVerifiedAt)}` : ''}</div>
+            {s.summary && <p className="text-sm text-gray-300">{s.summary}</p>}
+            <div className="flex flex-wrap gap-1 items-center">
+              {s.categories.map((c) => <span key={c} className="px-2 py-0.5 rounded bg-gray-800 text-xs text-gray-300">{c}</span>)}
+              {s.cves.map((c) => pill(c.recordStatus === 'PUBLISHED' ? GREEN : c.recordStatus === 'REJECTED' || c.recordStatus === 'NOT_FOUND' ? RED : GREY, `${c.cveId} · ${c.recordStatus ? `CVE.org ${c.recordStatus.toLowerCase().replace('_', ' ')}` : 'not checked yet'}`, c.cveId))}
+              {s.zeroDay.map((z) => pill(ZD_STATE[z.state]?.[0] ?? GREY, `${z.cveId}: ${ZD_STATE[z.state]?.[1] ?? z.state}`, `zd-${z.cveId}`))}
+            </div>
+            {s.stateNote && <div className="text-xs text-gray-400">{s.stateNote}</div>}
+            {canReview && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {s.verificationState === 'ATTRIBUTED' && <ReasonAction label="Verify" onSubmit={act(s.id, 'approve')} />}
+                {s.verificationState !== 'REJECTED' && <ReasonAction label="Reject" danger onSubmit={act(s.id, 'reject')} />}
+                {(s.verificationState === 'VERIFIED' || s.verificationState === 'REJECTED') && <ReasonAction label="Correct" onSubmit={act(s.id, 'correct')} />}
+              </div>
+            )}
           </div>
-          <div className="text-xs text-gray-400">{s.publisher} · {s.publishedAt ? formatDateTime(s.publishedAt) : 'publication date not given by source'} · ingested {formatDateTime(s.ingestedAt)}</div>
-          {s.summary && <p className="text-sm text-gray-300">{s.summary}</p>}
-          {s.cveIds.length > 0 && <div className="flex flex-wrap gap-1 pt-1">{s.cveIds.map((c) => <span key={c} className="px-2 py-0.5 rounded bg-gray-800 text-xs text-cyan-300">{c} · mentioned, see CVEs tab</span>)}</div>}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
+
+// ----------------------------------------------------------------------------- CVEs
 
 function CvesTab() {
   const [q, setQ] = useState('');
   const [kev, setKev] = useState('');
+  const [severity, setSeverity] = useState('');
+  const [vendor, setVendor] = useState('');
+  const [nvd, setNvd] = useState('');
   const [data, setData] = useState<{ total: number; items: Cve[] } | null>(null);
   const [err, setErr] = useState('');
   useEffect(() => {
     const t = setTimeout(() => {
-      api.get('/cyberdigest/cves', { params: { q: q || undefined, kev: kev || undefined, take: 50 } }).then((r) => { setData(r.data); setErr(''); }).catch(() => setErr('Could not load CVEs.'));
+      api.get('/cyberdigest/cves', { params: { q: q || undefined, kev: kev || undefined, severity: severity || undefined, vendor: vendor || undefined, nvd: nvd || undefined, take: 50 } })
+        .then((r) => { setData(r.data); setErr(''); }).catch(() => setErr('Could not load CVEs.'));
     }, 250);
     return () => clearTimeout(t);
-  }, [q, kev]);
+  }, [q, kev, severity, vendor, nvd]);
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="CVE id or text" className="w-72 px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white" />
-        <select value={kev} onChange={(e) => setKev(e.target.value)} className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white">
+      <div className="flex flex-wrap items-center gap-3">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="CVE id or text" className={`${inputCls} w-56`} />
+        <input value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="Vendor (e.g. apache)" className={`${inputCls} w-44`} />
+        <select value={severity} onChange={(e) => setSeverity(e.target.value)} className={inputCls}>
+          <option value="">Any provider severity</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option>
+        </select>
+        <select value={kev} onChange={(e) => setKev(e.target.value)} className={inputCls}>
           <option value="">KEV: any</option><option value="true">In CISA KEV</option><option value="false">Not in KEV</option><option value="unknown">KEV unknown</option>
+        </select>
+        <select value={nvd} onChange={(e) => setNvd(e.target.value)} className={inputCls}>
+          <option value="">NVD: any</option><option value="ENRICHED">Enriched</option><option value="PENDING">Pending</option><option value="UNAVAILABLE">Unavailable</option>
         </select>
         {data && <span className="text-xs text-gray-400">{data.total} CVEs</span>}
       </div>
+      <p className="text-xs text-gray-500">Severity filter uses the label a provider attached to its own score; PMIS does not calculate one. Patch status is not tracked yet.</p>
       {err && <div className="text-red-300 text-sm">{err}</div>}
-      {data?.items.length === 0 && <div className="glass-card p-6 rounded-xl text-gray-400">No CVEs verified yet. CVEs mentioned in ingested stories are checked against CVE.org and NVD in the background.</div>}
+      {data?.items.length === 0 && <div className="glass-card p-6 rounded-xl text-gray-400">No CVEs match. CVEs mentioned in ingested stories are checked against CVE.org and NVD in the background.</div>}
       {data?.items.map((c) => (
         <div key={c.cveId} className="glass-card p-4 rounded-xl space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <a href={`https://www.cve.org/CVERecord?id=${c.cveId}`} target="_blank" rel="noopener noreferrer" className="text-white font-semibold hover:text-cyan-300">{c.cveId}</a>
-            {pill(c.recordStatus === 'PUBLISHED' ? 'bg-emerald-500/15 text-emerald-300' : c.recordStatus === 'REJECTED' ? 'bg-red-500/15 text-red-300' : 'bg-gray-500/20 text-gray-300', `CVE.org: ${c.recordStatus.toLowerCase().replace('_', ' ')}`)}
-            {pill(c.nvd.enrichment === 'ENRICHED' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300', `NVD: ${c.nvd.enrichment === 'ENRICHED' ? 'enriched' : c.nvd.enrichment.toLowerCase()}`)}
-            {c.kev.listed === true && pill('bg-red-500/15 text-red-300', 'In CISA KEV')}
-            {c.kev.listed === false && pill('bg-gray-500/20 text-gray-300', 'Not in KEV catalog')}
+            {pill(c.recordStatus === 'PUBLISHED' ? GREEN : c.recordStatus === 'REJECTED' ? RED : GREY, `CVE.org: ${c.recordStatus.toLowerCase().replace('_', ' ')}`)}
+            {pill(c.nvd.enrichment === 'ENRICHED' ? GREEN : AMBER, `NVD: ${c.nvd.enrichment.toLowerCase()}`)}
+            {c.kev.listed === true && pill(RED, 'In CISA KEV')}
+            {c.kev.listed === false && pill(GREY, 'Not in KEV catalog')}
             {c.kev.listed === null && pill('bg-gray-500/20 text-gray-400', 'KEV status unknown')}
           </div>
           {c.conflicts?.map((x, i) => <div key={i} className="text-xs text-red-300">Conflict: {x.detail}</div>)}
           <p className="text-sm text-gray-300">{c.description ?? <span className="text-gray-500">No official description available.</span>}</p>
+          {c.vendors.length > 0 && <div className="text-xs text-gray-400">Vendors named by CVE.org / NVD: {c.vendors.slice(0, 6).join(', ')}</div>}
           <div className="text-xs text-gray-400 flex flex-wrap gap-x-4 gap-y-1">
             {c.cvss.length === 0 ? <span>CVSS: not provided by any source</span> : c.cvss.map((s, i) => <span key={i}>CVSS {s.version}: <b className="text-gray-200">{s.score}</b>{s.severity ? ` ${s.severity}` : ''} <span className="text-gray-500">({s.provider}, {s.source})</span></span>)}
           </div>
-          <div className="text-xs text-gray-500">Exploitation, patch and zero-day status: {UNKNOWN} (not assessed yet) · last verified {c.lastVerifiedAt ? formatDateTime(c.lastVerifiedAt) : 'never'}{c.lastError ? ` · last error: ${c.lastError}` : ''}</div>
+          <div className="text-xs text-gray-500">Exploitation, patch and zero-day status: see the Zero-days tab; patch status {UNKNOWN} · last verified {c.lastVerifiedAt ? formatDateTime(c.lastVerifiedAt) : 'never'}{c.lastError ? ` · last error: ${c.lastError}` : ''}</div>
         </div>
       ))}
     </div>
   );
 }
 
-type ZdEvidence = { id: string; kind: string; sourceType: string; primary: boolean; sourceName: string; url: string; eventDate: string | null; note: string | null; addedBy: string; retracted: boolean };
-type ZdCase = {
-  cveId: string; state: string; publishedAsConfirmed: boolean; eligibleForConfirmation: boolean; reasons: string[]; missing: string[]; conflicts: string[];
-  analystReason: string | null; stateSetBy: string; approvedBy: string | null; approvedAt: string | null; evidence: ZdEvidence[];
-  cve: { recordStatus: string; description: string | null } | null;
-};
+// ----------------------------------------------------------------------------- Zero-days
+
 const KIND_LABEL: Record<string, string> = {
-  EXPLOITATION_OBSERVED: 'Exploitation', PATCH_RELEASED: 'Patch released', NO_PATCH_AVAILABLE: 'No patch available', VENDOR_AWARENESS: 'Vendor aware',
+  EXPLOITATION_OBSERVED: 'Exploitation observed', PATCH_RELEASED: 'Patch released', NO_PATCH_AVAILABLE: 'No patch available', VENDOR_AWARENESS: 'Vendor aware',
   DISCLOSURE: 'Disclosure', POC_PUBLIC: 'Public PoC', ZERO_DAY_CLAIM: 'Zero-day claim', CONTRADICTS_EXPLOITATION: 'Contradicts exploitation', CONTRADICTS_ZERO_DAY: 'Contradicts zero-day',
 };
+const SOURCE_TYPES: [string, string][] = [['VENDOR', 'Vendor (primary)'], ['RESEARCHER', 'Researcher (primary)'], ['GOVERNMENT', 'Government / CERT (primary)'], ['INCIDENT_REPORT', 'Incident report (primary)'], ['TECHNICAL_INVESTIGATION', 'Technical investigation (primary)'], ['NEWS', 'News (secondary)'], ['SOCIAL', 'Social (secondary)'], ['OTHER', 'Other (secondary)']];
 
-function CaseCard({ c }: { c: ZdCase }) {
+function EvidenceForm({ onDone }: { onDone: () => void }) {
+  const [f, setF] = useState({ cve: '', kind: 'EXPLOITATION_OBSERVED', sourceType: 'VENDOR', sourceName: '', url: '', eventDate: '', note: '' });
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const set = (k: string) => (e: any) => setF((p) => ({ ...p, [k]: e.target.value }));
+  const submit = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      await api.post(`/cyberdigest/zero-days/${encodeURIComponent(f.cve.trim())}/evidence`, { kind: f.kind, sourceType: f.sourceType, sourceName: f.sourceName, url: f.url, eventDate: f.eventDate || undefined, note: f.note || undefined });
+      setF({ ...f, sourceName: '', url: '', eventDate: '', note: '' });
+      onDone();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <details className="glass-card p-4 rounded-xl">
+      <summary className="cursor-pointer text-sm text-white">Record evidence for a CVE</summary>
+      <div className="grid grid-cols-2 gap-2 pt-3">
+        <input className={inputCls} placeholder="CVE-2026-12345" value={f.cve} onChange={set('cve')} />
+        <select className={inputCls} value={f.kind} onChange={set('kind')}>{Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+        <select className={inputCls} value={f.sourceType} onChange={set('sourceType')}>{SOURCE_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+        <input className={inputCls} placeholder="Source name (e.g. Vendor PSIRT)" value={f.sourceName} onChange={set('sourceName')} />
+        <input className={`${inputCls} col-span-2`} placeholder="Evidence URL (https://…)" value={f.url} onChange={set('url')} />
+        <label className="text-xs text-gray-400">Date the source states <input type="date" className={`${inputCls} ml-2`} value={f.eventDate} onChange={set('eventDate')} /></label>
+        <input className={inputCls} placeholder="Note (optional)" value={f.note} onChange={set('note')} />
+      </div>
+      <p className="text-xs text-gray-500 pt-2">Enter the date exactly as the source states it. Leave it empty if the source gives none; a date is never inferred.</p>
+      <div className="pt-2 flex items-center gap-3"><button className={btnCls} disabled={busy || !f.cve || !f.sourceName || !f.url} onClick={submit}>Add evidence</button>{err && <span className="text-xs text-red-300">{err}</span>}</div>
+    </details>
+  );
+}
+
+function CaseCard({ c, canReview, reload }: { c: ZdCase; canReview: boolean; reload: () => void }) {
+  const post = (path: string, body: object = {}) => async () => { await api.post(`/cyberdigest/zero-days/${c.cveId}/${path}`, body); reload(); };
+  const [target, setTarget] = useState('UNKNOWN');
+  const [stateCls, stateLabel] = ZD_STATE[c.state] ?? [GREY, c.state];
   return (
     <div className="glass-card p-4 rounded-xl space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <a href={`https://www.cve.org/CVERecord?id=${c.cveId}`} target="_blank" rel="noopener noreferrer" className="text-white font-semibold hover:text-cyan-300">{c.cveId}</a>
-        {c.publishedAsConfirmed && pill('bg-red-500/15 text-red-300', 'Confirmed zero-day')}
+        {pill(c.publishedAsConfirmed ? RED : stateCls, c.publishedAsConfirmed ? 'Confirmed zero-day' : stateLabel)}
         {c.approvedBy && <span className="text-xs text-gray-400">approved by {c.approvedBy} {c.approvedAt ? formatDateTime(c.approvedAt) : ''}</span>}
-        {c.eligibleForConfirmation && pill('bg-amber-500/15 text-amber-300', 'Evidence qualifies, awaiting analyst approval')}
+        {c.eligibleForConfirmation && pill(AMBER, 'Evidence qualifies — awaiting analyst approval')}
       </div>
       {c.cve?.description && <p className="text-sm text-gray-300">{c.cve.description}</p>}
       {c.reasons.map((r, i) => <div key={i} className="text-xs text-gray-300">{r}</div>)}
@@ -146,61 +298,111 @@ function CaseCard({ c }: { c: ZdCase }) {
       {c.missing.length > 0 && <div className="text-xs text-amber-300/90">Still needed for a confirmed zero-day: {c.missing.join('; ')}</div>}
       <div className="space-y-1 pt-1">
         {c.evidence.map((e) => (
-          <div key={e.id} className={`text-xs ${e.retracted ? 'line-through text-gray-600' : 'text-gray-400'}`}>
-            <span className="text-gray-200">{KIND_LABEL[e.kind] ?? e.kind}</span> · {e.eventDate ? formatDateTime(e.eventDate).split(',')[0] : 'date not stated'} · {e.primary ? 'primary' : 'secondary'} source:{' '}
-            <a href={safeUrl(e.url)} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline">{e.sourceName}</a> ({e.addedBy})
+          <div key={e.id} className={`text-xs flex flex-wrap items-center gap-x-2 ${e.retracted ? 'line-through text-gray-600' : 'text-gray-400'}`}>
+            <span><span className="text-gray-200">{KIND_LABEL[e.kind] ?? e.kind}</span> · {e.eventDate ? e.eventDate.slice(0, 10) : 'date not stated'} · {e.primary ? 'primary' : 'secondary'} source:{' '}
+              <a href={safeUrl(e.url)} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline">{e.sourceName}</a> ({e.addedBy})</span>
+            {e.retracted && <span className="no-underline text-gray-500">retracted: {e.retractReason}</span>}
+            {canReview && !e.retracted && <ReasonAction label="Retract" danger onSubmit={async (reason) => { await api.post(`/cyberdigest/zero-days/evidence/${e.id}/retract`, { reason }); reload(); }} />}
           </div>
         ))}
       </div>
+      {canReview && (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          {c.eligibleForConfirmation && <button className={btnCls} onClick={() => post('approve')().catch(() => undefined)}>Approve as confirmed</button>}
+          {c.state === 'CONFIRMED' && <ReasonAction label="Withdraw confirmation" danger onSubmit={async (reason) => post('withdraw', { state: 'REPORTED_UNVERIFIED', reason })()} />}
+          {c.state !== 'CONFIRMED' && (
+            <>
+              <select value={target} onChange={(e) => setTarget(e.target.value)} className={`${inputCls} !py-1 text-xs`}>
+                {['REPORTED_UNVERIFIED', 'KNOWN_EXPLOITED_UNCONFIRMED', 'NOT_SUBSTANTIATED', 'UNKNOWN'].map((s) => <option key={s} value={s}>{ZD_STATE[s][1]}</option>)}
+              </select>
+              <ReasonAction label="Set status" onSubmit={async (reason) => post('transition', { state: target, reason })()} />
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function ZeroDayTab() {
+function ZeroDayTab({ canReview }: { canReview: boolean }) {
   const [data, setData] = useState<Record<string, ZdCase[]>>({});
   const [err, setErr] = useState('');
-  useEffect(() => {
+  const load = useCallback(() => {
     Promise.all(['confirmed', 'known_exploited', 'review'].map((s) => api.get('/cyberdigest/zero-days', { params: { section: s } }).then((r) => [s, r.data.items as ZdCase[]] as const)))
       .then((e) => { setData(Object.fromEntries(e)); setErr(''); })
       .catch(() => setErr('Could not load zero-day cases.'));
   }, []);
+  useEffect(() => { load(); }, [load]);
   if (err) return <div className="text-red-300 text-sm">{err}</div>;
   const sec = (key: string, title: string, note: string, empty: string) => (
     <section className="space-y-2">
       <h2 className="text-white font-medium">{title} <span className="text-gray-500 text-sm">({data[key]?.length ?? 0})</span></h2>
       <p className="text-xs text-gray-400">{note}</p>
-      {(data[key] ?? []).length === 0 ? <div className="glass-card p-4 rounded-xl text-sm text-gray-500">{empty}</div> : data[key].map((c) => <CaseCard key={c.cveId} c={c} />)}
+      {(data[key] ?? []).length === 0 ? <div className="glass-card p-4 rounded-xl text-sm text-gray-500">{empty}</div> : data[key].map((c) => <CaseCard key={c.cveId} c={c} canReview={canReview} reload={load} />)}
     </section>
   );
   return (
     <div className="space-y-6">
+      {canReview && <EvidenceForm onDone={load} />}
       {sec('confirmed', 'Confirmed zero-day exploitation', 'Only cases with qualifying primary evidence and a recorded analyst approval appear here.', 'No confirmed zero-days.')}
-      {sec('known_exploited', 'Known exploited, zero-day status unconfirmed', 'Exploitation is established (for example CISA KEV). The evidence does not show it began before a fix existed, so these are not called zero-days.', 'None.')}
-      {sec('review', 'Review queue: reported, unsubstantiated or unknown', 'Not published as fact. A publisher reporting a zero-day lands here until primary evidence is recorded.', 'Nothing to review.')}
-      <p className="text-xs text-gray-500">Evidence entry and approval are available through the API (POST /cyberdigest/zero-days/:cve/evidence, /approve) for users with the review permission. A screen for them comes with the dashboard phase.</p>
+      {sec('known_exploited', 'Known exploited — zero-day status unconfirmed', 'Exploitation is established (for example CISA KEV). The evidence does not show it began before a fix existed, so these are not called zero-days.', 'None.')}
+      {sec('review', 'Review queue — reported, unsubstantiated or unknown', 'Not published as fact. A publisher reporting a zero-day lands here until primary evidence is recorded.', 'Nothing to review.')}
     </div>
   );
 }
 
-function HealthTab() {
+// ----------------------------------------------------------------------------- Verification & health
+
+function HealthTab({ canManage }: { canManage: boolean }) {
   const [h, setH] = useState<Health | null>(null);
+  const [v, setV] = useState<Verification | null>(null);
   const [err, setErr] = useState('');
-  const load = useCallback(() => api.get('/cyberdigest/health').then((r) => { setH(r.data); setErr(''); }).catch(() => setErr('Could not load source health.')), []);
+  const [msg, setMsg] = useState('');
+  const load = useCallback(() => {
+    Promise.all([api.get('/cyberdigest/health'), api.get('/cyberdigest/verification')])
+      .then(([a, b]) => { setH(a.data); setV(b.data); setErr(''); }).catch(() => setErr('Could not load verification status.'));
+  }, []);
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
   if (err) return <div className="text-red-300 text-sm">{err}</div>;
-  if (!h) return <div className="text-gray-400">Loading…</div>;
+  if (!h || !v) return <div className="text-gray-400">Loading…</div>;
   const bad = h.sources.filter((s) => s.enabled && s.health !== 'HEALTHY');
+  const run = async (fn: () => Promise<any>, ok: string) => { try { const r = await fn(); setMsg(typeof r?.data?.error === 'string' ? `${ok}: ${r.data.error}` : ok); } catch (e) { setMsg(errMsg(e)); } load(); };
+  const count = (label: string, n: number) => <div className="glass-card p-3 rounded-xl"><div className="text-xl text-white">{n}</div><div className="text-xs text-gray-400">{label}</div></div>;
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className={`p-3 rounded-lg text-sm ${h.allEnabledSourcesHealthy ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}>
-        {h.allEnabledSourcesHealthy ? 'Every enabled source succeeded recently.' : `${bad.length} enabled source(s) are not confirmed healthy. Content below may be incomplete or out of date.`}
-        {' '}{h.pendingStories} stories await verification.
+        {h.allEnabledSourcesHealthy ? 'Every enabled source succeeded recently.' : `${bad.length} enabled source(s) are not confirmed healthy. Content may be incomplete or out of date.`}
       </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {count('stories pending verification', v.pendingStories)}
+        {count('stories with conflicting evidence', v.conflictingStories.length)}
+        {count('CVEs awaiting NVD enrichment', v.cvesAwaitingNvd)}
+        {count('CVEs CVE.org could not be reached for', v.cvesUnavailable)}
+        {count('zero-day claims unverified / unknown', v.zeroDayClaimsUnverified + v.zeroDayStatusUnknown)}
+      </div>
+
+      {(v.conflictingStories.length > 0 || v.cveConflicts.length > 0) && (
+        <div className="glass-card p-4 rounded-xl space-y-1">
+          <div className="text-white text-sm font-medium">Conflicting evidence</div>
+          {v.conflictingStories.map((s) => <div key={s.id} className="text-xs text-red-300"><a href={safeUrl(s.canonicalUrl)} target="_blank" rel="noopener noreferrer" className="underline">{s.title}</a> — {s.stateNote}</div>)}
+          {v.cveConflicts.map((c) => c.conflicts.map((x, i) => <div key={`${c.cveId}${i}`} className="text-xs text-red-300">{c.cveId}: {x.detail}</div>))}
+        </div>
+      )}
+      {(v.rejectedStories.length > 0 || v.corrections.length > 0) && (
+        <div className="glass-card p-4 rounded-xl space-y-1">
+          <div className="text-white text-sm font-medium">Rejected claims and corrections</div>
+          {v.rejectedStories.map((s) => <div key={s.id} className="text-xs text-gray-300">Rejected: {s.title} — {s.stateNote}</div>)}
+          {v.corrections.map((c) => <div key={c.id} className="text-xs text-gray-400">{formatDateTime(c.createdAt)} · {c.entityType === 'STORY' ? 'story' : c.entityId} · {c.event.toLowerCase().replace('_', ' ')}{c.detail?.reason ? ` — ${c.detail.reason}` : ''}</div>)}
+        </div>
+      )}
+
+      {msg && <div className="text-xs text-cyan-300">{msg}</div>}
       <div className="glass-card rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead><tr className="border-b border-gray-800 text-left text-gray-400">
             <th className="p-3 font-medium">Source</th><th className="p-3 font-medium">Role</th><th className="p-3 font-medium">Status</th>
-            <th className="p-3 font-medium">Last success</th><th className="p-3 font-medium">Last error</th>
+            <th className="p-3 font-medium">Last success</th><th className="p-3 font-medium">Last error</th>{canManage && <th className="p-3 font-medium">Manage</th>}
           </tr></thead>
           <tbody>
             {h.sources.map((s) => (
@@ -210,6 +412,12 @@ function HealthTab() {
                 <td className="p-3">{pill(HEALTH_CLS[s.health], s.health.toLowerCase())}{s.consecutiveFailures > 0 && <span className="ml-2 text-xs text-gray-500">{s.consecutiveFailures} failures</span>}</td>
                 <td className="p-3 text-gray-300">{s.lastSuccessAt ? formatDateTime(s.lastSuccessAt) : <span className="text-gray-500">never</span>}</td>
                 <td className="p-3 text-xs text-red-300/90">{s.lastError ?? ''}</td>
+                {canManage && (
+                  <td className="p-3 space-x-2 whitespace-nowrap">
+                    <button className={btnCls} onClick={() => run(() => api.patch(`/cyberdigest/sources/${s.slug}`, { enabled: !s.enabled }), `${s.name} ${s.enabled ? 'disabled' : 'enabled'}`)}>{s.enabled ? 'Disable' : 'Enable'}</button>
+                    {(s.type === 'NEWS_RSS' || s.type === 'RESEARCH_RSS' || s.type === 'KEV_JSON') && <button className={btnCls} onClick={() => run(() => api.post(`/cyberdigest/sources/${s.slug}/poll`), `Polled ${s.name}`)}>Poll now</button>}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -220,23 +428,26 @@ function HealthTab() {
   );
 }
 
+// ----------------------------------------------------------------------------- page
+
 export default function CyberdigestPage() {
   const [tab, setTab] = useState<Tab>('News');
+  const { can } = useBranding();
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div>
         <h1 className="text-2xl font-semibold text-white">Cyberdigest</h1>
-        <p className="text-sm text-gray-400 mt-1">Cybersecurity intelligence with sources and verification status. Work in progress: ingestion and CVE/KEV verification are live; summaries, zero-day review and the daily digest are not built yet.</p>
+        <p className="text-sm text-gray-400 mt-1">Cybersecurity intelligence with sources and verification status. Work in progress: the daily digest is not built yet.</p>
       </div>
       <div className="flex gap-1 border-b border-gray-800">
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)} className={`px-4 py-2 text-sm -mb-px border-b-2 ${tab === t ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-gray-200'}`}>{t}</button>
         ))}
       </div>
-      {tab === 'News' && <NewsTab />}
+      {tab === 'News' && <NewsTab canReview={can('cyberdigest.review')} />}
       {tab === 'CVEs' && <CvesTab />}
-      {tab === 'Zero-days' && <ZeroDayTab />}
-      {tab === 'Source health' && <HealthTab />}
+      {tab === 'Zero-days' && <ZeroDayTab canReview={can('cyberdigest.review')} />}
+      {tab === 'Verification & source health' && <HealthTab canManage={can('cyberdigest.manage_sources')} />}
     </div>
   );
 }

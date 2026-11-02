@@ -6,11 +6,12 @@ import { IngestionService } from './ingestion.service';
 import { KevService } from './kev.service';
 import { CveVerificationService } from './cve-verification.service';
 import { ZeroDayService } from './zero-day.service';
+import { StoryReviewService } from './story-review.service';
 
 @Module({
   imports: [PrismaModule, AuditModule],
   controllers: [CyberdigestController],
-  providers: [IngestionService, KevService, CveVerificationService, ZeroDayService],
-  exports: [IngestionService, CveVerificationService, ZeroDayService],
+  providers: [IngestionService, KevService, CveVerificationService, ZeroDayService, StoryReviewService],
+  exports: [IngestionService, CveVerificationService, ZeroDayService, StoryReviewService],
 })
 export class CyberdigestModule {}

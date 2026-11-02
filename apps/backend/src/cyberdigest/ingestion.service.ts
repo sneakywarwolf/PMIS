@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SOURCES, ALLOWED_HOSTS } from './sources.config';
 import { safeFetch, SafeFetchError } from './safe-fetch';
 import { parseFeed, FeedParseError } from './feed-parser';
+import { categorize } from './classify';
+import { validateSummary } from './summary-guard';
 import { KevService } from './kev.service';
 import { CveVerificationService } from './cve-verification.service';
 import { canonicalUrl, contentHash, dedupKey, extractCveIds, extractiveSummary } from './normalize';
@@ -188,14 +190,19 @@ export class IngestionService implements OnModuleInit {
       update: {},
     });
 
+    // The summary must pass the same post-generation check as any other summary would: it is dropped, not repaired, if it fails.
+    const candidate = extractiveSummary(item.description);
+    const guard = candidate ? validateSummary(candidate, `${item.title}\n${item.description}`) : { ok: true, unsupported: [] };
+    if (!guard.ok) this.log.warn(`Dropped summary for ${canonical}: unsupported ${guard.unsupported.join(', ')}`);
     const fields = {
       title: item.title,
       author: item.author,
       publishedAt: item.publishedAt,
       updatedAtSource: item.updatedAt,
       contentHash: hash,
-      summary: extractiveSummary(item.description),
+      summary: guard.ok ? candidate : null,
       cveIds: extractCveIds(item.title, item.description),
+      categories: categorize(item.title, item.description, source.slug),
       rawItemId: raw.id,
     };
     if (!existing) {
@@ -203,7 +210,7 @@ export class IngestionService implements OnModuleInit {
       return 'created';
     }
     // The publisher changed the content: whatever was verified before no longer applies.
-    await this.prisma.digestStory.update({ where: { id: existing.id }, data: { ...fields, verificationState: 'PENDING', lastVerifiedAt: null } });
+    await this.prisma.digestStory.update({ where: { id: existing.id }, data: { ...fields, verificationState: 'PENDING', lastVerifiedAt: null, stateNote: null, reviewedById: null, reviewedAt: null } });
     return 'updated';
   }
 }

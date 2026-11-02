@@ -87,6 +87,10 @@ enum AuditAction {
   CYBERDIGEST_ZERODAY_TRANSITION
   CYBERDIGEST_ZERODAY_APPROVED
   CYBERDIGEST_ZERODAY_WITHDRAWN
+  CYBERDIGEST_STORY_APPROVED
+  CYBERDIGEST_STORY_REJECTED
+  CYBERDIGEST_STORY_CORRECTED
+  CYBERDIGEST_SOURCE_UPDATED
 }
 
 enum ComplianceType {
@@ -791,6 +795,10 @@ model DigestStory {
   groupId           String?
   verificationState DigestVerificationState @default(PENDING)
   rawItemId         String?
+  categories        String[] // rule-based labels from the publisher's own text; never from a model
+  stateNote         String? // why the story is in this state (conflict detail, review reason)
+  reviewedById      String?
+  reviewedAt        DateTime?
 
   @@unique([sourceId, canonicalUrl])
   @@index([publishedAt])
@@ -828,6 +836,9 @@ model DigestCve {
   affected          Json? // CNA affected products exactly as published
   references        Json?
   cvss              Json? // [{provider, source, version, score, vector, severity}] one entry per provider, never merged
+  maxCvssScore      Float? // highest score any provider gave; used only for filtering/sorting
+  maxCvssSeverity   String? // that same provider's own label (not calculated by PMIS)
+  vendors           String[] // vendors named by CVE.org / NVD, lower-cased, for filtering
   nvdEnrichment     DigestNvdEnrichment   @default(PENDING)
   nvdStatus         String? // NVD's own vulnStatus string
   nvdLastModified   DateTime?
