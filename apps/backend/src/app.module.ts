@@ -22,6 +22,7 @@ import { QuizModule } from './quiz/quiz.module';
 import { RetentionModule } from './retention/retention.module';
 import { EasterEggModule } from './easter-egg/easter-egg.module';
 import { UpdateModule } from './update/update.module';
+import { CyberdigestModule } from './cyberdigest/cyberdigest.module';
 
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
@@ -61,6 +62,7 @@ import { PermissionGuard } from './common/permissions';
     RetentionModule,
     EasterEggModule,
     UpdateModule,
+    CyberdigestModule,
   ],
   providers: [
     {

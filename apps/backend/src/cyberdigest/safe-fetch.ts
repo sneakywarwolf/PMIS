@@ -1,0 +1,104 @@
+/**
+ * The only way Cyberdigest touches the network. External content is untrusted, so: https only, hostname must be in the
+ * allowlist (no IP literals, no ports), every redirect hop is re-checked, bounded time and bytes, and the content type
+ * must be one the caller expects. Hosts are fixed publisher names from the registry, which is what keeps SSRF out.
+ */
+export class SafeFetchError extends Error {
+  constructor(
+    message: string,
+    readonly kind: 'blocked' | 'http' | 'rate_limited' | 'timeout' | 'too_large' | 'bad_type' | 'network',
+    readonly status?: number,
+    readonly retryAfterSec?: number,
+  ) {
+    super(message);
+  }
+}
+
+export interface SafeFetchOptions {
+  allowedHosts: ReadonlySet<string>;
+  contentTypes: RegExp;
+  timeoutMs?: number;
+  maxBytes?: number;
+  maxRedirects?: number;
+  headers?: Record<string, string>;
+  fetchImpl?: typeof fetch;
+}
+
+export interface SafeFetchResult {
+  status: number;
+  notModified: boolean;
+  body: string;
+  finalUrl: string;
+  etag?: string;
+  lastModified?: string;
+}
+
+const IP_LITERAL = /^(\d{1,3}\.){3}\d{1,3}$|:|^\[/;
+
+export function assertAllowedUrl(raw: string, allowed: ReadonlySet<string>): URL {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new SafeFetchError('Invalid URL', 'blocked');
+  }
+  if (u.protocol !== 'https:' || u.port || u.username || u.password || IP_LITERAL.test(u.hostname) || !allowed.has(u.hostname)) {
+    throw new SafeFetchError(`Blocked URL host: ${u.hostname}`, 'blocked');
+  }
+  return u;
+}
+
+async function readCapped(res: Response, maxBytes: number): Promise<string> {
+  const declared = Number(res.headers.get('content-length') || 0);
+  if (declared > maxBytes) throw new SafeFetchError('Response too large', 'too_large');
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new SafeFetchError('Response too large', 'too_large');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+export async function safeFetch(url: string, opts: SafeFetchOptions): Promise<SafeFetchResult> {
+  const doFetch = opts.fetchImpl ?? fetch;
+  const maxRedirects = opts.maxRedirects ?? 3;
+  let current = assertAllowedUrl(url, opts.allowedHosts).toString();
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    let res: Response;
+    try {
+      res = await doFetch(current, {
+        redirect: 'manual',
+        headers: { 'user-agent': 'PMIS-Cyberdigest/1.0', accept: '*/*', ...opts.headers },
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 15000),
+      });
+    } catch (e: any) {
+      if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw new SafeFetchError('Request timed out', 'timeout');
+      throw new SafeFetchError('Network error', 'network');
+    }
+    if (res.status >= 300 && res.status < 400 && res.status !== 304) {
+      const loc = res.headers.get('location');
+      if (!loc) throw new SafeFetchError('Redirect without location', 'http', res.status);
+      current = assertAllowedUrl(new URL(loc, current).toString(), opts.allowedHosts).toString();
+      continue;
+    }
+    if (res.status === 304) return { status: 304, notModified: true, body: '', finalUrl: current };
+    if (res.status === 429) {
+      const ra = Number(res.headers.get('retry-after'));
+      throw new SafeFetchError('Rate limited', 'rate_limited', 429, Number.isFinite(ra) && ra > 0 ? ra : undefined);
+    }
+    if (!res.ok) throw new SafeFetchError(`HTTP ${res.status}`, 'http', res.status);
+    if (!opts.contentTypes.test(res.headers.get('content-type') || '')) throw new SafeFetchError('Unexpected content type', 'bad_type', res.status);
+    const body = await readCapped(res, opts.maxBytes ?? 5 * 1024 * 1024);
+    return { status: res.status, notModified: false, body, finalUrl: current, etag: res.headers.get('etag') ?? undefined, lastModified: res.headers.get('last-modified') ?? undefined };
+  }
+  throw new SafeFetchError('Too many redirects', 'http');
+}

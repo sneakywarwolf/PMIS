@@ -698,3 +698,96 @@ model PatternMapScore {
   @@index([score])
   @@map("pattern_map_scores")
 }
+
+// ---------------------------------------------------------------------------
+// Cyberdigest (verified cybersecurity intelligence digest) - Phase 1: sources,
+// raw evidence and stories. Verification / zero-day / digest models come later.
+// ---------------------------------------------------------------------------
+
+enum DigestSourceType {
+  NEWS_RSS
+  RESEARCH_RSS
+  CVE_API
+  NVD_API
+  KEV_JSON
+}
+
+enum DigestSourceHealth {
+  UNKNOWN
+  HEALTHY
+  STALE
+  FAILING
+}
+
+// Fail-closed: a story starts PENDING and only a later verification step may move it.
+enum DigestVerificationState {
+  PENDING
+  ATTRIBUTED
+  VERIFIED
+  CONFLICTING
+  REJECTED
+  SOURCE_UNAVAILABLE
+}
+
+model DigestSource {
+  id                  String             @id @default(uuid())
+  slug                String             @unique
+  name                String
+  type                DigestSourceType
+  endpoint            String
+  website             String
+  trustRole           String // DISCOVERY | AUTHORITATIVE
+  enabled             Boolean            @default(true)
+  pollIntervalMinutes Int
+  health              DigestSourceHealth @default(UNKNOWN)
+  lastAttemptAt       DateTime?
+  lastSuccessAt       DateTime?
+  lastError           String?
+  consecutiveFailures Int                @default(0)
+  etag                String?
+  lastModified        String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  rawItems DigestRawItem[]
+  stories  DigestStory[]
+}
+
+// Immutable evidence: exactly what a source returned, with a hash. Never edited.
+model DigestRawItem {
+  id          String       @id @default(uuid())
+  sourceId    String
+  source      DigestSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  externalId  String
+  url         String
+  contentHash String
+  fetchedAt   DateTime     @default(now())
+  payload     Json
+
+  @@unique([sourceId, externalId, contentHash])
+  @@index([sourceId, fetchedAt])
+}
+
+model DigestStory {
+  id                String                  @id @default(uuid())
+  sourceId          String
+  source            DigestSource            @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  canonicalUrl      String
+  title             String
+  author            String?
+  publishedAt       DateTime? // null = the source gave no usable date; never guessed
+  updatedAtSource   DateTime?
+  ingestedAt        DateTime                @default(now())
+  lastVerifiedAt    DateTime?
+  dedupKey          String                  @unique
+  contentHash       String
+  summary           String? // extractive only: trimmed text from the source itself
+  cveIds            String[]
+  groupId           String?
+  verificationState DigestVerificationState @default(PENDING)
+  rawItemId         String?
+
+  @@unique([sourceId, canonicalUrl])
+  @@index([publishedAt])
+  @@index([groupId])
+}

@@ -37,6 +37,7 @@ export const PERMISSION_GROUPS = [
   'Users',
   'Retention',
   'Updates',
+  'Cyberdigest',
 ] as const;
 
 export const PERMISSIONS: PermissionDef[] = [
@@ -122,6 +123,11 @@ export const PERMISSIONS: PermissionDef[] = [
   // Updates
   { key: 'updates.install_now', group: 'Updates', label: 'Install an update right away', description: 'Check for updates; when one is available the update starts.', defaults: NONE },
   { key: 'updates.schedule', group: 'Updates', label: 'Schedule or cancel an update', description: 'Schedule an update for a date and time, or cancel it.', defaults: NONE },
+
+  // Cyberdigest
+  { key: 'cyberdigest.view', group: 'Cyberdigest', label: 'View the Cyberdigest', description: 'Open the verified cybersecurity digest: news, CVEs, zero-day alerts and source health.', defaults: ALL },
+  { key: 'cyberdigest.manage_sources', group: 'Cyberdigest', label: 'Manage Cyberdigest sources', description: 'Enable, disable or re-poll Cyberdigest sources.', defaults: NONE },
+  { key: 'cyberdigest.review', group: 'Cyberdigest', label: 'Review and approve Cyberdigest items', description: 'Approve, reject or correct digest items and zero-day classifications.', defaults: NONE },
 ];
 
 export const PERMISSION_KEYS = new Set(PERMISSIONS.map((p) => p.key));
