@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Injectable, NotFoundException, Param, Patch, PipeTransform, Post, Query, Req } from '@nestjs/common';
 import { Prisma, User } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { CATEGORIES } from './classify';
@@ -12,7 +12,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Permission } from '../common/permissions';
 import { computeHealth, IngestionService } from './ingestion.service';
 
-const clampInt = (v: string | undefined, def: number, min: number, max: number) => {
+/** `?q=a&q=b` or `?q[x]=1` arrive as arrays/objects; every filter here is a single string, so anything else is treated as absent. */
+@Injectable()
+export class StrOnly implements PipeTransform {
+  transform(v: unknown) {
+    return typeof v === 'string' ? v : undefined;
+  }
+}
+
+const clampInt =(v: string | undefined, def: number, min: number, max: number) => {
   const n = Number.parseInt(v ?? '', 10);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
 };
@@ -93,7 +101,7 @@ export class CyberdigestController {
   @Get('cves')
   @Permission('cyberdigest.view')
   @ApiOperation({ summary: 'CVE records verified against CVE.org / NVD / CISA KEV' })
-  async cves(@Query('q') q?: string, @Query('status') status?: string, @Query('kev') kev?: string, @Query('nvd') nvd?: string, @Query('severity') severity?: string, @Query('vendor') vendor?: string, @Query('take') take?: string, @Query('skip') skip?: string) {
+  async cves(@Query('q', StrOnly) q?: string, @Query('status', StrOnly) status?: string, @Query('kev', StrOnly) kev?: string, @Query('nvd', StrOnly) nvd?: string, @Query('severity', StrOnly) severity?: string, @Query('vendor', StrOnly) vendor?: string, @Query('take', StrOnly) take?: string, @Query('skip', StrOnly) skip?: string) {
     const where: any = {};
     // Severity is the label a provider attached to its own score; PMIS does not calculate one. Patch status is not filterable: it is not collected yet.
     if (severity && ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(severity.toUpperCase())) where.maxCvssSeverity = severity.toUpperCase();
@@ -130,7 +138,7 @@ export class CyberdigestController {
   @Get('zero-days')
   @Permission('cyberdigest.view')
   @ApiOperation({ summary: 'Zero-day cases by section: confirmed (analyst-approved only), known_exploited, review' })
-  async zeroDays(@Query('section') section?: string) {
+  async zeroDays(@Query('section', StrOnly) section?: string) {
     const s = section === 'confirmed' || section === 'known_exploited' ? section : 'review';
     return { section: s, items: await this.zeroDay.list(s) };
   }
@@ -186,8 +194,8 @@ export class CyberdigestController {
   @Permission('cyberdigest.view')
   @ApiOperation({ summary: 'Stories with their publication state. Rejected stories are hidden unless asked for by state.' })
   async stories(
-    @Query('q') q?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('source') source?: string,
-    @Query('category') category?: string, @Query('state') state?: string, @Query('take') take?: string, @Query('skip') skip?: string,
+    @Query('q', StrOnly) q?: string, @Query('from', StrOnly) from?: string, @Query('to', StrOnly) to?: string, @Query('source', StrOnly) source?: string,
+    @Query('category', StrOnly) category?: string, @Query('state', StrOnly) state?: string, @Query('take', StrOnly) take?: string, @Query('skip', StrOnly) skip?: string,
   ) {
     const gte = parseDate(from);
     const lte = parseDate(to);
@@ -317,7 +325,9 @@ export class CyberdigestController {
   @Post('sources/:slug/poll')
   @Permission('cyberdigest.manage_sources')
   @ApiOperation({ summary: 'Poll one source now' })
-  async pollNow(@Param('slug') slug: string) {
+  async pollNow(@Param('slug') slug: string, @CurrentUser() user: User, @Req() req: Request) {
+    const a = this.actor(user, req);
+    await this.audit.log({ actorId: a.id, action: 'CYBERDIGEST_SOURCE_UPDATED', targetType: 'DIGEST_SOURCE', details: { slug: slug.slice(0, 60), manualPoll: true }, ipAddress: a.ip, userAgent: a.userAgent });
     return this.ingestion.pollSource(slug.slice(0, 60));
   }
 }

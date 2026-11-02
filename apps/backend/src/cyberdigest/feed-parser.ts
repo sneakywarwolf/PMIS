@@ -49,9 +49,13 @@ function child(el: Element, ...names: string[]): Element | null {
   return null;
 }
 
+// Bound every field before the regex-based clean-up: the regexes are linear on normal input, but unclosed-tag floods
+// in a hostile feed can make them quadratic. A real summary/title is nowhere near these sizes.
+const MAX_FIELD_CHARS = 20_000;
+
 function text(el: Element, ...names: string[]): string {
   const c = child(el, ...names);
-  return c ? (c.textContent || '').trim() : '';
+  return c ? (c.textContent || '').slice(0, MAX_FIELD_CHARS).trim() : '';
 }
 
 export function parseFeed(xml: string): FeedItem[] {

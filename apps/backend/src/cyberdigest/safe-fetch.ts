@@ -72,12 +72,13 @@ export async function safeFetch(url: string, opts: SafeFetchOptions): Promise<Sa
   const doFetch = opts.fetchImpl ?? fetch;
   const maxRedirects = opts.maxRedirects ?? 3;
   let current = assertAllowedUrl(url, opts.allowedHosts).toString();
+  let extraHeaders = opts.headers;
   for (let hop = 0; hop <= maxRedirects; hop++) {
     let res: Response;
     try {
       res = await doFetch(current, {
         redirect: 'manual',
-        headers: { 'user-agent': 'PMIS-Cyberdigest/1.0', accept: '*/*', ...opts.headers },
+        headers: { 'user-agent': 'PMIS-Cyberdigest/1.0', accept: '*/*', ...extraHeaders },
         signal: AbortSignal.timeout(opts.timeoutMs ?? 15000),
       });
     } catch (e: any) {
@@ -87,7 +88,10 @@ export async function safeFetch(url: string, opts: SafeFetchOptions): Promise<Sa
     if (res.status >= 300 && res.status < 400 && res.status !== 304) {
       const loc = res.headers.get('location');
       if (!loc) throw new SafeFetchError('Redirect without location', 'http', res.status);
-      current = assertAllowedUrl(new URL(loc, current).toString(), opts.allowedHosts).toString();
+      const next = assertAllowedUrl(new URL(loc, current).toString(), opts.allowedHosts);
+      // Credentials (e.g. the NVD apiKey) and validators belong to the host they were meant for, not to wherever it redirects.
+      if (next.hostname !== new URL(current).hostname) extraHeaders = undefined;
+      current = next.toString();
       continue;
     }
     if (res.status === 304) return { status: 304, notModified: true, body: '', finalUrl: current };

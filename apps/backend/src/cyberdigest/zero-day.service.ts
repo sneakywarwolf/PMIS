@@ -25,6 +25,7 @@ const KEV_PAGE = 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog';
 const ZERO_DAY_WORDS = /\b(zero[\s-]?day|0[\s-]?day)\b/i;
 const MAX_CVES_PER_CLAIM = 3; // a story naming many CVEs does not say which one is the zero-day
 const MIN_REASON = 5;
+const MAX_EVIDENCE_PER_CASE = 100;
 const RESERVED_SOURCE_NAMES = new Set(['cisa kev', 'cisa known exploited vulnerabilities', 'kev', 'cisa kev catalog']);
 
 const toItem = (e: any): EvidenceItem => ({ id: e.id, kind: e.kind, sourceType: e.sourceType, sourceName: e.sourceName, url: e.url, eventDate: e.eventDate ?? null, retracted: !!e.retractedAt });
@@ -133,6 +134,8 @@ export class ZeroDayService {
     const note = input.note ? String(input.note).slice(0, 1000) : null;
 
     const c = await this.ensureCase(cveId);
+    const existing = await this.prisma.digestZeroDayEvidence.count({ where: { caseId: c.id } });
+    if (existing >= MAX_EVIDENCE_PER_CASE) throw new BadRequestException('This case already holds the maximum amount of evidence');
     const row = await this.prisma.digestZeroDayEvidence.create({ data: { caseId: c.id, kind: input.kind, sourceType: input.sourceType, sourceName, url, eventDate, note, addedById: actor.id } });
     await this.event(cveId, 'EVIDENCE_ADDED', { evidenceId: row.id, kind: row.kind, sourceType: row.sourceType, url, eventDate, by: actor.id });
     await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_EVIDENCE_ADDED', targetType: 'ZERODAY_CASE', targetId: c.id, details: { cveId, evidenceId: row.id, kind: row.kind, url }, ipAddress: actor.ip, userAgent: actor.userAgent });

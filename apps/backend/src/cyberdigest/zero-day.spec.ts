@@ -124,6 +124,7 @@ function fakes(cve: any = { cveId: 'CVE-2026-0001', recordStatus: 'PUBLISHED', d
       findMany: async ({ select }: any = {}) => cases.map((c) => (select ? { cveId: c.cveId } : withEv(c))),
     },
     digestZeroDayEvidence: {
+      count: async ({ where }: any) => evidence.filter((e) => e.caseId === where.caseId).length,
       create: async ({ data }: any) => { const e = { id: `ev${++i}`, createdAt: new Date(i), retractedAt: null, retractedById: null, retractReason: null, ...data }; evidence.push(e); return e; },
       findUnique: async ({ where }: any) => { const e = evidence.find((x) => x.id === where.id); return e ? { ...e, case: cases.find((c) => c.id === e.caseId) } : null; },
       update: async ({ where, data }: any) => Object.assign(evidence.find((x) => x.id === where.id), data),

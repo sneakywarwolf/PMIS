@@ -6,6 +6,7 @@ import { safeFetch, SafeFetchError } from './safe-fetch';
 import { parseFeed, FeedParseError } from './feed-parser';
 import { categorize } from './classify';
 import { validateSummary } from './summary-guard';
+import { UpstreamFormatError } from './cve-clients';
 import { KevService } from './kev.service';
 import { CveVerificationService } from './cve-verification.service';
 import { canonicalUrl, contentHash, dedupKey, extractCveIds, extractiveSummary } from './normalize';
@@ -156,8 +157,9 @@ export class IngestionService implements OnModuleInit {
       });
       result.ok = true;
     } catch (e) {
-      const msg = e instanceof SafeFetchError ? `${e.kind}: ${e.message}` : e instanceof FeedParseError ? `parse: ${e.message}` : 'unexpected error';
-      if (!(e instanceof SafeFetchError || e instanceof FeedParseError)) this.log.error(`Poll ${slug} failed: ${(e as Error).message}`);
+      const known = e instanceof SafeFetchError || e instanceof FeedParseError || e instanceof UpstreamFormatError;
+      const msg = e instanceof SafeFetchError ? `${e.kind}: ${e.message}` : e instanceof FeedParseError ? `parse: ${e.message}` : e instanceof UpstreamFormatError ? `format: ${e.message}` : 'unexpected error';
+      if (!known) this.log.error(`Poll ${slug} failed: ${(e as Error).message}`);
       const failures = source.consecutiveFailures + 1;
       await this.prisma.digestSource.update({
         where: { id: source.id },
