@@ -27,6 +27,7 @@ import {
   Menu,
   Search,
   Info,
+  Newspaper,
 } from 'lucide-react';
 import { CommandPalette } from '@/components/command-palette';
 import { UpdateGate } from '@/components/update-gate';
@@ -63,6 +64,7 @@ const navItems: NavItem[] = [
   { label: 'Reports', href: '/dashboard/reports', icon: FileText, features: ['reports.page'] },
   { label: 'Vulnerabilities', href: '/dashboard/vulnerabilities', icon: ShieldAlert, features: ['vulns.view'] },
   { label: 'Quiz', href: '/dashboard/quiz', icon: HelpCircle, features: ['quiz.play'] },
+  { label: 'Cyberdigest', href: '/dashboard/cyberdigest', icon: Newspaper, features: ['cyberdigest.view'] },
   { label: 'Retention', href: '/dashboard/retention', icon: Clock, features: ['retention.view'] },
   { label: 'Users', href: '/dashboard/users', icon: Users, features: ['users.page'] },
   { label: 'Settings', href: '/dashboard/settings', icon: Settings, adminOnly: true },
