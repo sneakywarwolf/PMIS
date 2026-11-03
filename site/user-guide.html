@@ -72,7 +72,7 @@
       </tbody>
     </table></div>
     <p>"Within scope" means projects the user leads, or projects whose tester belongs to the user's team. Permissions are enforced by the server, not just hidden in the interface.</p>
-    <p><strong>The table shows the defaults.</strong> An Admin can change them under <em>Settings &gt; RBAC</em>, which lists every feature covered by access control (63, in 10 groups: Dashboard, Projects, Findings, Vulnerability Database, Reports, Report Templates, Quiz, Users, Retention, Updates) with a switch per role for AVP, Team Lead and Tester. Admins always have every feature, and the switch for Admin is locked on. The Settings panel is not a feature: it is only ever available to Admins. A switch decides whether a role may use a feature at all; the scope rules above (own projects, own team) still apply on top of it. Changes apply to everyone as soon as they are saved, and a menu item or button disappears for a role that has lost the feature. <em>Reset to defaults</em> restores the table above.</p>
+    <p><strong>The table shows the defaults.</strong> An Admin can change them under <em>Settings &gt; RBAC</em>, which lists every feature covered by access control (66, in 11 groups: Dashboard, Projects, Findings, Vulnerability Database, Reports, Report Templates, Quiz, Users, Retention, Updates, Cyberdigest) with a switch per role for AVP, Team Lead and Tester. Admins always have every feature, and the switch for Admin is locked on. The Settings panel is not a feature: it is only ever available to Admins. A switch decides whether a role may use a feature at all; the scope rules above (own projects, own team) still apply on top of it. Changes apply to everyone as soon as they are saved, and a menu item or button disappears for a role that has lost the feature. <em>Reset to defaults</em> restores the table above.</p>
   </section>
 
   <section id="projects">
@@ -165,6 +165,40 @@
       <li><strong>Dashboard</strong>: Testers see their own work, Team Leads their team, and AVPs and Admins the whole organisation.</li>
       <li><strong>Notifications</strong>: the bell shows library decisions, new users, assignments, system updates and quiz reveals. Selecting a notification opens the related page. An Admin chooses, per notification type, which roles (AVP, Team Lead, Tester) receive it under <em>Settings &gt; Notifications</em>. Admins always receive all of them.</li>
       <li><strong>Live users</strong>: the count next to <em>System Online</em>. Admins, AVPs and Team Leads can open a list of active and idle users within their scope.</li>
+    </ul>
+  </section>
+
+  <section id="cyberdigest">
+    <h2>Cyberdigest</h2>
+    <p>The <em>Cyberdigest</em> menu item is a daily cybersecurity digest for the team. It collects news and research, checks every CVE against the official records, and shows each item with its source and how far it has been verified. The aim is a trustworthy view, not a long one: anything that cannot be supported is left out or labelled, never presented as fact.</p>
+    <h3>Sources</h3>
+    <ul>
+      <li><strong>Discovery</strong> (what happened): The Hacker News, BleepingComputer, Cyber Security News, the PortSwigger blog and research feeds, and the Cloudflare blog. An article proves that a publisher reported something, not that it is true.</li>
+      <li><strong>Authoritative</strong> (what is true): the CVE Program (cve.org), the NIST National Vulnerability Database and the CISA Known Exploited Vulnerabilities (KEV) catalog.</li>
+      <li><strong>Not covered:</strong> CERT-In advisories. CERT-In publishes no machine-readable feed, so they are not included, and every digest says so.</li>
+    </ul>
+    <h3>What each tab shows</h3>
+    <ul>
+      <li><strong>Daily digest:</strong> the day&rsquo;s summary: confirmed zero-day alerts, new KEV additions, new or updated CVEs, news (the same incident under several headlines is grouped, with every source link kept), PortSwigger and Cloudflare research, corrections to earlier items, and a closing list of what the digest could not cover (failing sources, items still awaiting verification). A day with nothing that qualifies says so. Items are ordered by a published policy (confirmed zero-day, then KEV, then analyst-verified, then provider severity, then recency); no numeric score is calculated.</li>
+      <li><strong>News</strong> and <strong>CVEs:</strong> everything ingested, with filters (search, category, state and dates for news; vendor, provider severity, KEV and NVD status for CVEs). A CVE&rsquo;s official record status, NVD enrichment and KEV listing are separate badges. Every CVSS score is shown with the provider that assigned it. Missing values stay <em>unknown</em>.</li>
+      <li><strong>Zero-days:</strong> confirmed alerts, known-exploited vulnerabilities whose zero-day status is unconfirmed, and a review queue for reports that lack evidence.</li>
+      <li><strong>Verification &amp; source health:</strong> per-source status and last successful check, items waiting for verification or in conflict, rejections and corrections. The page never says everything is healthy while an enabled source is failing.</li>
+    </ul>
+    <h3>How an item gets its label</h3>
+    <ul>
+      <li><strong>Attributed reporting, not independently confirmed</strong> is the most the system will say about an article. <strong>Verified by analyst</strong> is set only by a reviewer, and only when every CVE the article cites exists in the official record. A story citing a CVE that is rejected or unknown to CVE.org is marked <strong>Conflicting evidence</strong>, and a verified story drops back automatically if its CVE evidence turns bad.</li>
+      <li><strong>Confirmed zero-day</strong> needs dated primary evidence (vendor, researcher, government or incident report) that exploitation happened, primary evidence that no fix existed at the time, a published CVE record, no contradicting primary source, and a recorded reviewer approval. A headline, a KEV listing, a public proof of concept or a missing patch is never enough on its own. If the evidence is later retracted, the confirmation is withdrawn at once.</li>
+      <li>Summaries are the publisher&rsquo;s own words, trimmed. They are checked against the article text, and any summary that adds a CVE, score, version, date or exploitation claim not in it is dropped. No AI model is used anywhere in Cyberdigest.</li>
+    </ul>
+    <h3>Who can do what</h3>
+    <p>Everyone can read Cyberdigest. By default only Admins can review (verify or reject stories, record zero-day evidence, approve, withdraw, publish digests) and manage sources (enable, disable, poll now); an Admin can grant either to other roles in <em>Settings &gt; RBAC &gt; Cyberdigest</em>. Every decision needs a written reason and is recorded in the audit log.</p>
+    <h3>Schedule, shadow mode and notifications</h3>
+    <ul>
+      <li>News feeds are checked every 20 to 30 minutes and the KEV catalog about every 45 minutes. CVEs mentioned in stories are looked up on CVE.org and NVD in the background and rechecked daily.</li>
+      <li>The digest is generated once a day after <code>CYBERDIGEST_DIGEST_TIME</code> (24-hour <code>HH:MM</code> in Asia/Kolkata time, default <code>08:00</code>). It starts in <strong>shadow mode</strong>: only reviewers can see it and nobody is notified, so it can be compared with a manual review first. A reviewer then publishes it, which sends an in-app notification to everyone. Setting <code>CYBERDIGEST_DIGEST_MODE=publish</code> publishes automatically; only items that passed the checks above are ever included.</li>
+      <li>A published digest is never edited. If a story or zero-day in it is later rejected or withdrawn, the digest shows a correction flag on that item and the next digest lists the correction. A reviewer can also withdraw a whole digest.</li>
+      <li>People who may manage sources are notified when a source fails three times in a row or stops being checked, once a day while it lasts, and again when it recovers. The two notification types can be switched per role in <em>Settings &gt; Notifications</em>.</li>
+      <li>Optional settings: <code>NVD_API_KEY</code> raises the NVD request limit, and <code>CYBERDIGEST_REQUIRE_SECOND_APPROVER=1</code> stops the person who recorded the evidence for a zero-day from also approving it.</li>
     </ul>
   </section>
 
