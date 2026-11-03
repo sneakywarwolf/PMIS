@@ -3,13 +3,14 @@ import { Prisma, User } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { CATEGORIES } from './classify';
 import { StoryReviewService } from './story-review.service';
+import { DigestService } from './digest.service';
 import { Request } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { isValidCveId } from './cve-clients';
 import { Actor, EvidenceInput, ZeroDayService } from './zero-day.service';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
-import { Permission } from '../common/permissions';
+import { Permission, permissionRules } from '../common/permissions';
 import { computeHealth, IngestionService } from './ingestion.service';
 
 /** `?q=a&q=b` or `?q[x]=1` arrive as arrays/objects; every filter here is a single string, so anything else is treated as absent. */
@@ -38,6 +39,7 @@ export class CyberdigestController {
     private storyReview: StoryReviewService,
     private ingestion: IngestionService,
     private audit: AuditService,
+    private digest: DigestService,
   ) {}
 
   @Get('health')
@@ -296,7 +298,8 @@ export class CyberdigestController {
       zeroDayClaimsUnverified: zdReported,
       zeroDayStatusUnknown: zdUnknown,
       rejectedStories: rejected,
-      corrections,
+      // Event details also hold internal user ids; readers only get what happened, when, and the stated reason.
+      corrections: corrections.map((c) => ({ id: c.id, entityType: c.entityType, entityId: c.entityId, event: c.event, createdAt: c.createdAt, detail: { reason: typeof (c.detail as any)?.reason === 'string' ? (c.detail as any).reason : undefined, from: (c.detail as any)?.from, to: (c.detail as any)?.to } })),
     };
   }
 
@@ -320,6 +323,40 @@ export class CyberdigestController {
     const a = this.actor(user, req);
     await this.audit.log({ actorId: a.id, action: 'CYBERDIGEST_SOURCE_UPDATED', targetType: 'DIGEST_SOURCE', targetId: source.id, details: { slug: source.slug, from: { enabled: source.enabled, pollIntervalMinutes: source.pollIntervalMinutes }, to: data }, ipAddress: a.ip, userAgent: a.userAgent });
     return { ok: true };
+  }
+
+  // ------------------------------------------------------------------- daily digest
+
+  @Get('digests')
+  @Permission('cyberdigest.view')
+  @ApiOperation({ summary: 'Daily digests (published ones; reviewers also see shadow digests)' })
+  async digests(@CurrentUser() user: User) {
+    return { canReview: permissionRules.can(user.role, 'cyberdigest.review'), items: await this.digest.list(permissionRules.can(user.role, 'cyberdigest.review')) };
+  }
+
+  @Get('digests/:date')
+  @Permission('cyberdigest.view')
+  async digestByDate(@Param('date') date: string, @CurrentUser() user: User) {
+    return this.digest.get(date, permissionRules.can(user.role, 'cyberdigest.review'));
+  }
+
+  @Post('digests/generate')
+  @Permission('cyberdigest.review')
+  @ApiOperation({ summary: "Generate today's digest now (replaces a shadow digest; refused once published)" })
+  async generateDigest(@CurrentUser() user: User, @Req() req: Request) {
+    return this.digest.generate({ actor: this.actor(user, req) });
+  }
+
+  @Post('digests/:date/publish')
+  @Permission('cyberdigest.review')
+  async publishDigest(@Param('date') date: string, @CurrentUser() user: User, @Req() req: Request) {
+    return this.digest.publish(date, this.actor(user, req));
+  }
+
+  @Post('digests/:date/withdraw')
+  @Permission('cyberdigest.review')
+  async withdrawDigest(@Param('date') date: string, @Body() body: { reason?: string }, @CurrentUser() user: User, @Req() req: Request) {
+    return this.digest.withdraw(date, body?.reason, this.actor(user, req));
   }
 
   @Post('sources/:slug/poll')

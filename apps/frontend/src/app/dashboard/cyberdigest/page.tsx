@@ -39,7 +39,7 @@ type Verification = {
   corrections: { id: string; entityType: string; entityId: string; event: string; detail: any; createdAt: string }[];
 };
 
-const TABS = ['News', 'CVEs', 'Zero-days', 'Verification & source health'] as const;
+const TABS = ['Daily digest', 'News', 'CVEs', 'Zero-days', 'Verification & source health'] as const;
 type Tab = (typeof TABS)[number];
 
 // ----------------------------------------------------------------------------- helpers
@@ -428,22 +428,172 @@ function HealthTab({ canManage }: { canManage: boolean }) {
   );
 }
 
+// ----------------------------------------------------------------------------- Daily digest
+
+type DGroup = {
+  groupKey: string; headline: string; primaryStoryId: string; state: 'ATTRIBUTED' | 'VERIFIED'; summary: string | null; categories: string[]; cves: string[];
+  zeroDay: { cveId: string; state: string }[]; rankReasons: string[]; sources: { storyId: string; publisher: string; url: string; publishedAt: string | null; state: string }[];
+};
+type DContent = {
+  date: string; windowStart: string; windowEnd: string; executiveSummary: { lines: string[]; nothingQualified: boolean };
+  news: DGroup[]; research: { portswigger: DGroup[]; cloudflare: DGroup[] };
+  cves: { cveId: string; description: string | null; cvss: Cvss[]; kevListed: boolean | null; nvdEnrichment: string; change: string; changes: string[] }[];
+  kev: { cveId: string; vendorProject: string; product: string; name: string; dateAdded: string; dueDate: string | null; ransomwareUse: string; shortDescription: string }[];
+  zeroDays: { cveId: string; description: string | null; approvedBy: string | null; approvedAt: string | null; evidence: { kind: string; sourceName: string; url: string; eventDate: string | null; primary: boolean }[] }[];
+  corrections: { kind: string; ref: string; text: string; at: string }[];
+  limitations: string[]; omitted: { news: number; research: number; cves: number; kev: number }; rankPolicy: { reason: string }[];
+};
+type DMeta = { date: string; status: 'SHADOW' | 'PUBLISHED' | 'WITHDRAWN'; generatedAt: string; windowStart: string; windowEnd: string; publishedAt: string | null; withdrawReason: string | null; generatedBy: string; counts?: Record<string, number> };
+type DView = { meta: DMeta; content: DContent | null; overlay: { storyFlags: Record<string, { state: string; note: string | null }>; zeroDayFlags: Record<string, { state: string }> } | null };
+
+function GroupCard({ g, flags }: { g: DGroup; flags: DView['overlay'] }) {
+  const flagged = g.sources.map((s) => flags?.storyFlags[s.storyId]).filter(Boolean) as { state: string; note: string | null }[];
+  return (
+    <div className="glass-card p-4 rounded-xl space-y-1.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-white font-medium">{g.headline}</div>
+        {pill(g.state === 'VERIFIED' ? GREEN : AMBER, g.state === 'VERIFIED' ? 'Verified by analyst' : 'Attributed reporting — not independently confirmed')}
+      </div>
+      {flagged.map((f, i) => <div key={i} className="text-xs text-red-300">Corrected after publication: {f.state === 'REJECTED' ? 'a source story was rejected' : 'evidence now conflicts'}{f.note ? ` — ${f.note}` : ''}</div>)}
+      {g.summary && <p className="text-sm text-gray-300">{g.summary}</p>}
+      <div className="flex flex-wrap gap-1 items-center">
+        {g.categories.map((c) => <span key={c} className="px-2 py-0.5 rounded bg-gray-800 text-xs text-gray-300">{c}</span>)}
+        {g.cves.map((c) => <span key={c} className="px-2 py-0.5 rounded bg-gray-800 text-xs text-cyan-300">{c}</span>)}
+        {g.zeroDay.map((z) => pill(RED, `${z.cveId}: confirmed zero-day`, `zd-${z.cveId}`))}
+      </div>
+      {g.rankReasons.length > 0 && <div className="text-xs text-gray-500">Listed high because it {g.rankReasons.join('; ')}.</div>}
+      <div className="text-xs text-gray-400 flex flex-wrap gap-x-3 gap-y-0.5">
+        {g.sources.map((s) => <a key={s.storyId} href={safeUrl(s.url)} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline">{s.publisher}{s.publishedAt ? ` · ${formatDateTime(s.publishedAt)}` : ''}</a>)}
+      </div>
+    </div>
+  );
+}
+
+function DigestTab({ canReview }: { canReview: boolean }) {
+  const [list, setList] = useState<DMeta[] | null>(null);
+  const [date, setDate] = useState('');
+  const [view, setView] = useState<DView | null>(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const loadList = useCallback(() => api.get('/cyberdigest/digests').then((r) => { setList(r.data.items); setDate((d) => d || r.data.items[0]?.date || ''); }).catch(() => setErr('Could not load digests.')), []);
+  useEffect(() => { loadList(); }, [loadList]);
+  const loadOne = useCallback(() => {
+    if (!date) { setView(null); return; }
+    api.get(`/cyberdigest/digests/${date}`).then((r) => { setView(r.data); setErr(''); }).catch(() => setErr('Could not load that digest.'));
+  }, [date]);
+  useEffect(() => { loadOne(); }, [loadOne]);
+  const run = async (fn: () => Promise<any>) => { setBusy(true); setErr(''); try { await fn(); await loadList(); loadOne(); } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); } };
+
+  if (err && !list) return <div className="text-red-300 text-sm">{err}</div>;
+  if (!list) return <div className="text-gray-400">Loading…</div>;
+  const m = view?.meta;
+  const c = view?.content;
+  const section = (title: string, n: number, body: React.ReactNode, empty: string) => (
+    <section className="space-y-2">
+      <h2 className="text-white font-medium">{title} <span className="text-gray-500 text-sm">({n})</span></h2>
+      {n === 0 ? <div className="glass-card p-3 rounded-xl text-sm text-gray-500">{empty}</div> : body}
+    </section>
+  );
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <select value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} disabled={!list.length}>
+          {list.length === 0 && <option value="">No digests yet</option>}
+          {list.map((d) => <option key={d.date} value={d.date}>{d.date}{d.status !== 'PUBLISHED' ? ` (${d.status.toLowerCase()})` : ''}</option>)}
+        </select>
+        {canReview && <button className={btnCls} disabled={busy} onClick={() => run(() => api.post('/cyberdigest/digests/generate'))}>Generate today's digest now</button>}
+        {err && <span className="text-xs text-red-300">{err}</span>}
+      </div>
+      {list.length === 0 && <div className="glass-card p-6 rounded-xl text-gray-400">No digest has been generated yet. The first one is created after the configured time (default 08:00 IST).</div>}
+
+      {m && (
+        <div className="space-y-2">
+          {m.status === 'SHADOW' && <div className="p-3 rounded-lg text-sm bg-amber-500/10 text-amber-300">Shadow digest: visible to reviewers only, and nobody has been notified. Compare it with your own review, then publish it.</div>}
+          {m.status === 'WITHDRAWN' && <div className="p-3 rounded-lg text-sm bg-red-500/10 text-red-300">This digest was withdrawn{m.withdrawReason ? `: ${m.withdrawReason}` : '.'}</div>}
+          <div className="text-xs text-gray-400">Covers {formatDateTime(m.windowStart)} to {formatDateTime(m.windowEnd)} · generated {formatDateTime(m.generatedAt)} by {m.generatedBy}{m.publishedAt ? ` · published ${formatDateTime(m.publishedAt)}` : ''}</div>
+          {canReview && m.status !== 'WITHDRAWN' && (
+            <div className="flex flex-wrap gap-2">
+              {m.status === 'SHADOW' && <button className={btnCls} disabled={busy} onClick={() => run(() => api.post(`/cyberdigest/digests/${m.date}/publish`))}>Publish and notify everyone</button>}
+              <ReasonAction label="Withdraw digest" danger onSubmit={async (reason) => { await api.post(`/cyberdigest/digests/${m.date}/withdraw`, { reason }); await loadList(); loadOne(); }} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {c && (
+        <div className="space-y-6">
+          <section className="glass-card p-4 rounded-xl space-y-1">
+            <h2 className="text-white font-medium">Executive summary</h2>
+            {c.executiveSummary.lines.map((l, i) => <p key={i} className="text-sm text-gray-300">{l}</p>)}
+          </section>
+
+          {c.corrections.length > 0 && (
+            <section className="glass-card p-4 rounded-xl space-y-1 border border-red-500/30">
+              <h2 className="text-white font-medium">Corrections to earlier items</h2>
+              {c.corrections.map((x, i) => <p key={i} className="text-sm text-red-300">{x.text}</p>)}
+            </section>
+          )}
+
+          {section('Confirmed zero-day exploitation', c.zeroDays.length, c.zeroDays.map((z) => (
+            <div key={z.cveId} className="glass-card p-4 rounded-xl space-y-1">
+              <div className="flex flex-wrap items-center gap-2"><span className="text-white font-semibold">{z.cveId}</span>{pill(RED, 'Confirmed zero-day')}<span className="text-xs text-gray-400">approved by {z.approvedBy ?? 'unknown'} {z.approvedAt ? formatDateTime(z.approvedAt) : ''}</span></div>
+              {view?.overlay?.zeroDayFlags[z.cveId] && <div className="text-xs text-red-300">Corrected after publication: this is no longer a confirmed zero-day (now {ZD_STATE[view.overlay.zeroDayFlags[z.cveId].state]?.[1] ?? view.overlay.zeroDayFlags[z.cveId].state}).</div>}
+              {z.description && <p className="text-sm text-gray-300">{z.description}</p>}
+              {z.evidence.map((e, i) => <div key={i} className="text-xs text-gray-400">{KIND_LABEL[e.kind] ?? e.kind} · {e.eventDate ? e.eventDate.slice(0, 10) : 'date not stated'} · {e.primary ? 'primary' : 'secondary'}: <a href={safeUrl(e.url)} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline">{e.sourceName}</a></div>)}
+            </div>
+          )), 'No confirmed zero-day exploitation alerts.')}
+
+          {section('New CISA KEV additions', c.kev.length, c.kev.map((k) => (
+            <div key={k.cveId} className="glass-card p-3 rounded-xl text-sm space-y-0.5">
+              <div className="flex flex-wrap items-center gap-2"><span className="text-white font-semibold">{k.cveId}</span><span className="text-gray-300">{k.vendorProject} {k.product}</span>{k.ransomwareUse === 'Known' && pill(RED, 'Known ransomware use')}</div>
+              <div className="text-xs text-gray-400">{k.name} · added to KEV {k.dateAdded}{k.dueDate ? ` · CISA due date ${k.dueDate}` : ''}. KEV listing means CISA has evidence of exploitation; it does not establish a zero-day.</div>
+            </div>
+          )), 'No new KEV additions.')}
+
+          {section('CVEs newly verified or updated', c.cves.length, c.cves.map((v) => (
+            <div key={v.cveId} className="glass-card p-3 rounded-xl text-sm space-y-0.5">
+              <div className="flex flex-wrap items-center gap-2"><a href={`https://www.cve.org/CVERecord?id=${v.cveId}`} target="_blank" rel="noopener noreferrer" className="text-white font-semibold hover:text-cyan-300">{v.cveId}</a>{pill(GREEN, v.change === 'new' ? 'New' : 'Updated')}{v.kevListed && pill(RED, 'In CISA KEV')}{v.nvdEnrichment !== 'ENRICHED' && pill(AMBER, 'NVD enrichment pending')}</div>
+              {v.description && <p className="text-gray-300">{v.description}</p>}
+              <div className="text-xs text-gray-400 flex flex-wrap gap-x-3">{v.cvss.length === 0 ? <span>CVSS: not provided by any source</span> : v.cvss.map((s, i) => <span key={i}>CVSS {s.version}: <b className="text-gray-200">{s.score}</b>{s.severity ? ` ${s.severity}` : ''} ({s.provider})</span>)}</div>
+            </div>
+          )), 'No new or updated CVE records.')}
+
+          {section('Cybersecurity news', c.news.length, <>{c.news.map((g) => <GroupCard key={g.groupKey} g={g} flags={view!.overlay} />)}{c.omitted.news > 0 && <p className="text-xs text-gray-500">{c.omitted.news} more topic group(s) are not shown. Find them under the News tab.</p>}</>, 'No qualifying news.')}
+          {section('PortSwigger research', c.research.portswigger.length, c.research.portswigger.map((g) => <GroupCard key={g.groupKey} g={g} flags={view!.overlay} />), 'No new PortSwigger posts.')}
+          {section('Cloudflare security and infrastructure', c.research.cloudflare.length, c.research.cloudflare.map((g) => <GroupCard key={g.groupKey} g={g} flags={view!.overlay} />), 'No new Cloudflare posts.')}
+
+          <section className="glass-card p-4 rounded-xl space-y-1 border border-amber-500/30">
+            <h2 className="text-white font-medium">What this digest does not cover</h2>
+            {c.limitations.map((l, i) => <p key={i} className="text-sm text-amber-200/90">{l}</p>)}
+          </section>
+          <details className="text-xs text-gray-500">
+            <summary className="cursor-pointer">How items are ordered</summary>
+            <p className="pt-1">Items rank by these reasons, strongest first: {c.rankPolicy.map((p) => p.reason).join('; ')}. Ties go to the more recent item. No numeric score is calculated.</p>
+          </details>
+        </div>
+      )}
+      {m?.status === 'WITHDRAWN' && !c && <div className="glass-card p-4 rounded-xl text-sm text-gray-400">The content of a withdrawn digest is hidden.</div>}
+    </div>
+  );
+}
+
 // ----------------------------------------------------------------------------- page
 
 export default function CyberdigestPage() {
-  const [tab, setTab] = useState<Tab>('News');
+  const [tab, setTab] = useState<Tab>('Daily digest');
   const { can } = useBranding();
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div>
         <h1 className="text-2xl font-semibold text-white">Cyberdigest</h1>
-        <p className="text-sm text-gray-400 mt-1">Cybersecurity intelligence with sources and verification status. Work in progress: the daily digest is not built yet.</p>
+        <p className="text-sm text-gray-400 mt-1">Cybersecurity intelligence with sources and verification status. Every item shows its source and verification status.</p>
       </div>
       <div className="flex gap-1 border-b border-gray-800">
         {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)} className={`px-4 py-2 text-sm -mb-px border-b-2 ${tab === t ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-gray-200'}`}>{t}</button>
         ))}
       </div>
+      {tab === 'Daily digest' && <DigestTab canReview={can('cyberdigest.review')} />}
       {tab === 'News' && <NewsTab canReview={can('cyberdigest.review')} />}
       {tab === 'CVEs' && <CvesTab />}
       {tab === 'Zero-days' && <ZeroDayTab canReview={can('cyberdigest.review')} />}

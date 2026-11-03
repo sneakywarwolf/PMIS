@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -75,9 +75,18 @@ export class ZeroDayService {
   async ensureCase(cveId: string) {
     const found = await this.prisma.digestZeroDayCase.findUnique({ where: { cveId } });
     if (found) return found;
-    const created = await this.prisma.digestZeroDayCase.create({ data: { cveId, state: 'UNKNOWN', stateReasons: { reasons: ['Case opened; no evidence recorded yet'], missing: [], conflicts: [], basis: [] } } });
-    await this.event(cveId, 'CASE_OPENED', {});
-    return created;
+    try {
+      const created = await this.prisma.digestZeroDayCase.create({ data: { cveId, state: 'UNKNOWN', stateReasons: { reasons: ['Case opened; no evidence recorded yet'], missing: [], conflicts: [], basis: [] } } });
+      await this.event(cveId, 'CASE_OPENED', {});
+      return created;
+    } catch (e: any) {
+      // The scheduled sync and an analyst can open the same case at the same moment: the loser just uses the winner's row.
+      if (e?.code === 'P2002') {
+        const again = await this.prisma.digestZeroDayCase.findUnique({ where: { cveId } });
+        if (again) return again;
+      }
+      throw e;
+    }
   }
 
   // ------------------------------------------------------- state recompute
@@ -177,9 +186,16 @@ export class ZeroDayService {
     if (c.state === 'CONFIRMED') throw new ConflictException('Already confirmed');
     const ev = this.evaluateCase(c, cve);
     if (!ev.eligible) throw new ConflictException({ message: 'The evidence does not meet the rules for a confirmed zero-day', missing: ev.missing, conflicts: ev.conflicts, reasons: ev.reasons });
+    // Optional second-person rule: whoever recorded the evidence the decision rests on cannot also approve it.
+    if (process.env.CYBERDIGEST_REQUIRE_SECOND_APPROVER === '1') {
+      const own = c.evidence.filter((e: any) => ev.basis.includes(e.id) && e.addedById === actor.id);
+      if (own.length) throw new ForbiddenException('A second analyst must approve: you recorded evidence this confirmation rests on');
+    }
     const now = new Date();
     await this.prisma.digestZeroDayCase.update({ where: { cveId }, data: { state: 'CONFIRMED', approvedById: actor.id, approvedAt: now, stateSetById: actor.id, stateSetAt: now, stateReasons: this.snapshot(ev) as any } });
     await this.event(cveId, 'APPROVED', { by: actor.id, basis: ev.basis });
+    // Evidence may have been retracted between the check above and the write: re-derive so a stale approval cannot stand.
+    await this.recompute(cveId);
     await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_ZERODAY_APPROVED', targetType: 'ZERODAY_CASE', targetId: c.id, details: { cveId, basis: ev.basis }, ipAddress: actor.ip, userAgent: actor.userAgent });
   }
 

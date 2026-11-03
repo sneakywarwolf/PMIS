@@ -1,0 +1,283 @@
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { buildDigest, BuildInput, DigestContent, istDate, istMinutes, parseDigestTime, StoryRow, CveRow } from './digest.builder';
+import { computeHealth } from './ingestion.service';
+import { StoryReviewService } from './story-review.service';
+import { Actor, ZeroDayService } from './zero-day.service';
+
+const HOUR = 3600_000;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const CVE_EVENTS = ['FIRST_VERIFIED', 'CVSS_CHANGED', 'KEV_STATUS_CHANGED', 'RECORD_STATUS_CHANGED', 'DESCRIPTION_CHANGED'];
+const CORRECTION_EVENTS = ['CORRECTED', 'REJECTED', 'WITHDRAWN', 'AUTO_DEMOTED'];
+const HISTORY_DIGESTS = 7; // how many earlier digests are checked so an item is not repeated
+const GRACE_MS = 24 * HOUR; // an article that only became publishable after the last digest still belongs in this one
+const MAX_CATCHUP_MS = 72 * HOUR;
+const MIN_REASON = 5;
+
+/** Which mode new digests are created in. Shadow first: reviewers compare against manual review before anyone is notified. */
+export const digestMode = (): 'SHADOW' | 'PUBLISHED' => (process.env.CYBERDIGEST_DIGEST_MODE === 'publish' ? 'PUBLISHED' : 'SHADOW');
+
+export interface DigestMeta {
+  date: string;
+  status: string;
+  generatedAt: Date;
+  windowStart: Date;
+  windowEnd: Date;
+  publishedAt: Date | null;
+  withdrawnAt: Date | null;
+  withdrawReason: string | null;
+  generatedBy: 'schedule' | 'analyst';
+  counts?: { news: number; research: number; cves: number; kev: number; zeroDays: number; corrections: number };
+}
+
+function idsFromContent(c: any): { storyIds: string[]; kevIds: string[]; zeroDayCves: string[] } {
+  const groups = [...(c?.news ?? []), ...(c?.research?.portswigger ?? []), ...(c?.research?.cloudflare ?? [])];
+  return {
+    storyIds: groups.flatMap((g: any) => (g.sources ?? []).map((s: any) => s.storyId)),
+    kevIds: (c?.kev ?? []).map((k: any) => k.cveId),
+    zeroDayCves: (c?.zeroDays ?? []).map((z: any) => z.cveId),
+  };
+}
+
+@Injectable()
+export class DigestService {
+  private readonly log = new Logger(DigestService.name);
+  private running = false;
+
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+    private notifications: NotificationsService,
+    private storyReview: StoryReviewService,
+    private zeroDay: ZeroDayService,
+  ) {}
+
+  // ------------------------------------------------------------------------------------------------ gathering
+
+  private async previous(date: string) {
+    const rows = await this.prisma.digestIssue.findMany({ where: { digestDate: { lt: date }, status: { not: 'WITHDRAWN' } }, orderBy: { digestDate: 'desc' }, take: HISTORY_DIGESTS });
+    const storyIds = new Set<string>();
+    const kevIds = new Set<string>();
+    const zeroDayCves = new Set<string>();
+    for (const r of rows) {
+      const ids = idsFromContent(r.content);
+      ids.storyIds.forEach((x) => storyIds.add(x));
+      ids.kevIds.forEach((x) => kevIds.add(x));
+      ids.zeroDayCves.forEach((x) => zeroDayCves.add(x));
+    }
+    return { last: rows[0] ?? null, ids: { storyIds, kevIds, zeroDayCves } };
+  }
+
+  /** Everything below is read AFTER the verification pass, and only gate-passing records are selected. */
+  async gather(now: Date, verificationPassFailed: boolean): Promise<BuildInput> {
+    const date = istDate(now);
+    const { last, ids } = await this.previous(date);
+    const windowEnd = now;
+    const windowStart = last ? new Date(Math.max(last.windowEnd.getTime(), now.getTime() - MAX_CATCHUP_MS)) : new Date(now.getTime() - 24 * HOUR);
+    const lower = new Date(windowStart.getTime() - GRACE_MS);
+
+    const storyRows = await this.prisma.digestStory.findMany({
+      where: {
+        verificationState: { in: ['ATTRIBUTED', 'VERIFIED'] },
+        OR: [{ publishedAt: { gte: lower, lte: windowEnd } }, { publishedAt: null, ingestedAt: { gte: windowStart, lte: windowEnd } }],
+      },
+      include: { source: { select: { name: true, slug: true } } },
+      orderBy: { ingestedAt: 'desc' },
+      take: 500,
+    });
+    const stories: StoryRow[] = storyRows.map((s) => ({
+      id: s.id, title: s.title, url: s.canonicalUrl, publisher: s.source.name, sourceSlug: s.source.slug, publishedAt: s.publishedAt, ingestedAt: s.ingestedAt,
+      summary: s.summary, cveIds: s.cveIds, categories: s.categories, state: s.verificationState as 'ATTRIBUTED' | 'VERIFIED',
+    }));
+
+    const events = await this.prisma.digestEvent.findMany({ where: { createdAt: { gte: windowStart, lte: windowEnd }, OR: [{ entityType: 'CVE', event: { in: CVE_EVENTS } }, { entityType: { in: ['STORY', 'ZERODAY'] }, event: { in: CORRECTION_EVENTS } }] }, orderBy: { createdAt: 'asc' }, take: 2000 });
+    const cveChanges = new Map<string, string[]>();
+    for (const e of events.filter((x) => x.entityType === 'CVE')) cveChanges.set(e.entityId, [...(cveChanges.get(e.entityId) ?? []), e.event]);
+
+    const wantCves = [...new Set([...cveChanges.keys(), ...stories.flatMap((s) => s.cveIds)])];
+    const cveRows = wantCves.length ? await this.prisma.digestCve.findMany({ where: { cveId: { in: wantCves } } }) : [];
+    const cves = new Map<string, CveRow>(cveRows.map((c) => [c.cveId, { cveId: c.cveId, recordStatus: c.recordStatus, description: c.description, cvss: (c.cvss as any) ?? [], maxCvssSeverity: c.maxCvssSeverity, kevListed: c.kevListed, nvdEnrichment: c.nvdEnrichment }]));
+
+    const zdCases = wantCves.length ? await this.prisma.digestZeroDayCase.findMany({ where: { cveId: { in: wantCves } }, select: { cveId: true, state: true, approvedAt: true } }) : [];
+    const zeroDayStateByCve = new Map(zdCases.map((c) => [c.cveId, c.state === 'CONFIRMED' && !c.approvedAt ? 'UNKNOWN' : (c.state as string)]));
+
+    const kevFrom = new Date(Date.UTC(windowStart.getUTCFullYear(), windowStart.getUTCMonth(), windowStart.getUTCDate() - 1));
+    const kev = (await this.prisma.digestKevEntry.findMany({ where: { dateAdded: { gte: kevFrom } }, take: 300 })).map((k) => ({
+      cveId: k.cveId, vendorProject: k.vendorProject, product: k.product, name: k.name, dateAdded: k.dateAdded, dueDate: k.dueDate, ransomwareUse: k.ransomwareUse, shortDescription: k.shortDescription,
+    }));
+
+    const confirmed = await this.zeroDay.list('confirmed');
+    const zeroDays = confirmed
+      .filter((z) => z.approvedAt && new Date(z.approvedAt) >= windowStart && new Date(z.approvedAt) <= windowEnd)
+      .map((z) => ({
+        cveId: z.cveId, description: z.cve?.description ?? null, approvedBy: z.approvedBy, approvedAt: z.approvedAt ? new Date(z.approvedAt) : null,
+        evidence: z.evidence.filter((e) => !e.retracted).map((e) => ({ kind: e.kind, sourceName: e.sourceName, url: e.url, eventDate: e.eventDate ? new Date(e.eventDate) : null, primary: e.primary })),
+      }));
+
+    const corrections = events
+      .filter((e) => e.entityType !== 'CVE')
+      .filter((e) => (e.entityType === 'STORY' ? ids.storyIds.has(e.entityId) : ids.zeroDayCves.has(e.entityId)))
+      .map((e) => ({ kind: (e.entityType === 'STORY' ? 'story' : 'zero-day') as 'story' | 'zero-day', ref: e.entityType === 'STORY' ? e.entityId : e.entityId, event: e.event, reason: typeof (e.detail as any)?.reason === 'string' ? (e.detail as any).reason : null, at: e.createdAt }));
+
+    const sources = await this.prisma.digestSource.findMany({ where: { enabled: true } });
+    const unhealthySources = sources.map((s) => ({ s, h: computeHealth(s, now) })).filter((x) => x.h !== 'HEALTHY').map((x) => ({ name: x.s.name, health: x.h, lastSuccessAt: x.s.lastSuccessAt }));
+    const kevSource = sources.find((s) => s.slug === 'cisa-kev');
+
+    const [pendingStories, conflictingStories, zeroDayUnverified, cvesAwaitingNvd] = await Promise.all([
+      this.prisma.digestStory.count({ where: { verificationState: 'PENDING' } }),
+      this.prisma.digestStory.count({ where: { verificationState: 'CONFLICTING' } }),
+      this.prisma.digestZeroDayCase.count({ where: { state: 'REPORTED_UNVERIFIED' } }),
+      this.prisma.digestCve.count({ where: { recordStatus: 'PUBLISHED', nvdEnrichment: { not: 'ENRICHED' } } }),
+    ]);
+
+    return { date, windowStart, windowEnd, stories, cves, cveChanges, kev, zeroDays, zeroDayStateByCve, previous: ids, corrections, unhealthySources, counts: { pendingStories, conflictingStories, zeroDayUnverified, cvesAwaitingNvd }, kevRetrieved: !!kevSource?.lastSuccessAt, verificationPassFailed };
+  }
+
+  // --------------------------------------------------------------------------------------------- generating
+
+  /** Re-run the checks that decide what may appear, so the digest is built from current states. */
+  private async verificationPass(): Promise<boolean> {
+    try {
+      await this.zeroDay.syncKevCases();
+      await this.zeroDay.syncStoryClaims();
+      await this.zeroDay.recomputeAll();
+      await this.storyReview.refresh();
+      return true;
+    } catch (e) {
+      this.log.error(`Pre-digest verification pass failed: ${(e as Error).message}`);
+      return false;
+    }
+  }
+
+  async generate(opts: { actor?: Actor; now?: Date } = {}): Promise<DigestMeta> {
+    const now = opts.now ?? new Date();
+    const date = istDate(now);
+    const existing = await this.prisma.digestIssue.findUnique({ where: { digestDate: date } });
+    if (existing && existing.status !== 'SHADOW') throw new ConflictException(`The digest for ${date} is already ${existing.status.toLowerCase()}`);
+
+    const passOk = await this.verificationPass();
+    const content = buildDigest(await this.gather(now, !passOk));
+    const status = digestMode();
+    const data = { status, generatedAt: now, generatedById: opts.actor?.id ?? null, windowStart: new Date(content.windowStart), windowEnd: new Date(content.windowEnd), content: content as any, publishedAt: status === 'PUBLISHED' ? now : null, publishedById: null };
+    let row;
+    try {
+      row = existing ? await this.prisma.digestIssue.update({ where: { digestDate: date }, data }) : await this.prisma.digestIssue.create({ data: { digestDate: date, ...data } });
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new ConflictException(`A digest for ${date} was created at the same moment`);
+      throw e;
+    }
+    if (opts.actor) await this.audit.log({ actorId: opts.actor.id, action: 'CYBERDIGEST_DIGEST_GENERATED', targetType: 'DIGEST_ISSUE', targetId: row.id, details: { date, status }, ipAddress: opts.actor.ip, userAgent: opts.actor.userAgent });
+    if (status === 'PUBLISHED') await this.notify(row.id, date, content);
+    return this.meta(row);
+  }
+
+  // ponytail: a 5-minute tick that generates once the IST clock passes the configured time and none exists for today; survives restarts and missed ticks.
+  @Cron('*/5 * * * *')
+  async tick() {
+    if (this.running) return;
+    this.running = true;
+    try {
+      await this.runScheduled(new Date());
+    } catch (e) {
+      if (!(e instanceof ConflictException)) this.log.error(`Scheduled digest failed: ${(e as Error).message}`); // retried on the next tick
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /** Generates today's digest if the IST clock is past the configured time and none exists yet. Returns whether it generated. */
+  async runScheduled(now: Date): Promise<boolean> {
+    if (istMinutes(now) < parseDigestTime(process.env.CYBERDIGEST_DIGEST_TIME)) return false;
+    if (await this.prisma.digestIssue.findUnique({ where: { digestDate: istDate(now) } })) return false;
+    await this.generate({ now });
+    return true;
+  }
+
+  // ------------------------------------------------------------------------------------------------ publishing
+
+  private reason(v: unknown): string {
+    const r = typeof v === 'string' ? v.trim() : '';
+    if (r.length < MIN_REASON) throw new BadRequestException('A reason is required');
+    return r.slice(0, 1000);
+  }
+  private checkDate(date: string) {
+    if (!DATE_RE.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) throw new BadRequestException('Invalid digest date');
+  }
+
+  async publish(date: string, actor: Actor): Promise<DigestMeta> {
+    this.checkDate(date);
+    const row = await this.prisma.digestIssue.findUnique({ where: { digestDate: date } });
+    if (!row) throw new NotFoundException('No digest for that date');
+    if (row.status !== 'SHADOW') throw new ConflictException(`The digest is already ${row.status.toLowerCase()}`);
+    const updated = await this.prisma.digestIssue.update({ where: { digestDate: date }, data: { status: 'PUBLISHED', publishedAt: new Date(), publishedById: actor.id } });
+    await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_DIGEST_PUBLISHED', targetType: 'DIGEST_ISSUE', targetId: row.id, details: { date }, ipAddress: actor.ip, userAgent: actor.userAgent });
+    await this.notify(row.id, date, row.content as unknown as DigestContent);
+    return this.meta(updated);
+  }
+
+  async withdraw(date: string, reason: unknown, actor: Actor): Promise<DigestMeta> {
+    this.checkDate(date);
+    const why = this.reason(reason);
+    const row = await this.prisma.digestIssue.findUnique({ where: { digestDate: date } });
+    if (!row) throw new NotFoundException('No digest for that date');
+    if (row.status === 'WITHDRAWN') throw new ConflictException('Already withdrawn');
+    const was = row.status;
+    const updated = await this.prisma.digestIssue.update({ where: { digestDate: date }, data: { status: 'WITHDRAWN', withdrawnAt: new Date(), withdrawnById: actor.id, withdrawReason: why } });
+    await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_DIGEST_WITHDRAWN', targetType: 'DIGEST_ISSUE', targetId: row.id, details: { date, reason: why, was }, ipAddress: actor.ip, userAgent: actor.userAgent });
+    return this.meta(updated);
+  }
+
+  /** One in-app notification per active user (the Admin's per-role switches still apply). A failure for one user never blocks the rest. */
+  private async notify(issueId: string, date: string, content: DigestContent) {
+    const users = await this.prisma.user.findMany({ where: { isActive: true }, select: { id: true } });
+    const first = content.executiveSummary.lines[0] ?? '';
+    for (const u of users) {
+      try {
+        await this.notifications.create({ userId: u.id, type: 'CYBERDIGEST_DIGEST', title: `Cyberdigest for ${date}`, message: first.slice(0, 300), linkUrl: '/dashboard/cyberdigest', relatedId: issueId });
+      } catch (e) {
+        this.log.warn(`Could not notify a user about the digest: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------- reading
+
+  private meta(r: any): DigestMeta {
+    const c = r.content as any;
+    return {
+      date: r.digestDate, status: r.status, generatedAt: r.generatedAt, windowStart: r.windowStart, windowEnd: r.windowEnd, publishedAt: r.publishedAt, withdrawnAt: r.withdrawnAt, withdrawReason: r.withdrawReason,
+      generatedBy: r.generatedById ? 'analyst' : 'schedule',
+      counts: c ? { news: (c.news ?? []).length, research: (c.research?.portswigger ?? []).length + (c.research?.cloudflare ?? []).length, cves: (c.cves ?? []).length, kev: (c.kev ?? []).length, zeroDays: (c.zeroDays ?? []).length, corrections: (c.corrections ?? []).length } : undefined,
+    };
+  }
+
+  /** Reviewers see everything; everyone else sees published digests, and only the fact of a withdrawal. */
+  async list(canReview: boolean): Promise<DigestMeta[]> {
+    const rows = await this.prisma.digestIssue.findMany({ where: canReview ? {} : { status: { in: ['PUBLISHED', 'WITHDRAWN'] } }, orderBy: { digestDate: 'desc' }, take: 60 });
+    return rows.map((r) => this.meta(r));
+  }
+
+  async get(date: string, canReview: boolean) {
+    this.checkDate(date);
+    const row = await this.prisma.digestIssue.findUnique({ where: { digestDate: date } });
+    if (!row || (row.status === 'SHADOW' && !canReview)) throw new NotFoundException('No digest for that date');
+    const meta = this.meta(row);
+    if (row.status === 'WITHDRAWN' && !canReview) return { meta, content: null, overlay: null };
+    const content = row.content as unknown as DigestContent;
+
+    // Corrections made after generation are shown on top of the frozen content; the content itself is never edited.
+    const ids = idsFromContent(content);
+    const [stories, cases] = await Promise.all([
+      ids.storyIds.length ? this.prisma.digestStory.findMany({ where: { id: { in: ids.storyIds } }, select: { id: true, verificationState: true, stateNote: true } }) : [],
+      ids.zeroDayCves.length ? this.prisma.digestZeroDayCase.findMany({ where: { cveId: { in: ids.zeroDayCves } }, select: { cveId: true, state: true, approvedAt: true } }) : [],
+    ]);
+    const storyFlags: Record<string, { state: string; note: string | null }> = {};
+    for (const s of stories) if (s.verificationState === 'REJECTED' || s.verificationState === 'CONFLICTING') storyFlags[s.id] = { state: s.verificationState, note: s.stateNote };
+    const zeroDayFlags: Record<string, { state: string }> = {};
+    for (const c of cases) if (c.state !== 'CONFIRMED' || !c.approvedAt) zeroDayFlags[c.cveId] = { state: c.state };
+    return { meta, content, overlay: { storyFlags, zeroDayFlags } };
+  }
+}
