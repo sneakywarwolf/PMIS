@@ -115,6 +115,12 @@ export class StoryReviewService {
     return s;
   }
 
+  /** Writes a decision only if the story is still in the state the decision was based on; the database decides, atomically. */
+  private async decide(id: string, expected: string, data: Record<string, unknown>) {
+    const r = await this.prisma.digestStory.updateMany({ where: { id, verificationState: expected as any }, data: data as any });
+    if (r.count === 0) throw new ConflictException('The story changed while you were reviewing it. Reload and check it again.');
+  }
+
   /** Analyst confirms the article's claims against primary sources. Only possible when every cited CVE is confirmed. */
   async approve(id: string, reason: unknown, actor: Actor) {
     const why = this.reason(reason);
@@ -122,7 +128,7 @@ export class StoryReviewService {
     if (s.verificationState === 'REJECTED') throw new ConflictException('Correct the rejection before approving');
     const d = decideStoryState(s.cveIds, await this.cveMap(s.cveIds));
     if (d.state !== 'ATTRIBUTED') throw new ConflictException(d.note ?? 'The story is not ready to be verified');
-    await this.prisma.digestStory.update({ where: { id }, data: { verificationState: 'VERIFIED', stateNote: why, reviewedById: actor.id, reviewedAt: new Date(), lastVerifiedAt: new Date() } });
+    await this.decide(id, s.verificationState, { verificationState: 'VERIFIED', stateNote: why, reviewedById: actor.id, reviewedAt: new Date(), lastVerifiedAt: new Date() });
     await this.event(id, 'APPROVED', { by: actor.id, reason: why });
     await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_STORY_APPROVED', targetType: 'DIGEST_STORY', targetId: id, details: { reason: why, url: s.canonicalUrl }, ipAddress: actor.ip, userAgent: actor.userAgent });
   }
@@ -130,7 +136,7 @@ export class StoryReviewService {
   async reject(id: string, reason: unknown, actor: Actor) {
     const why = this.reason(reason);
     const s = await this.get(id);
-    await this.prisma.digestStory.update({ where: { id }, data: { verificationState: 'REJECTED', stateNote: why, reviewedById: actor.id, reviewedAt: new Date() } });
+    await this.decide(id, s.verificationState, { verificationState: 'REJECTED', stateNote: why, reviewedById: actor.id, reviewedAt: new Date() });
     await this.event(id, 'REJECTED', { from: s.verificationState, by: actor.id, reason: why });
     await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_STORY_REJECTED', targetType: 'DIGEST_STORY', targetId: id, details: { reason: why, url: s.canonicalUrl }, ipAddress: actor.ip, userAgent: actor.userAgent });
   }
@@ -141,7 +147,7 @@ export class StoryReviewService {
     const s = await this.get(id);
     if (s.verificationState !== 'VERIFIED' && s.verificationState !== 'REJECTED') throw new ConflictException('Only an approved or rejected story can be corrected');
     const d = decideStoryState(s.cveIds, await this.cveMap(s.cveIds));
-    await this.prisma.digestStory.update({ where: { id }, data: { verificationState: d.state, stateNote: `Corrected: ${why}`, reviewedById: actor.id, reviewedAt: new Date(), lastVerifiedAt: new Date() } });
+    await this.decide(id, s.verificationState, { verificationState: d.state, stateNote: `Corrected: ${why}`, reviewedById: actor.id, reviewedAt: new Date(), lastVerifiedAt: new Date() });
     await this.event(id, 'CORRECTED', { from: s.verificationState, to: d.state, by: actor.id, reason: why });
     await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_STORY_CORRECTED', targetType: 'DIGEST_STORY', targetId: id, details: { from: s.verificationState, to: d.state, reason: why }, ipAddress: actor.ip, userAgent: actor.userAgent });
   }

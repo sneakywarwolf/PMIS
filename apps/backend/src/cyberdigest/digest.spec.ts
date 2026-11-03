@@ -161,6 +161,12 @@ function fakes() {
       findMany: async ({ where }: any = {}) => issues.filter((i) => (!where?.status?.not || i.status !== where.status.not) && (!where?.status?.in || where.status.in.includes(i.status)) && (!where?.digestDate?.lt || i.digestDate < where.digestDate.lt)).sort((a, b) => b.digestDate.localeCompare(a.digestDate)),
       create: async ({ data }: any) => { if (issues.some((i) => i.digestDate === data.digestDate)) throw Object.assign(new Error('dup'), { code: 'P2002' }); const r = { id: `i${++id}`, publishedAt: null, withdrawnAt: null, withdrawReason: null, ...data }; issues.push(r); return r; },
       update: async ({ where, data }: any) => Object.assign(issues.find((i) => i.digestDate === where.digestDate), data),
+      // Like the database: the status condition is evaluated together with the write.
+      updateMany: async ({ where, data }: any) => {
+        const hit = issues.filter((i) => i.digestDate === where.digestDate && (!where.status || (typeof where.status === 'string' ? i.status === where.status : where.status.in.includes(i.status))));
+        hit.forEach((i) => Object.assign(i, data));
+        return { count: hit.length };
+      },
     },
     digestStory: {
       findMany: async ({ where }: any) => stories.filter((s) => {
@@ -240,6 +246,29 @@ describe('DigestService', () => {
     expect(f.issues[0].content.news).toHaveLength(1);
     await f.svc.publish('2026-11-04', A);
     await expect(f.svc.generate({ now: NOW })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('a digest published while it is being regenerated is never overwritten (check and write are one conditional statement)', async () => {
+    const f = fakes();
+    f.stories.push(f.row());
+    await f.svc.generate({ now: NOW });
+    const frozen = JSON.stringify(f.issues[0].content);
+    f.stories.push(f.row({ title: 'Arrives while the regeneration runs lorem' }));
+    f.storyReview.refresh = async () => { await f.svc.publish('2026-11-04', A); return 0; }; // someone publishes mid-pass
+    await expect(f.svc.generate({ now: NOW })).rejects.toBeInstanceOf(ConflictException);
+    expect(f.issues[0].status).toBe('PUBLISHED');
+    expect(JSON.stringify(f.issues[0].content)).toBe(frozen);
+  });
+
+  it('two people publishing at once notify everyone exactly once; two withdrawals record one', async () => {
+    const f = fakes();
+    await f.svc.generate({ now: NOW });
+    const results = await Promise.allSettled([f.svc.publish('2026-11-04', A), f.svc.publish('2026-11-04', { ...A, id: 'u2' })]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(f.notified).toHaveLength(2); // two active users, once
+    const w = await Promise.allSettled([f.svc.withdraw('2026-11-04', 'first reviewer reason', A), f.svc.withdraw('2026-11-04', 'second reviewer reason', { ...A, id: 'u2' })]);
+    expect(w.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(f.audits.filter((a) => a.action === 'CYBERDIGEST_DIGEST_WITHDRAWN')).toHaveLength(1);
   });
 
   it('publish: shadow -> published with notification, audited, and not repeatable', async () => {

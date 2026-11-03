@@ -72,6 +72,12 @@ function fakes(cves: Record<string, string> = {}) {
       findMany: async () => stories.filter((s) => ['PENDING', 'ATTRIBUTED', 'CONFLICTING', 'VERIFIED'].includes(s.verificationState)),
       findUnique: async ({ where }: any) => stories.find((s) => s.id === where.id) ?? null,
       update: async ({ where, data }: any) => Object.assign(stories.find((s) => s.id === where.id), data),
+      // Like the database: the state condition is checked together with the write.
+      updateMany: async ({ where, data }: any) => {
+        const hit = stories.filter((s) => s.id === where.id && (!where.verificationState || s.verificationState === where.verificationState));
+        hit.forEach((s) => Object.assign(s, data));
+        return { count: hit.length };
+      },
     },
     digestCve: { findMany: async ({ where }: any) => Object.entries(cves).filter(([id]) => where.cveId.in.includes(id)).map(([cveId, recordStatus]) => ({ cveId, recordStatus })) },
     digestEvent: { create: async ({ data }: any) => { events.push(data); } },
@@ -116,6 +122,17 @@ describe('StoryReviewService', () => {
     cves['CVE-2026-1'] = 'REJECTED';
     await svc.refresh();
     expect(s).toMatchObject({ verificationState: 'CONFLICTING', reviewedById: null, reviewedAt: null });
+  });
+
+  it('a decision based on a stale view is refused: the story changed while the reviewer was looking at it', async () => {
+    const { svc, add, prisma } = fakes({ 'CVE-2026-1': 'PUBLISHED' });
+    const s = add({ cveIds: ['CVE-2026-1'], verificationState: 'ATTRIBUTED' });
+    const real = prisma.digestStory.findUnique;
+    // Another reviewer rejects the story right after this reviewer's copy was read.
+    prisma.digestStory.findUnique = async (a: any) => { const copy = { ...(await real(a)) }; s.verificationState = 'REJECTED'; return copy; };
+    await expect(svc.approve(s.id, 'checked the vendor advisory', A)).rejects.toBeInstanceOf(ConflictException);
+    expect(s.verificationState).toBe('REJECTED'); // not overwritten by the slower approval
+    expect(s.reviewedById).toBeNull();
   });
 
   it('reject hides the story from refresh; correct restores the evidence-based state with the correction on record', async () => {

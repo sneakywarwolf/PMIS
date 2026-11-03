@@ -164,7 +164,16 @@ export class DigestService {
     const data = { status, generatedAt: now, generatedById: opts.actor?.id ?? null, windowStart: new Date(content.windowStart), windowEnd: new Date(content.windowEnd), content: content as any, publishedAt: status === 'PUBLISHED' ? now : null, publishedById: null };
     let row;
     try {
-      row = existing ? await this.prisma.digestIssue.update({ where: { digestDate: date }, data }) : await this.prisma.digestIssue.create({ data: { digestDate: date, ...data } });
+      if (existing) {
+        // The check at the top ran before a slow verification pass: only overwrite if the digest is STILL a shadow now,
+        // decided by the database in the same statement, so a digest published meanwhile can never be rewritten.
+        const r = await this.prisma.digestIssue.updateMany({ where: { digestDate: date, status: 'SHADOW' }, data });
+        if (r.count === 0) throw new ConflictException(`The digest for ${date} changed while it was being regenerated`);
+        row = await this.prisma.digestIssue.findUnique({ where: { digestDate: date } });
+      } else {
+        row = await this.prisma.digestIssue.create({ data: { digestDate: date, ...data } });
+      }
+      if (!row) throw new ConflictException(`The digest for ${date} disappeared while it was being generated`);
     } catch (e: any) {
       if (e?.code === 'P2002') throw new ConflictException(`A digest for ${date} was created at the same moment`);
       throw e;
@@ -212,7 +221,10 @@ export class DigestService {
     const row = await this.prisma.digestIssue.findUnique({ where: { digestDate: date } });
     if (!row) throw new NotFoundException('No digest for that date');
     if (row.status !== 'SHADOW') throw new ConflictException(`The digest is already ${row.status.toLowerCase()}`);
-    const updated = await this.prisma.digestIssue.update({ where: { digestDate: date }, data: { status: 'PUBLISHED', publishedAt: new Date(), publishedById: actor.id } });
+    // Conditional on still being a shadow, so two people publishing at once notify everyone exactly once.
+    const r = await this.prisma.digestIssue.updateMany({ where: { digestDate: date, status: 'SHADOW' }, data: { status: 'PUBLISHED', publishedAt: new Date(), publishedById: actor.id } });
+    if (r.count === 0) throw new ConflictException('The digest was published or withdrawn by someone else');
+    const updated = (await this.prisma.digestIssue.findUnique({ where: { digestDate: date } }))!;
     await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_DIGEST_PUBLISHED', targetType: 'DIGEST_ISSUE', targetId: row.id, details: { date }, ipAddress: actor.ip, userAgent: actor.userAgent });
     await this.notify(row.id, date, row.content as unknown as DigestContent);
     return this.meta(updated);
@@ -225,7 +237,9 @@ export class DigestService {
     if (!row) throw new NotFoundException('No digest for that date');
     if (row.status === 'WITHDRAWN') throw new ConflictException('Already withdrawn');
     const was = row.status;
-    const updated = await this.prisma.digestIssue.update({ where: { digestDate: date }, data: { status: 'WITHDRAWN', withdrawnAt: new Date(), withdrawnById: actor.id, withdrawReason: why } });
+    const r = await this.prisma.digestIssue.updateMany({ where: { digestDate: date, status: { in: ['SHADOW', 'PUBLISHED'] } }, data: { status: 'WITHDRAWN', withdrawnAt: new Date(), withdrawnById: actor.id, withdrawReason: why } });
+    if (r.count === 0) throw new ConflictException('Already withdrawn');
+    const updated = (await this.prisma.digestIssue.findUnique({ where: { digestDate: date } }))!;
     await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_DIGEST_WITHDRAWN', targetType: 'DIGEST_ISSUE', targetId: row.id, details: { date, reason: why, was }, ipAddress: actor.ip, userAgent: actor.userAgent });
     return this.meta(updated);
   }

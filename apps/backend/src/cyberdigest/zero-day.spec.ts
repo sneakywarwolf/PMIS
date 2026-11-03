@@ -121,6 +121,12 @@ function fakes(cve: any = { cveId: 'CVE-2026-0001', recordStatus: 'PUBLISHED', d
       findUnique: async ({ where, include }: any) => { const c = cases.find((x) => x.cveId === where.cveId); return include ? withEv(c) : c ?? null; },
       create: async ({ data }: any) => { const c = { id: `c${++i}`, stateSetById: null, approvedById: null, approvedAt: null, createdAt: new Date(), updatedAt: new Date(), stateSetAt: new Date(), ...data }; cases.push(c); return c; },
       update: async ({ where, data }: any) => Object.assign(cases.find((x) => x.cveId === where.cveId), data),
+      // Like the database: the state condition is checked together with the write.
+      updateMany: async ({ where, data }: any) => {
+        const hit = cases.filter((x) => x.cveId === where.cveId && (!where.state || x.state === where.state));
+        hit.forEach((x) => Object.assign(x, data));
+        return { count: hit.length };
+      },
       findMany: async ({ select }: any = {}) => cases.map((c) => (select ? { cveId: c.cveId } : withEv(c))),
     },
     digestZeroDayEvidence: {
@@ -167,6 +173,23 @@ describe('ZeroDayService', () => {
     expect(confirmed[0]).toMatchObject({ publishedAsConfirmed: true, approvedBy: 'analyst' });
     expect(audits.map((a) => a.action)).toContain('CYBERDIGEST_ZERODAY_APPROVED');
     expect(prisma.events.map((e: any) => e.event)).toEqual(expect.arrayContaining(['CASE_OPENED', 'EVIDENCE_ADDED', 'APPROVED']));
+  });
+
+  it('an analyst decision made on a stale view is refused instead of overwriting a concurrent change', async () => {
+    const { svc, prisma } = fakes();
+    await qualifying(svc);
+    const real = prisma.digestZeroDayCase.findUnique;
+    // Between this analyst loading the case and saving, a second analyst approves it.
+    const changeBehindTheirBack = (to: string) => async (a: any) => { const seen = await real(a); const stored = prisma.cases.find((x: any) => x.cveId === a.where.cveId); if (stored) stored.state = to; return seen; };
+    prisma.digestZeroDayCase.findUnique = changeBehindTheirBack('CONFIRMED');
+    await expect(svc.transition(ID, 'UNKNOWN', 'I think this is unclear', U)).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.cases[0].state).toBe('CONFIRMED');
+    prisma.digestZeroDayCase.findUnique = real;
+    // approve() racing a transition: the loser must not leave a second, unaudited state change behind.
+    prisma.cases[0].state = 'KNOWN_EXPLOITED_UNCONFIRMED';
+    prisma.digestZeroDayCase.findUnique = changeBehindTheirBack('UNKNOWN');
+    await expect(svc.approve(ID, U)).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.cases[0].approvedAt).toBeNull();
   });
 
   it('a case cannot be moved to CONFIRMED by transition()', async () => {

@@ -89,6 +89,12 @@ export class ZeroDayService {
     }
   }
 
+  /** Writes an analyst decision only if the case is still in the state it was judged in; the database decides, atomically. */
+  private async decide(cveId: string, expected: string, data: Record<string, unknown>) {
+    const r = await this.prisma.digestZeroDayCase.updateMany({ where: { cveId, state: expected as any }, data: data as any });
+    if (r.count === 0) throw new ConflictException('The case changed while you were reviewing it. Reload and check it again.');
+  }
+
   // ------------------------------------------------------- state recompute
 
   /**
@@ -174,7 +180,7 @@ export class ZeroDayService {
     if (c.state === 'CONFIRMED') throw new ConflictException('Withdraw the confirmation before changing the state');
     const ev = this.evaluateCase(c, cve);
     if (target === 'KNOWN_EXPLOITED_UNCONFIRMED' && !ev.exploitationEstablished) throw new ConflictException('Exploitation is not established by any primary evidence');
-    await this.prisma.digestZeroDayCase.update({ where: { cveId }, data: { state: target as any, stateSetById: actor.id, stateSetAt: new Date(), stateReasons: this.snapshot(ev, why) as any } });
+    await this.decide(cveId, c.state, { state: target as any, stateSetById: actor.id, stateSetAt: new Date(), stateReasons: this.snapshot(ev, why) as any });
     await this.event(cveId, 'STATE_CHANGED', { from: c.state, to: target, by: actor.id, reason: why });
     await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_ZERODAY_TRANSITION', targetType: 'ZERODAY_CASE', targetId: c.id, details: { cveId, from: c.state, to: target, reason: why }, ipAddress: actor.ip, userAgent: actor.userAgent });
   }
@@ -192,7 +198,7 @@ export class ZeroDayService {
       if (own.length) throw new ForbiddenException('A second analyst must approve: you recorded evidence this confirmation rests on');
     }
     const now = new Date();
-    await this.prisma.digestZeroDayCase.update({ where: { cveId }, data: { state: 'CONFIRMED', approvedById: actor.id, approvedAt: now, stateSetById: actor.id, stateSetAt: now, stateReasons: this.snapshot(ev) as any } });
+    await this.decide(cveId, c.state, { state: 'CONFIRMED', approvedById: actor.id, approvedAt: now, stateSetById: actor.id, stateSetAt: now, stateReasons: this.snapshot(ev) as any });
     await this.event(cveId, 'APPROVED', { by: actor.id, basis: ev.basis });
     // Evidence may have been retracted between the check above and the write: re-derive so a stale approval cannot stand.
     await this.recompute(cveId);
@@ -207,7 +213,7 @@ export class ZeroDayService {
     if (!c) throw new NotFoundException('No zero-day case for this CVE');
     if (c.state !== 'CONFIRMED') throw new ConflictException('Only a confirmed case can be withdrawn');
     const ev = this.evaluateCase(c, cve);
-    await this.prisma.digestZeroDayCase.update({ where: { cveId }, data: { state: target as any, approvedById: null, approvedAt: null, stateSetById: actor.id, stateSetAt: new Date(), stateReasons: this.snapshot(ev, why) as any } });
+    await this.decide(cveId, 'CONFIRMED', { state: target as any, approvedById: null, approvedAt: null, stateSetById: actor.id, stateSetAt: new Date(), stateReasons: this.snapshot(ev, why) as any });
     await this.event(cveId, 'WITHDRAWN', { to: target, by: actor.id, reason: why });
     await this.audit.log({ actorId: actor.id, action: 'CYBERDIGEST_ZERODAY_WITHDRAWN', targetType: 'ZERODAY_CASE', targetId: c.id, details: { cveId, to: target, reason: why }, ipAddress: actor.ip, userAgent: actor.userAgent });
   }

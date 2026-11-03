@@ -133,7 +133,7 @@ describe('abuse limits', () => {
   it('analyst reasons are length-bounded before storage', async () => {
     let stored = '';
     const story = { id: 's1', cveIds: [], canonicalUrl: 'https://n.example/a', verificationState: 'ATTRIBUTED' };
-    const prisma: any = { digestStory: { findUnique: async () => story, update: async ({ data }: any) => { stored = data.stateNote; } }, digestCve: { findMany: async () => [] }, digestEvent: { create: async () => undefined } };
+    const prisma: any = { digestStory: { findUnique: async () => story, updateMany: async ({ data }: any) => { stored = data.stateNote; return { count: 1 }; } }, digestCve: { findMany: async () => [] }, digestEvent: { create: async () => undefined } };
     await new StoryReviewService(prisma, { log: async () => undefined } as any).reject('s1', 'x'.repeat(50_000), { id: 'u', ip: '', userAgent: '' });
     expect(stored.length).toBe(1000);
   });

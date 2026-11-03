@@ -48,6 +48,11 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Cyberdigest (all optional; see the User Guide). Empty = built-in default.
+      CYBERDIGEST_DIGEST_TIME: ${CYBERDIGEST_DIGEST_TIME:-}
+      CYBERDIGEST_DIGEST_MODE: ${CYBERDIGEST_DIGEST_MODE:-}
+      CYBERDIGEST_REQUIRE_SECOND_APPROVER: ${CYBERDIGEST_REQUIRE_SECOND_APPROVER:-}
+      NVD_API_KEY: ${NVD_API_KEY:-}
       SEED_DEMO: ${SEED_DEMO:-false}
 
   postgres:
