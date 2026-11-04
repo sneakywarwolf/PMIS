@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/contexts/auth-context';
-import { useBranding } from '@/contexts/branding-context';
+import { useAuth } from '@/contexts/auth-context';
 import { formatDateTime } from '@/lib/datetime';
 
 // ----------------------------------------------------------------------------- types
@@ -32,14 +32,14 @@ type ZdCase = {
   cve: { recordStatus: string; description: string | null } | null;
 };
 type Verification = {
-  pendingStories: number; conflictingStories: { id: string; title: string; canonicalUrl: string; stateNote: string | null }[];
+  pendingStories: number; conflictingStories: { id: string; title: string; url: string | null; stateNote: string | null }[];
   cvesAwaitingNvd: number; cvesUnavailable: number; cveConflicts: { cveId: string; conflicts: { field: string; detail: string }[] }[];
   zeroDayClaimsUnverified: number; zeroDayStatusUnknown: number;
-  rejectedStories: { id: string; title: string; canonicalUrl: string; stateNote: string | null }[];
+  rejectedStories: { id: string; title: string; url: string | null; stateNote: string | null }[];
   corrections: { id: string; entityType: string; entityId: string; event: string; detail: any; createdAt: string }[];
 };
 
-const TABS = ['Daily digest', 'News', 'CVEs', 'Zero-days', 'Verification & source health'] as const;
+const TABS = ['Daily digest', 'News', 'CVEs', 'Zero-days', 'Verification & source health', 'Administration'] as const;
 type Tab = (typeof TABS)[number];
 
 // ----------------------------------------------------------------------------- helpers
@@ -51,15 +51,25 @@ const UNKNOWN = <span className="text-gray-500">unknown</span>;
 const inputCls = 'px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white';
 const btnCls = 'px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-700 text-gray-200 hover:bg-gray-800 disabled:opacity-50';
 
-/** Only http(s) URLs become links; anything else (javascript:, data:, garbage) renders as plain text. */
-const safeUrl = (u: string): string | undefined => {
+/**
+ * The server decides which links are clickable (exact-host allowlist, https only) and sends `url: null` otherwise. This
+ * is a second, independent check in the browser: even a tampered response cannot make anything but a plain https
+ * address clickable. A link never navigates by itself, opens in a new tab with no opener and no referrer, and is not prefetched.
+ */
+const safeUrl = (u: string | null | undefined): string | undefined => {
+  if (!u) return undefined;
   try {
     const p = new URL(u);
-    return p.protocol === 'http:' || p.protocol === 'https:' ? p.href : undefined;
+    return p.protocol === 'https:' && !p.username && !p.password && !p.port ? p.href : undefined;
   } catch {
     return undefined;
   }
 };
+function Ext({ url, className, children }: { url: string | null | undefined; className?: string; children: React.ReactNode }) {
+  const href = safeUrl(url);
+  if (!href) return <span className={className?.replace(/hover:\S+|underline/g, '')} title="Link not available: this site is not on the approved list">{children}</span>;
+  return <a href={href} target="_blank" rel="noopener noreferrer nofollow" referrerPolicy="no-referrer" className={className}>{children}</a>;
+}
 const errMsg = (e: any) => {
   const m = e?.response?.data?.message;
   return Array.isArray(m) ? m.join(', ') : typeof m === 'string' ? m : m?.message ? `${m.message}${m.missing?.length ? `: ${m.missing.join('; ')}` : ''}` : 'The action failed.';
@@ -128,6 +138,17 @@ function NewsTab({ canReview }: { canReview: boolean }) {
   }, [q, category, state, from, to]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
   const act = (id: string, what: 'approve' | 'reject' | 'correct') => async (reason: string) => { await api.post(`/cyberdigest/stories/${id}/${what}`, { reason }); load(); };
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkMsg, setBulkMsg] = useState('');
+  const toggle = (id: string) => setPicked((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const attributable = (data?.items ?? []).filter((s) => s.verificationState === 'ATTRIBUTED' && s.cves.every((c) => c.recordStatus === 'PUBLISHED'));
+  const bulk = async (reason: string) => {
+    const r = await api.post('/cyberdigest/stories/bulk-approve', { ids: [...picked], reason });
+    const ok = r.data.results.filter((x: any) => x.ok).length;
+    setBulkMsg(`${ok} of ${r.data.results.length} verified.${r.data.results.some((x: any) => !x.ok) ? ' Those refused cite a CVE that is not confirmed yet.' : ''}`);
+    setPicked(new Set());
+    load();
+  };
 
   return (
     <div className="space-y-3">
@@ -146,12 +167,21 @@ function NewsTab({ canReview }: { canReview: boolean }) {
       <p className="text-xs text-amber-300/90">Publisher reporting. Unless a story says "Verified by analyst", its claims have not been independently confirmed. CVE badges show what CVE.org says, not what the article says.</p>
       {err && <div className="text-red-300 text-sm">{err}</div>}
       {data?.items.length === 0 && <div className="glass-card p-6 rounded-xl text-gray-400">No stories match. Sources are polled every 20–30 minutes.</div>}
+      {canReview && attributable.length > 0 && (
+        <div className="glass-card p-3 rounded-xl flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-gray-300">Optional: verify several stories at once.</span>
+          <button className={btnCls} onClick={() => setPicked(new Set(attributable.map((s) => s.id)))}>Select all on this page ({attributable.length})</button>
+          {picked.size > 0 && <ReasonAction label={`Verify selected (${picked.size})`} onSubmit={bulk} />}
+          {bulkMsg && <span className="text-xs text-cyan-300">{bulkMsg}</span>}
+        </div>
+      )}
       {data?.items.map((s) => {
         const [cls, label] = STORY_STATE[s.verificationState] ?? [GREY, s.verificationState];
         return (
           <div key={s.id} className="glass-card p-4 rounded-xl space-y-1.5">
             <div className="flex items-start justify-between gap-3">
-              <a href={safeUrl(s.url)} target="_blank" rel="noopener noreferrer" className="text-white font-medium hover:text-cyan-300">{s.title}</a>
+              {canReview && attributable.some((a) => a.id === s.id) && <input type="checkbox" aria-label="Select story" checked={picked.has(s.id)} onChange={() => toggle(s.id)} />}
+              <Ext url={s.url} className="text-white font-medium hover:text-cyan-300">{s.title}</Ext>
               {pill(cls, label)}
             </div>
             <div className="text-xs text-gray-400">{s.publisher} · {s.publishedAt ? formatDateTime(s.publishedAt) : 'publication date not given by source'} · ingested {formatDateTime(s.ingestedAt)}{s.lastVerifiedAt ? ` · last checked ${formatDateTime(s.lastVerifiedAt)}` : ''}</div>
@@ -215,7 +245,7 @@ function CvesTab() {
       {data?.items.map((c) => (
         <div key={c.cveId} className="glass-card p-4 rounded-xl space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <a href={`https://www.cve.org/CVERecord?id=${c.cveId}`} target="_blank" rel="noopener noreferrer" className="text-white font-semibold hover:text-cyan-300">{c.cveId}</a>
+            <a href={`https://www.cve.org/CVERecord?id=${c.cveId}`} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="text-white font-semibold hover:text-cyan-300">{c.cveId}</a>
             {pill(c.recordStatus === 'PUBLISHED' ? GREEN : c.recordStatus === 'REJECTED' ? RED : GREY, `CVE.org: ${c.recordStatus.toLowerCase().replace('_', ' ')}`)}
             {pill(c.nvd.enrichment === 'ENRICHED' ? GREEN : AMBER, `NVD: ${c.nvd.enrichment.toLowerCase()}`)}
             {c.kev.listed === true && pill(RED, 'In CISA KEV')}
@@ -286,7 +316,7 @@ function CaseCard({ c, canReview, reload }: { c: ZdCase; canReview: boolean; rel
   return (
     <div className="glass-card p-4 rounded-xl space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <a href={`https://www.cve.org/CVERecord?id=${c.cveId}`} target="_blank" rel="noopener noreferrer" className="text-white font-semibold hover:text-cyan-300">{c.cveId}</a>
+        <a href={`https://www.cve.org/CVERecord?id=${c.cveId}`} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="text-white font-semibold hover:text-cyan-300">{c.cveId}</a>
         {pill(c.publishedAsConfirmed ? RED : stateCls, c.publishedAsConfirmed ? 'Confirmed zero-day' : stateLabel)}
         {c.approvedBy && <span className="text-xs text-gray-400">approved by {c.approvedBy} {c.approvedAt ? formatDateTime(c.approvedAt) : ''}</span>}
         {c.eligibleForConfirmation && pill(AMBER, 'Evidence qualifies — awaiting analyst approval')}
@@ -300,7 +330,7 @@ function CaseCard({ c, canReview, reload }: { c: ZdCase; canReview: boolean; rel
         {c.evidence.map((e) => (
           <div key={e.id} className={`text-xs flex flex-wrap items-center gap-x-2 ${e.retracted ? 'line-through text-gray-600' : 'text-gray-400'}`}>
             <span><span className="text-gray-200">{KIND_LABEL[e.kind] ?? e.kind}</span> · {e.eventDate ? e.eventDate.slice(0, 10) : 'date not stated'} · {e.primary ? 'primary' : 'secondary'} source:{' '}
-              <a href={safeUrl(e.url)} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline">{e.sourceName}</a> ({e.addedBy})</span>
+              <Ext url={e.url} className="text-cyan-300 hover:underline">{e.sourceName}</Ext> {e.addedBy ? ` (${e.addedBy})` : null}</span>
             {e.retracted && <span className="no-underline text-gray-500">retracted: {e.retractReason}</span>}
             {canReview && !e.retracted && <ReasonAction label="Retract" danger onSubmit={async (reason) => { await api.post(`/cyberdigest/zero-days/evidence/${e.id}/retract`, { reason }); reload(); }} />}
           </div>
@@ -328,25 +358,52 @@ function ZeroDayTab({ canReview }: { canReview: boolean }) {
   const [data, setData] = useState<Record<string, ZdCase[]>>({});
   const [err, setErr] = useState('');
   const load = useCallback(() => {
-    Promise.all(['confirmed', 'known_exploited', 'review'].map((s) => api.get('/cyberdigest/zero-days', { params: { section: s } }).then((r) => [s, r.data.items as ZdCase[]] as const)))
+    const sections = canReview ? ['confirmed', 'known_exploited', 'review'] : ['confirmed', 'known_exploited'];
+    Promise.all(sections.map((s) => api.get('/cyberdigest/zero-days', { params: { section: s } }).then((r) => [s, r.data.items as ZdCase[]] as const)))
       .then((e) => { setData(Object.fromEntries(e)); setErr(''); })
       .catch(() => setErr('Could not load zero-day cases.'));
-  }, []);
+  }, [canReview]);
   useEffect(() => { load(); }, [load]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkMsg, setBulkMsg] = useState('');
+  const eligible = (data.known_exploited ?? []).concat(data.review ?? []).filter((c) => c.eligibleForConfirmation);
+  const toggle = (id: string) => setPicked((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const approveSelected = async () => {
+    try {
+      const r = await api.post('/cyberdigest/zero-days/bulk-approve', { cveIds: [...picked] });
+      const ok = r.data.results.filter((x: any) => x.ok).length;
+      setBulkMsg(`${ok} of ${r.data.results.length} approved.${r.data.results.some((x: any) => !x.ok) ? ' Those refused did not meet the evidence rules.' : ''}`);
+      setPicked(new Set());
+    } catch (e) { setBulkMsg(errMsg(e)); }
+    load();
+  };
   if (err) return <div className="text-red-300 text-sm">{err}</div>;
   const sec = (key: string, title: string, note: string, empty: string) => (
     <section className="space-y-2">
       <h2 className="text-white font-medium">{title} <span className="text-gray-500 text-sm">({data[key]?.length ?? 0})</span></h2>
       <p className="text-xs text-gray-400">{note}</p>
-      {(data[key] ?? []).length === 0 ? <div className="glass-card p-4 rounded-xl text-sm text-gray-500">{empty}</div> : data[key].map((c) => <CaseCard key={c.cveId} c={c} canReview={canReview} reload={load} />)}
+      {(data[key] ?? []).length === 0 ? <div className="glass-card p-4 rounded-xl text-sm text-gray-500">{empty}</div> : data[key].map((c) => (
+        <div key={c.cveId} className="flex items-start gap-2">
+          {canReview && c.eligibleForConfirmation && <input type="checkbox" className="mt-5" aria-label={`Select ${c.cveId}`} checked={picked.has(c.cveId)} onChange={() => toggle(c.cveId)} />}
+          <div className="flex-1"><CaseCard c={c} canReview={canReview} reload={load} /></div>
+        </div>
+      ))}
     </section>
   );
   return (
     <div className="space-y-6">
       {canReview && <EvidenceForm onDone={load} />}
+      {canReview && eligible.length > 0 && (
+        <div className="glass-card p-3 rounded-xl flex flex-wrap items-center gap-3 text-sm">
+          <span className="text-gray-300">{eligible.length} case(s) have evidence that qualifies for confirmation.</span>
+          <button className={btnCls} onClick={() => setPicked(new Set(eligible.map((c) => c.cveId)))}>Select all</button>
+          <button className={btnCls} disabled={!picked.size} onClick={approveSelected}>Approve selected ({picked.size})</button>
+          {bulkMsg && <span className="text-xs text-cyan-300">{bulkMsg}</span>}
+        </div>
+      )}
       {sec('confirmed', 'Confirmed zero-day exploitation', 'Only cases with qualifying primary evidence and a recorded analyst approval appear here.', 'No confirmed zero-days.')}
       {sec('known_exploited', 'Known exploited — zero-day status unconfirmed', 'Exploitation is established (for example CISA KEV). The evidence does not show it began before a fix existed, so these are not called zero-days.', 'None.')}
-      {sec('review', 'Review queue — reported, unsubstantiated or unknown', 'Not published as fact. A publisher reporting a zero-day lands here until primary evidence is recorded.', 'Nothing to review.')}
+      {canReview && sec('review', 'Review queue — reported, unsubstantiated or unknown', 'Not published as fact. A publisher reporting a zero-day lands here until primary evidence is recorded.', 'Nothing to review.')}
     </div>
   );
 }
@@ -385,7 +442,7 @@ function HealthTab({ canManage }: { canManage: boolean }) {
       {(v.conflictingStories.length > 0 || v.cveConflicts.length > 0) && (
         <div className="glass-card p-4 rounded-xl space-y-1">
           <div className="text-white text-sm font-medium">Conflicting evidence</div>
-          {v.conflictingStories.map((s) => <div key={s.id} className="text-xs text-red-300"><a href={safeUrl(s.canonicalUrl)} target="_blank" rel="noopener noreferrer" className="underline">{s.title}</a> — {s.stateNote}</div>)}
+          {v.conflictingStories.map((s) => <div key={s.id} className="text-xs text-red-300"><Ext url={s.url} className="underline">{s.title}</Ext> — {s.stateNote}</div>)}
           {v.cveConflicts.map((c) => c.conflicts.map((x, i) => <div key={`${c.cveId}${i}`} className="text-xs text-red-300">{c.cveId}: {x.detail}</div>))}
         </div>
       )}
@@ -407,7 +464,7 @@ function HealthTab({ canManage }: { canManage: boolean }) {
           <tbody>
             {h.sources.map((s) => (
               <tr key={s.slug} className="border-t border-gray-800">
-                <td className="p-3"><a href={safeUrl(s.website)} target="_blank" rel="noopener noreferrer" className="text-white hover:text-cyan-300">{s.name}</a></td>
+                <td className="p-3"><Ext url={s.website} className="text-white hover:text-cyan-300">{s.name}</Ext></td>
                 <td className="p-3 text-gray-300">{s.trustRole === 'AUTHORITATIVE' ? 'Authoritative' : 'Discovery'}</td>
                 <td className="p-3">{pill(HEALTH_CLS[s.health], s.health.toLowerCase())}{s.consecutiveFailures > 0 && <span className="ml-2 text-xs text-gray-500">{s.consecutiveFailures} failures</span>}</td>
                 <td className="p-3 text-gray-300">{s.lastSuccessAt ? formatDateTime(s.lastSuccessAt) : <span className="text-gray-500">never</span>}</td>
@@ -463,7 +520,7 @@ function GroupCard({ g, flags }: { g: DGroup; flags: DView['overlay'] }) {
       </div>
       {g.rankReasons.length > 0 && <div className="text-xs text-gray-500">Listed high because it {g.rankReasons.join('; ')}.</div>}
       <div className="text-xs text-gray-400 flex flex-wrap gap-x-3 gap-y-0.5">
-        {g.sources.map((s) => <a key={s.storyId} href={safeUrl(s.url)} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline">{s.publisher}{s.publishedAt ? ` · ${formatDateTime(s.publishedAt)}` : ''}</a>)}
+        {g.sources.map((s) => <Ext key={s.storyId} url={s.url} className="text-cyan-300 hover:underline">{s.publisher}{s.publishedAt ? ` · ${formatDateTime(s.publishedAt)}` : ''}</Ext>)}
       </div>
     </div>
   );
@@ -475,7 +532,8 @@ function DigestTab({ canReview }: { canReview: boolean }) {
   const [view, setView] = useState<DView | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const loadList = useCallback(() => api.get('/cyberdigest/digests').then((r) => { setList(r.data.items); setDate((d) => d || r.data.items[0]?.date || ''); }).catch(() => setErr('Could not load digests.')), []);
+  const [fresh, setFresh] = useState<{ stale: boolean; ageHours: number | null; publishedFor?: string; today: string; pipelineEnabled: boolean } | null>(null);
+  const loadList = useCallback(() => Promise.all([api.get('/cyberdigest/digests'), api.get('/cyberdigest/digests/latest')]).then(([r, l]) => { setList(r.data.items); setFresh(l.data); setDate((d) => d || l.data.publishedFor || r.data.items[0]?.date || ''); }).catch(() => setErr('Could not load digests.')), []);
   useEffect(() => { loadList(); }, [loadList]);
   const loadOne = useCallback(() => {
     if (!date) { setView(null); return; }
@@ -501,19 +559,25 @@ function DigestTab({ canReview }: { canReview: boolean }) {
           {list.length === 0 && <option value="">No digests yet</option>}
           {list.map((d) => <option key={d.date} value={d.date}>{d.date}{d.status !== 'PUBLISHED' ? ` (${d.status.toLowerCase()})` : ''}</option>)}
         </select>
-        {canReview && <button className={btnCls} disabled={busy} onClick={() => run(() => api.post('/cyberdigest/digests/generate'))}>Generate today's digest now</button>}
+        {canReview && <button className={btnCls} disabled={busy} onClick={() => run(() => api.post('/cyberdigest/digests/generate'))}>Build a held copy now (optional)</button>}
         {err && <span className="text-xs text-red-300">{err}</span>}
       </div>
-      {list.length === 0 && <div className="glass-card p-6 rounded-xl text-gray-400">No digest has been generated yet. The first one is created after the configured time (default 08:00 IST).</div>}
+      {list.length === 0 && <div className="glass-card p-6 rounded-xl text-gray-400">No digest has been published yet. The first one is created automatically after the configured daily time.</div>}
+      {fresh?.stale && fresh.publishedFor && (
+        <div className="p-3 rounded-lg text-sm bg-amber-500/10 text-amber-300">
+          Today&rsquo;s digest has not been published yet. The newest one is for {fresh.publishedFor}, published about {fresh.ageHours != null ? (fresh.ageHours >= 48 ? `${Math.round(fresh.ageHours / 24)} days` : `${Math.round(fresh.ageHours)} hours`) : 'some time'} ago.
+          {!fresh.pipelineEnabled && ' Automatic processing is currently paused by an administrator.'}
+        </div>
+      )}
 
       {m && (
         <div className="space-y-2">
-          {m.status === 'SHADOW' && <div className="p-3 rounded-lg text-sm bg-amber-500/10 text-amber-300">Shadow digest: visible to reviewers only, and nobody has been notified. Compare it with your own review, then publish it.</div>}
+          {m.status === 'SHADOW' && <div className="p-3 rounded-lg text-sm bg-amber-500/10 text-amber-300">Held digest: visible to administrators only and nobody has been notified. Publishing is normally automatic; this one was held (hold mode, or a publication check did not pass).</div>}
           {m.status === 'WITHDRAWN' && <div className="p-3 rounded-lg text-sm bg-red-500/10 text-red-300">This digest was withdrawn{m.withdrawReason ? `: ${m.withdrawReason}` : '.'}</div>}
           <div className="text-xs text-gray-400">Covers {formatDateTime(m.windowStart)} to {formatDateTime(m.windowEnd)} · generated {formatDateTime(m.generatedAt)} by {m.generatedBy}{m.publishedAt ? ` · published ${formatDateTime(m.publishedAt)}` : ''}</div>
           {canReview && m.status !== 'WITHDRAWN' && (
             <div className="flex flex-wrap gap-2">
-              {m.status === 'SHADOW' && <button className={btnCls} disabled={busy} onClick={() => run(() => api.post(`/cyberdigest/digests/${m.date}/publish`))}>Publish and notify everyone</button>}
+              {m.status === 'SHADOW' && <button className={btnCls} disabled={busy} onClick={() => run(() => api.post(`/cyberdigest/digests/${m.date}/publish`))}>Publish this held digest</button>}
               <ReasonAction label="Withdraw digest" danger onSubmit={async (reason) => { await api.post(`/cyberdigest/digests/${m.date}/withdraw`, { reason }); await loadList(); loadOne(); }} />
             </div>
           )}
@@ -539,7 +603,7 @@ function DigestTab({ canReview }: { canReview: boolean }) {
               <div className="flex flex-wrap items-center gap-2"><span className="text-white font-semibold">{z.cveId}</span>{pill(RED, 'Confirmed zero-day')}<span className="text-xs text-gray-400">approved by {z.approvedBy ?? 'unknown'} {z.approvedAt ? formatDateTime(z.approvedAt) : ''}</span></div>
               {view?.overlay?.zeroDayFlags[z.cveId] && <div className="text-xs text-red-300">Corrected after publication: this is no longer a confirmed zero-day (now {ZD_STATE[view.overlay.zeroDayFlags[z.cveId].state]?.[1] ?? view.overlay.zeroDayFlags[z.cveId].state}).</div>}
               {z.description && <p className="text-sm text-gray-300">{z.description}</p>}
-              {z.evidence.map((e, i) => <div key={i} className="text-xs text-gray-400">{KIND_LABEL[e.kind] ?? e.kind} · {e.eventDate ? e.eventDate.slice(0, 10) : 'date not stated'} · {e.primary ? 'primary' : 'secondary'}: <a href={safeUrl(e.url)} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline">{e.sourceName}</a></div>)}
+              {z.evidence.map((e, i) => <div key={i} className="text-xs text-gray-400">{KIND_LABEL[e.kind] ?? e.kind} · {e.eventDate ? e.eventDate.slice(0, 10) : 'date not stated'} · {e.primary ? 'primary' : 'secondary'}: <Ext url={e.url} className="text-cyan-300 hover:underline">{e.sourceName}</Ext></div>)}
             </div>
           )), 'No confirmed zero-day exploitation alerts.')}
 
@@ -552,7 +616,7 @@ function DigestTab({ canReview }: { canReview: boolean }) {
 
           {section('CVEs newly verified or updated', c.cves.length, c.cves.map((v) => (
             <div key={v.cveId} className="glass-card p-3 rounded-xl text-sm space-y-0.5">
-              <div className="flex flex-wrap items-center gap-2"><a href={`https://www.cve.org/CVERecord?id=${v.cveId}`} target="_blank" rel="noopener noreferrer" className="text-white font-semibold hover:text-cyan-300">{v.cveId}</a>{pill(GREEN, v.change === 'new' ? 'New' : 'Updated')}{v.kevListed && pill(RED, 'In CISA KEV')}{v.nvdEnrichment !== 'ENRICHED' && pill(AMBER, 'NVD enrichment pending')}</div>
+              <div className="flex flex-wrap items-center gap-2"><a href={`https://www.cve.org/CVERecord?id=${v.cveId}`} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="text-white font-semibold hover:text-cyan-300">{v.cveId}</a>{pill(GREEN, v.change === 'new' ? 'New' : 'Updated')}{v.kevListed && pill(RED, 'In CISA KEV')}{v.nvdEnrichment !== 'ENRICHED' && pill(AMBER, 'NVD enrichment pending')}</div>
               {v.description && <p className="text-gray-300">{v.description}</p>}
               <div className="text-xs text-gray-400 flex flex-wrap gap-x-3">{v.cvss.length === 0 ? <span>CVSS: not provided by any source</span> : v.cvss.map((s, i) => <span key={i}>CVSS {s.version}: <b className="text-gray-200">{s.score}</b>{s.severity ? ` ${s.severity}` : ''} ({s.provider})</span>)}</div>
             </div>
@@ -579,9 +643,107 @@ function DigestTab({ canReview }: { canReview: boolean }) {
 
 // ----------------------------------------------------------------------------- page
 
+// ----------------------------------------------------------------------------- Administration (administrators only)
+
+type Cfg = { moduleEnabledForNonAdmins: boolean; pipelineEnabled: boolean; publishTime: string; timezone: string; publishMode: 'AUTO' | 'HOLD'; minDiscoveryCoveragePct: number; retentionDays: number; jobRetryBackoffMinutes: number; linkHosts: string[] };
+type JobRow = { job: string; lastSuccessAt: string | null; lastRunAt: string | null; lastStatus: string | null; lastError: string | null; failureStreak: number; failedLast24h: number };
+
+function AdminTab() {
+  const [cfg, setCfg] = useState<Cfg | null>(null);
+  const [draft, setDraft] = useState<Partial<Cfg>>({});
+  const [jobs, setJobs] = useState<JobRow[]>([]);
+  const [msg, setMsg] = useState('');
+  const [host, setHost] = useState('');
+  const [src, setSrc] = useState({ name: '', endpoint: '', website: '' });
+  const load = useCallback(() => {
+    Promise.all([api.get('/cyberdigest/admin/config'), api.get('/cyberdigest/admin/jobs')]).then(([c, j]) => { setCfg(c.data); setJobs(j.data.jobs); }).catch(() => setMsg('Could not load settings.'));
+  }, []);
+  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
+  const save = async (patch: Partial<Cfg>, ok: string) => { try { await api.patch('/cyberdigest/admin/config', patch); setDraft({}); setMsg(ok); } catch (e) { setMsg(errMsg(e)); } load(); };
+  const call = async (fn: () => Promise<any>, ok: string) => { try { await fn(); setMsg(ok); } catch (e) { setMsg(errMsg(e)); } load(); };
+  if (!cfg) return <div className="text-gray-400">{msg || 'Loading…'}</div>;
+  const v = { ...cfg, ...draft };
+  const field = (label: string, node: React.ReactNode, hint?: string) => <label className="block text-xs text-gray-400 space-y-1"><span>{label}</span>{node}{hint && <span className="block text-gray-500">{hint}</span>}</label>;
+  return (
+    <div className="space-y-5">
+      {msg && <div className="text-xs text-cyan-300">{msg}</div>}
+      <section className="glass-card p-4 rounded-xl space-y-3">
+        <h2 className="text-white font-medium">Availability and processing</h2>
+        <div className="flex flex-wrap gap-6">
+          <label className="flex items-start gap-2 text-sm text-gray-200 max-w-sm"><input type="checkbox" className="mt-1" checked={cfg.moduleEnabledForNonAdmins} onChange={(e) => save({ moduleEnabledForNonAdmins: e.target.checked }, e.target.checked ? 'Cyberdigest is now available to all roles.' : 'Cyberdigest is now hidden from every non-administrator.')} /><span>Available to non-administrators<span className="block text-xs text-gray-500">Off: only administrators can open Cyberdigest or call its API. Takes effect on the next request.</span></span></label>
+          <label className="flex items-start gap-2 text-sm text-gray-200 max-w-sm"><input type="checkbox" className="mt-1" checked={cfg.pipelineEnabled} onChange={(e) => save({ pipelineEnabled: e.target.checked }, e.target.checked ? 'Processing resumed.' : 'Processing paused: nothing is ingested, verified or published.')} /><span>Processing pipeline running<span className="block text-xs text-gray-500">Off: no collecting, verifying or publishing. Existing data and digests stay; readers keep seeing the last published digest, dated.</span></span></label>
+        </div>
+      </section>
+
+      <section className="glass-card p-4 rounded-xl space-y-3">
+        <h2 className="text-white font-medium">Daily publishing</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {field('Publish time (24h)', <input className={inputCls} value={v.publishTime} onChange={(e) => setDraft({ ...draft, publishTime: e.target.value })} placeholder="08:00" />)}
+          {field('Time zone', <input className={inputCls} value={v.timezone} onChange={(e) => setDraft({ ...draft, timezone: e.target.value })} placeholder="Asia/Kolkata" />, 'IANA name, e.g. Asia/Kolkata')}
+          {field('When checks pass', <select className={inputCls} value={v.publishMode} onChange={(e) => setDraft({ ...draft, publishMode: e.target.value as Cfg['publishMode'] })}><option value="AUTO">Publish automatically</option><option value="HOLD">Hold for an administrator</option></select>)}
+          {field('Minimum healthy news sources (%)', <input type="number" className={inputCls} value={v.minDiscoveryCoveragePct} onChange={(e) => setDraft({ ...draft, minDiscoveryCoveragePct: Number(e.target.value) })} />, 'Below this, the previous digest stays up')}
+          {field('Keep digests (days)', <input type="number" className={inputCls} value={v.retentionDays} onChange={(e) => setDraft({ ...draft, retentionDays: Number(e.target.value) })} />)}
+          {field('Retry delay after a failure (min)', <input type="number" className={inputCls} value={v.jobRetryBackoffMinutes} onChange={(e) => setDraft({ ...draft, jobRetryBackoffMinutes: Number(e.target.value) })} />, 'Doubles per failure, up to 60')}
+        </div>
+        <button className={btnCls} disabled={!Object.keys(draft).length} onClick={() => save(draft, 'Settings saved.')}>Save schedule settings</button>
+      </section>
+
+      <section className="glass-card p-4 rounded-xl space-y-2">
+        <h2 className="text-white font-medium">Approved link destinations</h2>
+        <p className="text-xs text-gray-400">Only these exact hostnames are clickable in Cyberdigest. Anything else shows as plain text. <code>blog.example.com</code> does not allow <code>example.com</code>. Link shorteners and IP addresses are refused.</p>
+        <div className="flex flex-wrap gap-2">
+          {cfg.linkHosts.map((h) => <span key={h} className="px-2 py-1 rounded bg-gray-800 text-xs text-gray-200 inline-flex items-center gap-1">{h}<button aria-label={`Remove ${h}`} className="text-red-300" onClick={() => call(() => api.delete(`/cyberdigest/admin/link-hosts/${encodeURIComponent(h)}`), `${h} removed.`)}>×</button></span>)}
+        </div>
+        <div className="flex gap-2"><input className={`${inputCls} w-64`} placeholder="www.example.com" value={host} onChange={(e) => setHost(e.target.value)} /><button className={btnCls} disabled={!host} onClick={() => call(async () => { await api.post('/cyberdigest/admin/link-hosts', { host }); setHost(''); }, 'Hostname added.')}>Allow hostname</button></div>
+      </section>
+
+      <section className="glass-card p-4 rounded-xl space-y-2">
+        <h2 className="text-white font-medium">Add a news feed</h2>
+        <p className="text-xs text-gray-400">One step: the server starts collecting this feed and users may click through to its website. The feed host is checked against the public internet at every connection (private and internal addresses are refused).</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <input className={inputCls} placeholder="Name" value={src.name} onChange={(e) => setSrc({ ...src, name: e.target.value })} />
+          <input className={inputCls} placeholder="Feed URL (https://…/feed)" value={src.endpoint} onChange={(e) => setSrc({ ...src, endpoint: e.target.value })} />
+          <input className={inputCls} placeholder="Website (optional)" value={src.website} onChange={(e) => setSrc({ ...src, website: e.target.value })} />
+        </div>
+        <button className={btnCls} disabled={!src.name || !src.endpoint} onClick={() => call(async () => { await api.post('/cyberdigest/admin/sources', { name: src.name, endpoint: src.endpoint, website: src.website || undefined }); setSrc({ name: '', endpoint: '', website: '' }); }, 'Feed added.')}>Add feed</button>
+      </section>
+
+      <section className="glass-card rounded-xl overflow-hidden">
+        <div className="p-4 pb-2"><h2 className="text-white font-medium">Background jobs</h2><p className="text-xs text-gray-400">Failed jobs retry by themselves with growing delays.</p></div>
+        <table className="w-full text-sm">
+          <thead><tr className="border-b border-gray-800 text-left text-gray-400"><th className="p-3 font-medium">Job</th><th className="p-3 font-medium">Last success</th><th className="p-3 font-medium">Last run</th><th className="p-3 font-medium">Failing in a row</th><th className="p-3 font-medium">Last error</th></tr></thead>
+          <tbody>{jobs.map((j) => (
+            <tr key={j.job} className="border-t border-gray-800">
+              <td className="p-3 text-white">{j.job}</td>
+              <td className="p-3 text-gray-300">{j.lastSuccessAt ? formatDateTime(j.lastSuccessAt) : <span className="text-gray-500">never</span>}</td>
+              <td className="p-3 text-gray-300">{j.lastRunAt ? `${formatDateTime(j.lastRunAt)} · ${j.lastStatus?.toLowerCase()}` : <span className="text-gray-500">never</span>}</td>
+              <td className="p-3">{j.failureStreak > 0 ? pill(RED, String(j.failureStreak)) : <span className="text-gray-500">0</span>}</td>
+              <td className="p-3 text-xs text-red-300/90">{j.lastError ?? ''}</td>
+            </tr>))}</tbody>
+        </table>
+      </section>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------- page
+
 export default function CyberdigestPage() {
+  const { user } = useAuth();
+  const admin = user?.role === 'ADMIN';
+  const tabs = admin ? TABS : TABS.filter((t) => t !== 'Verification & source health' && t !== 'Administration');
   const [tab, setTab] = useState<Tab>('Daily digest');
-  const { can } = useBranding();
+  const [blocked, setBlocked] = useState(false);
+  // If an administrator switches Cyberdigest off while this page is open, the next poll shows the notice and clears what was loaded.
+  useEffect(() => {
+    if (admin) return;
+    const ask = () => api.get('/cyberdigest/access').then(() => setBlocked(false)).catch((e) => e?.response?.status === 403 && setBlocked(true));
+    ask();
+    const t = setInterval(ask, 30_000);
+    return () => clearInterval(t);
+  }, [admin]);
+  if (blocked) return <div className="p-6 max-w-3xl mx-auto"><div className="glass-card p-6 rounded-xl text-gray-300">Cyberdigest is not available to your role right now.</div></div>;
+  const canReview = !!admin;
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-4">
       <div>
@@ -589,15 +751,16 @@ export default function CyberdigestPage() {
         <p className="text-sm text-gray-400 mt-1">Cybersecurity intelligence with sources and verification status. Every item shows its source and verification status.</p>
       </div>
       <div className="flex gap-1 border-b border-gray-800">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t} onClick={() => setTab(t)} className={`px-4 py-2 text-sm -mb-px border-b-2 ${tab === t ? 'border-cyan-400 text-white' : 'border-transparent text-gray-400 hover:text-gray-200'}`}>{t}</button>
         ))}
       </div>
-      {tab === 'Daily digest' && <DigestTab canReview={can('cyberdigest.review')} />}
-      {tab === 'News' && <NewsTab canReview={can('cyberdigest.review')} />}
+      {tab === 'Daily digest' && <DigestTab canReview={canReview} />}
+      {tab === 'News' && <NewsTab canReview={canReview} />}
       {tab === 'CVEs' && <CvesTab />}
-      {tab === 'Zero-days' && <ZeroDayTab canReview={can('cyberdigest.review')} />}
-      {tab === 'Verification & source health' && <HealthTab canManage={can('cyberdigest.manage_sources')} />}
+      {tab === 'Zero-days' && <ZeroDayTab canReview={canReview} />}
+      {tab === 'Verification & source health' && admin && <HealthTab canManage={canReview} />}
+      {tab === 'Administration' && admin && <AdminTab />}
     </div>
   );
 }

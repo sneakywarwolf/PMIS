@@ -1,4 +1,6 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { JobRunner } from './job-runner';
+import { DigestConfigService } from './digest-config.service';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SOURCES, ALLOWED_HOSTS } from './sources.config';
@@ -67,6 +69,8 @@ export class IngestionService implements OnModuleInit {
     private prisma: PrismaService,
     private kev: KevService,
     private cves: CveVerificationService,
+    @Optional() private runner?: JobRunner,
+    @Optional() private config?: DigestConfigService,
   ) {}
 
   async onModuleInit() {
@@ -94,7 +98,13 @@ export class IngestionService implements OnModuleInit {
     if (this.running) return;
     this.running = true;
     try {
-      await this.pollDue();
+      // Through the runner: paused pipeline, lease, history and backoff apply. A poll where every source failed is a failed run.
+      if (this.runner) await this.runner.run('ingestion', async () => {
+        const results = await this.pollDue();
+        if (results.length && results.every((r) => !r.ok)) throw new Error('every due source failed');
+        return { polled: results.length, ok: results.filter((r) => r.ok).length };
+      });
+      else await this.pollDue();
     } catch (e) {
       this.log.error(`Cyberdigest poll tick failed: ${(e as Error).message}`);
     } finally {
@@ -133,7 +143,7 @@ export class IngestionService implements OnModuleInit {
         if (!k.notModified) await this.cves.reapplyKev();
       } else {
         const feed = await safeFetch(source.endpoint, {
-          allowedHosts: ALLOWED_HOSTS,
+          allowedHosts: this.config ? await this.config.feedHostSet() : ALLOWED_HOSTS,
           contentTypes: FEED_CONTENT_TYPES,
           fetchImpl: this.fetchImpl,
           headers: {

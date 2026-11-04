@@ -4,20 +4,25 @@
  * Every sentence in the executive summary is a count or a publisher headline.
  */
 
-// ------------------------------------------------------------------- time (IST has no daylight saving: a fixed offset is exact)
+// ------------------------------------------------------------------- time (any IANA zone through the built-in Intl; default Asia/Kolkata)
 
-export const IST_OFFSET_MIN = 330;
 export const DIGEST_TZ = 'Asia/Kolkata';
 
-/** YYYY-MM-DD of the Asia/Kolkata calendar day containing `d`. */
-export function istDate(d: Date): string {
-  return new Date(d.getTime() + IST_OFFSET_MIN * 60_000).toISOString().slice(0, 10);
+function zoned(d: Date, tz: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(d);
+  const g = (t: string) => parts.find((p) => p.type === t)!.value;
+  return { date: `${g('year')}-${g('month')}-${g('day')}`, minutes: Number(g('hour')) * 60 + Number(g('minute')) };
 }
-/** Minutes since midnight, Asia/Kolkata. */
-export function istMinutes(d: Date): number {
-  const t = new Date(d.getTime() + IST_OFFSET_MIN * 60_000);
-  return t.getUTCHours() * 60 + t.getUTCMinutes();
+/** YYYY-MM-DD of the calendar day containing `d` in `tz`. */
+export function zonedDate(d: Date, tz = DIGEST_TZ): string {
+  return zoned(d, tz).date;
 }
+/** Minutes since midnight in `tz`. */
+export function zonedMinutes(d: Date, tz = DIGEST_TZ): number {
+  return zoned(d, tz).minutes;
+}
+export const istDate = (d: Date) => zonedDate(d, 'Asia/Kolkata');
+export const istMinutes = (d: Date) => zonedMinutes(d, 'Asia/Kolkata');
 /** "HH:MM" (24h) -> minutes; anything else -> fallback. */
 export function parseDigestTime(v: string | undefined, fallbackMin = 8 * 60): number {
   const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec((v ?? '').trim());
@@ -75,6 +80,9 @@ export interface BuildInput {
   counts: { pendingStories: number; conflictingStories: number; zeroDayUnverified: number; cvesAwaitingNvd: number };
   kevRetrieved: boolean;
   verificationPassFailed: boolean;
+  tz?: string;
+  /** How many of the enabled news/research sources were healthy when this digest was built. Never claims more than was checked. */
+  coverage?: { healthy: number; total: number; minPct: number } | null;
   limits?: Partial<typeof DEFAULT_LIMITS>;
 }
 
@@ -109,6 +117,7 @@ export interface DigestContent {
   version: 1;
   date: string;
   timezone: string;
+  coverage: { healthy: number; total: number; minPct: number } | null;
   windowStart: string;
   windowEnd: string;
   executiveSummary: { lines: string[]; nothingQualified: boolean };
@@ -259,6 +268,10 @@ export function buildDigest(input: BuildInput): DigestContent {
 
   // ----- limitations: what this digest could NOT cover
   const limitations: string[] = ['CERT-In advisories are not included: CERT-In publishes no machine-readable feed.'];
+  if (input.coverage) {
+    const c = input.coverage;
+    limitations.push(c.healthy === c.total ? `All ${c.total} news and research sources were checked successfully.` : `Incomplete source coverage: only ${c.healthy} of ${c.total} news and research sources were checked successfully. This digest does not reflect the others.`);
+  }
   for (const s of input.unhealthySources) limitations.push(`${s.name} is ${s.health.toLowerCase()}${s.lastSuccessAt ? ` (last successful check ${s.lastSuccessAt.toISOString()})` : ' (never checked successfully)'}; items from it may be missing or out of date.`);
   if (!input.kevRetrieved) limitations.push('The CISA KEV catalog has not been retrieved; KEV status of every CVE is unknown.');
   if (input.verificationPassFailed) limitations.push('The verification pass that runs before this digest failed; some states may be out of date.');
@@ -270,7 +283,8 @@ export function buildDigest(input: BuildInput): DigestContent {
   return {
     version: 1,
     date: input.date,
-    timezone: DIGEST_TZ,
+    timezone: input.tz ?? DIGEST_TZ,
+    coverage: input.coverage ?? null,
     windowStart: input.windowStart.toISOString(),
     windowEnd: input.windowEnd.toISOString(),
     executiveSummary: { lines, nothingQualified: nothing },

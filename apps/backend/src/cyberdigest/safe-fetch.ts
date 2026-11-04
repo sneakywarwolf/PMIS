@@ -1,3 +1,5 @@
+import { BlockedAddressError, createGuardedFetch } from "./net-guard";
+import { hostAllowed, parsePublicHttpsUrl } from "./url-policy";
 /**
  * The only way Cyberdigest touches the network. External content is untrusted, so: https only, hostname must be in the
  * allowlist (no IP literals, no ports), every redirect hop is re-checked, bounded time and bytes, and the content type
@@ -33,20 +35,18 @@ export interface SafeFetchResult {
   lastModified?: string;
 }
 
-const IP_LITERAL = /^(\d{1,3}\.){3}\d{1,3}$|:|^\[/;
-
+/** Every outbound URL goes through the one central policy, then must be an exact allowlisted host. */
 export function assertAllowedUrl(raw: string, allowed: ReadonlySet<string>): URL {
-  let u: URL;
-  try {
-    u = new URL(raw);
-  } catch {
-    throw new SafeFetchError('Invalid URL', 'blocked');
+  const p = parsePublicHttpsUrl(raw);
+  if (!p.ok || !hostAllowed(p.value.host, allowed)) {
+    throw new SafeFetchError(`Blocked URL: ${p.ok ? p.value.host : p.reason}`, 'blocked');
   }
-  if (u.protocol !== 'https:' || u.port || u.username || u.password || IP_LITERAL.test(u.hostname) || !allowed.has(u.hostname)) {
-    throw new SafeFetchError(`Blocked URL host: ${u.hostname}`, 'blocked');
-  }
-  return u;
+  return new URL(p.value.href);
 }
+
+// One transport for the process: resolves DNS itself and refuses private/loopback/metadata addresses at connect time.
+let defaultTransport: typeof fetch | undefined;
+const transport = () => (defaultTransport ??= createGuardedFetch());
 
 async function readCapped(res: Response, maxBytes: number): Promise<string> {
   const declared = Number(res.headers.get('content-length') || 0);
@@ -69,7 +69,7 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
 }
 
 export async function safeFetch(url: string, opts: SafeFetchOptions): Promise<SafeFetchResult> {
-  const doFetch = opts.fetchImpl ?? fetch;
+  const doFetch = opts.fetchImpl ?? transport();
   const maxRedirects = opts.maxRedirects ?? 3;
   let current = assertAllowedUrl(url, opts.allowedHosts).toString();
   let extraHeaders = opts.headers;
@@ -82,6 +82,7 @@ export async function safeFetch(url: string, opts: SafeFetchOptions): Promise<Sa
         signal: AbortSignal.timeout(opts.timeoutMs ?? 15000),
       });
     } catch (e: any) {
+      if (e instanceof BlockedAddressError || e?.cause instanceof BlockedAddressError) throw new SafeFetchError('Destination resolves to a blocked address', 'blocked');
       if (e?.name === 'TimeoutError' || e?.name === 'AbortError') throw new SafeFetchError('Request timed out', 'timeout');
       throw new SafeFetchError('Network error', 'network');
     }

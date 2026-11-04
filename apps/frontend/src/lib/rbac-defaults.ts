@@ -68,9 +68,6 @@ export const DEFAULT_PERMISSIONS: Record<string, [boolean, boolean, boolean]> = 
   'retention.view': [true, true, true],
   'updates.install_now': [false, false, false],
   'updates.schedule': [false, false, false],
-  'cyberdigest.view': [true, true, true],
-  'cyberdigest.manage_sources': [false, false, false],
-  'cyberdigest.review': [false, false, false],
 };
 
 export function defaultPermissionsFor(role: string | undefined): Record<string, boolean> {

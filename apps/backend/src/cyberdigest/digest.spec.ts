@@ -158,6 +158,7 @@ function fakes() {
     issues, stories, events, sources,
     digestIssue: {
       findUnique: async ({ where }: any) => issues.find((i) => i.digestDate === where.digestDate) ?? null,
+      findFirst: async ({ where }: any = {}) => issues.filter((i) => !where?.status || i.status === where.status).sort((a, b) => b.digestDate.localeCompare(a.digestDate))[0] ?? null,
       findMany: async ({ where }: any = {}) => issues.filter((i) => (!where?.status?.not || i.status !== where.status.not) && (!where?.status?.in || where.status.in.includes(i.status)) && (!where?.digestDate?.lt || i.digestDate < where.digestDate.lt)).sort((a, b) => b.digestDate.localeCompare(a.digestDate)),
       create: async ({ data }: any) => { if (issues.some((i) => i.digestDate === data.digestDate)) throw Object.assign(new Error('dup'), { code: 'P2002' }); const r = { id: `i${++id}`, publishedAt: null, withdrawnAt: null, withdrawReason: null, ...data }; issues.push(r); return r; },
       update: async ({ where, data }: any) => Object.assign(issues.find((i) => i.digestDate === where.digestDate), data),
@@ -187,9 +188,11 @@ function fakes() {
   const storyReview = { refresh: async () => 0 };
   const zeroDay: any = { syncKevCases: async () => 0, syncStoryClaims: async () => 0, recomputeAll: async () => 0, list: async () => [] };
   const audit = { log: async (a: any) => { audits.push(a); } };
-  const svc = new DigestService(prisma, audit as any, notifications as any, storyReview as any, zeroDay);
+  const conf: any = { timezone: "Asia/Kolkata", publishTime: "08:00", publishMode: "HOLD", minDiscoveryCoveragePct: 50, retentionDays: 365, linkHosts: ["news.example.org", "www.bleepingcomputer.com"], pipelineEnabled: true };
+  const config = { get: async () => conf };
+  const svc = new DigestService(prisma, audit as any, notifications as any, storyReview as any, zeroDay, config as any);
   const row = (o: any = {}) => ({ id: `row${++id}`, title: 'Foo bug', canonicalUrl: 'https://n.example/x', publisher: 'BleepingComputer', sourceSlug: 'bleepingcomputer', publishedAt: T('2026-11-03T20:00:00Z'), ingestedAt: T('2026-11-03T20:10:00Z'), summary: 's', cveIds: [], categories: ['other'], verificationState: 'ATTRIBUTED', stateNote: null, ...o });
-  return { prisma, svc, notified, audits, stories, events, issues, row, storyReview, zeroDay, sources, users };
+  return { prisma, svc, notified, audits, stories, events, issues, row, storyReview, zeroDay, sources, users, conf };
 }
 const A = { id: 'u1', ip: '1.1.1.1', userAgent: 'jest' };
 const withEnv = async (env: Record<string, string | undefined>, fn: () => Promise<void>) => {
@@ -226,15 +229,120 @@ describe('DigestService', () => {
     });
   });
 
-  it('publish mode notifies every active user once', async () => {
-    await withEnv({ CYBERDIGEST_DIGEST_MODE: 'publish' }, async () => {
+  it('automatic mode publishes with no human step and notifies every active user once', async () => {
+    const f = fakes();
+    f.conf.publishMode = 'AUTO';
+    f.stories.push(f.row());
+    const m = await f.svc.generate({ now: NOW });
+    expect(m).toMatchObject({ status: 'PUBLISHED', generatedBy: 'schedule' });
+    expect(f.notified.map((x) => x.userId).sort()).toEqual(['u1', 'u2']);
+    expect(f.notified[0]).toMatchObject({ type: 'CYBERDIGEST_DIGEST', title: 'Cyberdigest for 2026-11-04', linkUrl: '/dashboard/cyberdigest' });
+  });
+
+  it('an administrator-triggered build is always held, even in automatic mode', async () => {
+    const f = fakes();
+    f.conf.publishMode = 'AUTO';
+    expect((await f.svc.generate({ now: NOW, actor: A })).status).toBe('SHADOW');
+    expect(f.notified).toEqual([]);
+  });
+
+  describe('publication gate (unattended runs)', () => {
+    const discovery = (f: ReturnType<typeof fakes>, healthy: number, total: number) => {
+      for (let i = 0; i < total; i++) f.sources.push({ slug: `feed${i}`, name: `Feed ${i}`, enabled: true, type: 'NEWS_RSS', pollIntervalMinutes: 20, lastSuccessAt: i < healthy ? NOW : null, consecutiveFailures: i < healthy ? 0 : 4 });
+    };
+    it('publishes with an explicit coverage notice when enough sources are healthy', async () => {
       const f = fakes();
-      f.stories.push(f.row());
+      f.conf.publishMode = 'AUTO';
+      discovery(f, 3, 4);
       const m = await f.svc.generate({ now: NOW });
-      expect(m).toMatchObject({ status: 'PUBLISHED', generatedBy: 'schedule' });
-      expect(f.notified.map((x) => x.userId).sort()).toEqual(['u1', 'u2']);
-      expect(f.notified[0]).toMatchObject({ type: 'CYBERDIGEST_DIGEST', title: 'Cyberdigest for 2026-11-04', linkUrl: '/dashboard/cyberdigest' });
+      expect(m.status).toBe('PUBLISHED');
+      const c = f.issues[0].content;
+      expect(c.coverage).toEqual({ healthy: 3, total: 4, minPct: 50 });
+      expect(c.limitations.join(' ')).toMatch(/Incomplete source coverage: only 3 of 4/);
     });
+    it('says every source was checked only when every source was', async () => {
+      const f = fakes();
+      f.conf.publishMode = 'AUTO';
+      discovery(f, 2, 2);
+      await f.svc.generate({ now: NOW });
+      expect(f.issues[0].content.limitations.join(' ')).toMatch(/All 2 news and research sources were checked successfully/);
+    });
+    it('refuses to publish below the coverage minimum: nothing is stored, the job fails and will retry', async () => {
+      const f = fakes();
+      f.conf.publishMode = 'AUTO';
+      discovery(f, 1, 4);
+      await expect(f.svc.generate({ now: NOW })).rejects.toThrow(/Not published: only 1 of 4/);
+      expect(f.issues).toEqual([]);
+      expect(f.notified).toEqual([]);
+    });
+    it('refuses to publish when the KEV catalog was never retrieved or the verification pass failed', async () => {
+      const f = fakes();
+      f.conf.publishMode = 'AUTO';
+      f.sources[0].lastSuccessAt = null;
+      await expect(f.svc.generate({ now: NOW })).rejects.toThrow(/KEV catalog has not been retrieved/);
+      const g = fakes();
+      g.conf.publishMode = 'AUTO';
+      g.storyReview.refresh = async () => { throw new Error('db down'); };
+      await expect(g.svc.generate({ now: NOW })).rejects.toThrow(/verification pass failed/);
+    });
+    it('a day with every required source healthy and nothing new publishes the no-updates notice', async () => {
+      const f = fakes();
+      f.conf.publishMode = 'AUTO';
+      discovery(f, 2, 2);
+      await f.svc.generate({ now: NOW });
+      expect(f.issues[0]).toMatchObject({ status: 'PUBLISHED' });
+      expect(f.issues[0].content.executiveSummary.nothingQualified).toBe(true);
+    });
+    it('an administrator can still look at a degraded digest: it is built, held, and flagged', async () => {
+      const f = fakes();
+      discovery(f, 1, 4);
+      expect((await f.svc.generate({ now: NOW, actor: A })).status).toBe('SHADOW');
+    });
+  });
+
+  it('latest(): the newest published digest with its age; a previous one is flagged stale, never replaced by an empty one', async () => {
+    const f = fakes();
+    f.conf.publishMode = 'AUTO';
+    f.stories.push(f.row());
+    await f.svc.generate({ now: NOW });
+    const same = await f.svc.latest(false, new Date(NOW.getTime() + 3600_000));
+    expect(same).toMatchObject({ stale: false, publishedFor: '2026-11-04' });
+    const later = await f.svc.latest(false, new Date(NOW.getTime() + 30 * 3600_000));
+    expect(later).toMatchObject({ stale: true, publishedFor: '2026-11-04' });
+    expect(later.ageHours).toBeGreaterThan(29);
+    expect(later.latest!.content!.news.length).toBe(1);
+    const none = await fakes().svc.latest(false);
+    expect(none).toMatchObject({ latest: null, stale: true });
+  });
+
+  it('links in a stored digest are re-validated on every read: an off-list host is delivered as text, a hostile URL as nothing', async () => {
+    const f = fakes();
+    f.conf.publishMode = 'AUTO';
+    f.stories.push(f.row({ canonicalUrl: "https://news.example.org/ok" }));
+    await f.svc.generate({ now: NOW });
+    const src = f.issues[0].content.news[0].sources[0];
+    expect(f.issues[0].content.news[0].sources[0].url).toBe("https://news.example.org/ok");
+    f.issues[0].content.news[0].sources[0].url = 'javascript:alert(1)'; // tampered storage
+    f.issues[0].content.news.push({ ...f.issues[0].content.news[0], sources: [{ ...src, url: 'https://evil.example.net/x' }] });
+    const view = await f.svc.get('2026-11-04', false);
+    expect(view.content!.news[0].sources[0]).toMatchObject({ url: null, urlHost: null });
+    expect(view.content!.news[1].sources[0]).toMatchObject({ url: null, urlHost: "evil.example.net" });
+  });
+
+  it('retention removes old digests but always keeps the newest published one', async () => {
+    const f = fakes();
+    f.conf.retentionDays = 30;
+    (f.prisma as any).digestIssue.deleteMany = async ({ where }: any) => {
+      const gone = f.issues.filter((i) => i.generatedAt < where.generatedAt.lt && (!where.id?.not || i.id !== where.id.not));
+      gone.forEach((g) => f.issues.splice(f.issues.indexOf(g), 1));
+      return { count: gone.length };
+    };
+    (f.prisma as any).digestIssue.findFirst = async () => f.issues.filter((i) => i.status === 'PUBLISHED').sort((a, b) => b.digestDate.localeCompare(a.digestDate))[0] ?? null;
+    (f.prisma as any).digestJobRun = { deleteMany: async () => ({ count: 2 }) };
+    const old = new Date(NOW.getTime() - 200 * 86_400_000);
+    f.issues.push({ id: 'a', digestDate: '2026-04-01', status: 'PUBLISHED', generatedAt: old, content: {} }, { id: 'b', digestDate: '2026-04-02', status: 'PUBLISHED', generatedAt: old, content: {} }, { id: 'c', digestDate: '2026-11-03', status: 'PUBLISHED', generatedAt: new Date(NOW.getTime() - 86_400_000), content: {} });
+    expect(await f.svc.pruneOld(NOW)).toEqual({ digests: 2, runs: 2 });
+    expect(f.issues.map((i) => i.id)).toEqual(['c']);
   });
 
   it('a shadow digest can be regenerated, a published one cannot', async () => {
@@ -324,14 +432,14 @@ describe('DigestService', () => {
   it('records a failed verification pass in the digest instead of hiding it', async () => {
     const f = fakes();
     f.storyReview.refresh = async () => { throw new Error('boom'); };
-    await f.svc.generate({ now: NOW });
+    await f.svc.generate({ now: NOW, actor: A });
     expect(f.issues[0].content.limitations.join(' ')).toMatch(/verification pass .* failed/);
   });
 
   it('lists unhealthy sources among the limitations', async () => {
     const f = fakes();
     f.sources.push({ slug: 'bleepingcomputer', name: 'BleepingComputer', enabled: true, type: 'NEWS_RSS', pollIntervalMinutes: 20, lastSuccessAt: null, consecutiveFailures: 5 });
-    await f.svc.generate({ now: NOW });
+    await f.svc.generate({ now: NOW, actor: A });
     expect(f.issues[0].content.limitations.join(' ')).toMatch(/BleepingComputer is failing/);
   });
 
@@ -358,22 +466,27 @@ describe('DigestService', () => {
   });
 
   it('schedule: nothing before the configured IST time, once after it, never twice', async () => {
-    await withEnv({ CYBERDIGEST_DIGEST_TIME: '09:30' }, async () => {
-      const f = fakes();
+      const f = fakes(); f.conf.publishTime = "09:30";
       expect(await f.svc.runScheduled(T('2026-11-04T03:59:00Z'))).toBe(false); // 09:29 IST
       expect(await f.svc.runScheduled(T('2026-11-04T04:00:00Z'))).toBe(true); // 09:30 IST
       expect(await f.svc.runScheduled(T('2026-11-04T05:00:00Z'))).toBe(false);
       expect(f.issues).toHaveLength(1);
       expect(f.issues[0].digestDate).toBe('2026-11-04');
       expect(await f.svc.runScheduled(T('2026-11-05T04:00:00Z'))).toBe(true); // next day
-    });
   });
 
   it('schedule: a late start (service down at the scheduled time) still produces the digest', async () => {
-    await withEnv({ CYBERDIGEST_DIGEST_TIME: '08:00' }, async () => {
-      const f = fakes();
-      expect(await f.svc.runScheduled(T('2026-11-04T11:00:00Z'))).toBe(true); // 16:30 IST
-    });
+    const f = fakes();
+    expect(await f.svc.runScheduled(T('2026-11-04T11:00:00Z'))).toBe(true); // 16:30 IST
+  });
+
+  it('schedule follows the administrator-chosen time zone', async () => {
+    const f = fakes();
+    f.conf.timezone = 'America/New_York';
+    f.conf.publishTime = '08:00';
+    expect(await f.svc.runScheduled(T('2026-11-04T12:59:00Z'))).toBe(false); // 07:59 EST
+    expect(await f.svc.runScheduled(T('2026-11-04T13:00:00Z'))).toBe(true); // 08:00 EST
+    expect(f.issues[0].digestDate).toBe('2026-11-04');
   });
 
   it('a lost race with another instance is a conflict, not a crash', async () => {
@@ -397,7 +510,7 @@ describe('HealthWatchService', () => {
         findFirst: async () => [...events].reverse()[0] ?? null,
         create: async ({ data }: any) => { events.push({ ...data, createdAt: clock }); },
       },
-      user: { findMany: async () => [{ id: 'admin', role: 'ADMIN', isActive: true }, { id: 'tester', role: 'TESTER', isActive: true }] },
+      user: { findMany: async ({ where }: any) => [{ id: 'admin', role: 'ADMIN', isActive: true }, { id: 'tester', role: 'TESTER', isActive: true }].filter((u) => !where?.role || u.role === where.role) },
     };
     let clock = T('2026-11-04T00:00:00Z');
     const svc = new HealthWatchService(prisma, { create: async (d: any) => { notified.push(d); } } as any);

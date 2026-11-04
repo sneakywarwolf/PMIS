@@ -1,0 +1,45 @@
+# Cyberdigest security audit
+
+Scope: `apps/backend/src/cyberdigest/*`, the Cyberdigest page and sidebar link in `apps/frontend`, and the shared
+security headers (`apps/frontend/next.config.js`). Method: code review of every path that handles a URL, external
+text, a role or a background job; adversarial automated tests (listed per finding); `npm audit`. No live penetration
+test, browser test or network-level test was run. "Fixed" means fixed in code and covered by the named test.
+
+Severity uses impact on PMIS or its users if exploited by someone who controls an external feed or article, or by a
+signed-in non-administrator.
+
+## Findings
+
+| # | Weakness | Where | Sev. | Root cause | Fix | Test |
+|---|---|---|---|---|---|---|
+| 1 | **Authorization via a role matrix.** Review and source-management rights were grantable to AVP/Team Lead/Tester in Settings > RBAC; reads and writes were governed by the same mechanism. | `permission-catalog.ts`, controller | High (design) | Cyberdigest reused the generic per-feature matrix | Removed from the matrix. One `CyberdigestAccessGuard` on the whole controller: admins do everything; others are GET-only, never on `@AdminOnly` routes, and only while the availability switch is on (read from the database on every request). | `http.security.spec` (every role x every route), `security.spec` (guard on controller, no write route lacks `@AdminOnly`, no `cyberdigest.*` matrix keys) |
+| 2 | **Revocation lag.** Hiding the menu was the only barrier in some designs. | access model | High | Frontend-only gating | Server checks the switch per request; archive, latest and CVE routes sit behind the same guard; the page re-checks every 30 s and the sidebar link every 60 s and on navigation. API responses already send `Cache-Control: no-store`. | `http.security.spec` "availability switch" (403 on all reader routes at once, no content in the body, immediate flip both ways) |
+| 3 | **SSRF by DNS.** The fetcher checked the hostname only. A public name resolving (or rebinding) to 127.0.0.1, 10/8, 169.254.169.254 would have been reached. | `safe-fetch.ts` | High | No check of the address actually connected to | `net-guard.ts`: own DNS lookup inside the socket, refuses if **any** answer is private/loopback/link-local/metadata/multicast/reserved/NAT64/mapped-IPv4, pins the connection to the validated address, re-evaluated on every connection. Redirects are re-validated per hop. | `url-security.spec` (30+ addresses, mixed answers, flip-flop resolver, redirect chains) |
+| 4 | **Admin-added hosts widen the fetch surface.** Letting an administrator add a feed would otherwise make the allowlist an SSRF lever. | `digest-config.service.ts` | Medium | n/a (new feature) | Added feeds go through the same URL policy (https, no credentials/ports/IP literals/shorteners) and every fetch is still IP-checked at connect time. Disabled sources stop widening the set. | `admin-config.spec` |
+| 5 | **Credential leak on redirect.** Custom headers (e.g. the NVD key) followed a redirect to another host. | `safe-fetch.ts` | Medium | Headers reused for all hops | Dropped when the host changes. | `security.spec` |
+| 6 | **Links trusted from storage.** Story and evidence links were clickable if `http(s)`; analyst evidence URLs could be any host. | controller, page | Medium | One weak check, client-side | Central `url-policy.ts`: https only, exact hostname match against the administrator list, no credentials/ports/IP literals/internal names/shorteners/IDN look-alikes. Every outgoing link is re-validated at read time, including inside stored digests. A browser-side second check (`Ext`) renders anything else as text; links use `rel="noopener noreferrer nofollow"` and `referrerPolicy="no-referrer"` and never navigate by themselves. | `url-security.spec` (about 100 hostile URLs incl. userinfo, suffix tricks, encodings, IPv4 forms, shorteners), `http.security.spec` |
+| 7 | **No open redirect exists** (verified, not assumed). | whole app | - | - | No redirect/proxy/unfurl route exists; the only `router.push` calls use fixed in-app paths. A test fails if a `url` parameter ever produces a `Location` header. | `http.security.spec` "no redirect or proxy route" |
+| 8 | **Remote images allowed by CSP.** `img-src` included `https:`, enabling tracking pixels and remote-image exfiltration from any rendered content, and contradicting the settings validator's own comment. | `next.config.js` | Medium | Over-broad CSP | `img-src 'self' data: blob:`. Logo/favicon are already restricted to local paths or embedded images. | `csp.test.ts` |
+| 9 | **Slow-parse attack from a hostile feed.** | `feed-parser.ts` | Medium | Quadratic regex on unclosed-tag floods | Each field is capped at 20 000 characters before cleaning. | `security.spec` (2 MB bomb parses under 3 s) |
+| 10 | **Internal error text shown to users.** | job/source health | Medium | Raw `Error.message` stored | `publicError` describes only our own network/format errors; everything else is "internal error". Job history uses the same. | `security.spec`, `admin-config.spec` |
+| 11 | **TOCTOU in publication and decisions.** A digest published during regeneration could be overwritten; concurrent analyst decisions could overwrite each other. | `digest.service.ts`, story/zero-day services | Medium | Check, then unconditional write | Writes are conditional on the state that was checked (`updateMany ... where status`); a stale writer gets 409. Job runs take a database lease so two instances cannot run one job. | `digest.spec`, `story-review.spec`, `zero-day.spec`, `admin-config.spec` |
+| 12 | **Readers could see working material.** Pending/conflicting/rejected stories, unresolved CVEs, the zero-day review queue, reviewer notes, user names, source health. | controller | Medium | Same views for everyone | Readers get attributed/verified stories, official-record CVEs, confirmed/known-exploited zero-days, no notes or names. Operational routes are admin-only. | `http.security.spec` "what readers receive" |
+| 13 | **Self-approval of zero-days.** | `zero-day.service.ts` | Low-Med | One person could add and approve evidence | Optional `CYBERDIGEST_REQUIRE_SECOND_APPROVER=1`. Not default (single-admin installs). | `zero-day.spec` |
+| 14 | **System evidence spoofing.** | `zero-day.service.ts` | Medium | Name-based identification | Reserved names, system rows identified by "no author". | `zero-day.spec` |
+| 15 | **Configuration without validation/audit.** | config service | Medium | n/a (new feature) | Every field validated server-side (types, ranges, IANA zone); unknown/read-only fields refused; every change audited with before/after and actor; allowlist and source changes audited. | `admin-config.spec` |
+
+## Checked and found sound
+- No `dangerouslySetInnerHTML`, `innerHTML`, `eval`, `window.open` or markdown rendering in the Cyberdigest page. All external text is reduced to plain text at ingestion and rendered as escaped React text.
+- No raw SQL; Prisma only. Query parameters are single strings only (`StrOnly`).
+- CSRF: cross-site browser writes are refused globally (`isCrossSiteWrite`), cookies are SameSite=strict, and all state-changing Cyberdigest routes are POST/PATCH/DELETE under that rule. Not re-tested end to end here.
+- No AI model is used, so prompt injection has no target; injected instructions in articles are tested as inert text.
+- Dependencies: no new dependency was added by Cyberdigest. `npm audit --omit=dev` still reports 10 moderate findings in packages that predate this work (`@nestjs/core`, `qs`, `uuid`, `file-type`, ...). Not changed here.
+
+## Residual risk and limits (accepted or open)
+1. **Network egress.** The application blocks internal destinations at connect time; it cannot enforce network policy. For defence in depth, restrict the backend container's egress to the feed hosts and DNS (see the Docker example in the user guide). Not enforced by this change.
+2. **Allowlist is trust, not proof.** A host on the list may still serve a hostile page; the list only guarantees the destination is a site an administrator approved. Links open only on an explicit click.
+3. **Analyst-entered evidence** is checked for form (URL, source type, date), not truth. Confirmed zero-days rely on the administrator's judgement; bulk approval still re-checks each case against the evidence rules individually.
+4. **`connect-src` allows `ws:`/`wss:`** for Socket.IO to any host. Tightening it needs a browser test across the supported browsers and was not changed.
+5. **Admin-only means Admin.** Any Administrator can change every setting; there is no second-person control on configuration changes (they are audited).
+6. **Audit-log immutability** relies on the existing `AuditLog` table and database permissions; Cyberdigest adds no extra tamper protection beyond not exposing edit routes.
+7. **Not tested:** live browsers, a real database, real network paths, load, and the production Docker image. The unit/HTTP-level tests use the real controller and guard with fake data stores.

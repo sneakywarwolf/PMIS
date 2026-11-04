@@ -1,6 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { permissionRules } from '../common/permissions';
+import { JobRunner } from './job-runner';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { computeHealth } from './ingestion.service';
@@ -21,11 +21,13 @@ export class HealthWatchService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    @Optional() private runner?: JobRunner,
   ) {}
 
+  /** Operational alerts go to Administrators only: they are the only role that can act on them. */
   private async managers(): Promise<string[]> {
-    const users = await this.prisma.user.findMany({ where: { isActive: true }, select: { id: true, role: true } });
-    return users.filter((u) => permissionRules.can(u.role, 'cyberdigest.manage_sources')).map((u) => u.id);
+    const users = await this.prisma.user.findMany({ where: { isActive: true, role: 'ADMIN' }, select: { id: true } });
+    return users.map((u) => u.id);
   }
 
   private async tell(title: string, message: string, relatedId: string) {
@@ -59,6 +61,22 @@ export class HealthWatchService {
         raised.push(`${s.slug}:RECOVERED`);
       }
     }
+    // A background job that keeps failing is as serious as a source that is down: nothing new would be published.
+    if (this.runner) {
+      for (const j of (await this.runner.status()) as { job: string; failureStreak: number; lastError: string | null }[]) {
+        const last = await this.prisma.digestEvent.findFirst({ where: { entityType: 'JOB', entityId: j.job, event: { in: ['ALERT', 'RECOVERED'] } }, orderBy: { createdAt: 'desc' } });
+        if (j.failureStreak >= FAILING_STREAK) {
+          if (last && last.event === 'ALERT' && now.getTime() - last.createdAt.getTime() <= REALERT_AFTER_MS) continue;
+          await this.prisma.digestEvent.create({ data: { entityType: 'JOB', entityId: j.job, event: 'ALERT', detail: { streak: j.failureStreak, error: j.lastError } } });
+          await this.tell(`Cyberdigest job "${j.job}" is failing`, `The "${j.job}" job has failed ${j.failureStreak} times in a row${j.lastError ? ` (${j.lastError})` : ''}. It retries automatically with increasing delays.`, `job:${j.job}`);
+          raised.push(`job:${j.job}:FAILING`);
+        } else if (last?.event === 'ALERT') {
+          await this.prisma.digestEvent.create({ data: { entityType: 'JOB', entityId: j.job, event: 'RECOVERED', detail: {} } });
+          await this.tell(`Cyberdigest job "${j.job}" has recovered`, `The "${j.job}" job is running successfully again.`, `job:${j.job}`);
+          raised.push(`job:${j.job}:RECOVERED`);
+        }
+      }
+    }
     return raised;
   }
 
@@ -67,7 +85,8 @@ export class HealthWatchService {
     if (this.running) return;
     this.running = true;
     try {
-      await this.check();
+      if (this.runner) await this.runner.run('health-watch', async () => ({ alerts: (await this.check()).length }));
+      else await this.check();
     } catch (e) {
       this.log.error(`Source health check failed: ${(e as Error).message}`);
     } finally {

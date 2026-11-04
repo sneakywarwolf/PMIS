@@ -1,9 +1,12 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { DigestConfigService } from './digest-config.service';
+import { JobRunner } from './job-runner';
+import { rewriteUrls } from './url-policy';
 import { Cron } from '@nestjs/schedule';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { buildDigest, BuildInput, DigestContent, istDate, istMinutes, parseDigestTime, StoryRow, CveRow } from './digest.builder';
+import { buildDigest, BuildInput, DigestContent, zonedDate, zonedMinutes, parseDigestTime, StoryRow, CveRow, DIGEST_TZ } from './digest.builder';
 import { computeHealth } from './ingestion.service';
 import { StoryReviewService } from './story-review.service';
 import { Actor, ZeroDayService } from './zero-day.service';
@@ -17,8 +20,10 @@ const GRACE_MS = 24 * HOUR; // an article that only became publishable after the
 const MAX_CATCHUP_MS = 72 * HOUR;
 const MIN_REASON = 5;
 
-/** Which mode new digests are created in. Shadow first: reviewers compare against manual review before anyone is notified. */
-export const digestMode = (): 'SHADOW' | 'PUBLISHED' => (process.env.CYBERDIGEST_DIGEST_MODE === 'publish' ? 'PUBLISHED' : 'SHADOW');
+const FALLBACK_CONFIG = { timezone: DIGEST_TZ, publishTime: '08:00', publishMode: 'AUTO' as 'AUTO' | 'HOLD', minDiscoveryCoveragePct: 50, retentionDays: 365, linkHosts: [] as string[] };
+
+/** Thrown when the checks that must pass before an automatic publication did not. The job fails, backs off and tries again; the previous digest stays. */
+export class PublicationGateError extends Error {}
 
 export interface DigestMeta {
   date: string;
@@ -53,7 +58,16 @@ export class DigestService {
     private notifications: NotificationsService,
     private storyReview: StoryReviewService,
     private zeroDay: ZeroDayService,
+    @Optional() private config?: DigestConfigService,
+    @Optional() private runner?: JobRunner,
   ) {}
+
+  private async cfg() {
+    return this.config ? await this.config.get() : FALLBACK_CONFIG;
+  }
+  private async linkHosts(): Promise<Set<string>> {
+    return new Set((await this.cfg()).linkHosts);
+  }
 
   // ------------------------------------------------------------------------------------------------ gathering
 
@@ -73,7 +87,8 @@ export class DigestService {
 
   /** Everything below is read AFTER the verification pass, and only gate-passing records are selected. */
   async gather(now: Date, verificationPassFailed: boolean): Promise<BuildInput> {
-    const date = istDate(now);
+    const conf = await this.cfg();
+    const date = zonedDate(now, conf.timezone);
     const { last, ids } = await this.previous(date);
     const windowEnd = now;
     const windowStart = last ? new Date(Math.max(last.windowEnd.getTime(), now.getTime() - MAX_CATCHUP_MS)) : new Date(now.getTime() - 24 * HOUR);
@@ -125,6 +140,8 @@ export class DigestService {
     const sources = await this.prisma.digestSource.findMany({ where: { enabled: true } });
     const unhealthySources = sources.map((s) => ({ s, h: computeHealth(s, now) })).filter((x) => x.h !== 'HEALTHY').map((x) => ({ name: x.s.name, health: x.h, lastSuccessAt: x.s.lastSuccessAt }));
     const kevSource = sources.find((s) => s.slug === 'cisa-kev');
+    const discovery = sources.filter((s) => s.type === 'NEWS_RSS' || s.type === 'RESEARCH_RSS');
+    const coverage = { healthy: discovery.filter((s) => computeHealth(s, now) === 'HEALTHY').length, total: discovery.length, minPct: conf.minDiscoveryCoveragePct };
 
     const [pendingStories, conflictingStories, zeroDayUnverified, cvesAwaitingNvd] = await Promise.all([
       this.prisma.digestStory.count({ where: { verificationState: 'PENDING' } }),
@@ -133,7 +150,7 @@ export class DigestService {
       this.prisma.digestCve.count({ where: { recordStatus: 'PUBLISHED', nvdEnrichment: { not: 'ENRICHED' } } }),
     ]);
 
-    return { date, windowStart, windowEnd, stories, cves, cveChanges, kev, zeroDays, zeroDayStateByCve, previous: ids, corrections, unhealthySources, counts: { pendingStories, conflictingStories, zeroDayUnverified, cvesAwaitingNvd }, kevRetrieved: !!kevSource?.lastSuccessAt, verificationPassFailed };
+    return { date, windowStart, windowEnd, stories, cves, cveChanges, kev, zeroDays, zeroDayStateByCve, previous: ids, corrections, unhealthySources, counts: { pendingStories, conflictingStories, zeroDayUnverified, cvesAwaitingNvd }, kevRetrieved: !!kevSource?.lastSuccessAt, verificationPassFailed, tz: conf.timezone, coverage };
   }
 
   // --------------------------------------------------------------------------------------------- generating
@@ -154,13 +171,24 @@ export class DigestService {
 
   async generate(opts: { actor?: Actor; now?: Date } = {}): Promise<DigestMeta> {
     const now = opts.now ?? new Date();
-    const date = istDate(now);
+    const conf = await this.cfg();
+    const date = zonedDate(now, conf.timezone);
     const existing = await this.prisma.digestIssue.findUnique({ where: { digestDate: date } });
     if (existing && existing.status !== 'SHADOW') throw new ConflictException(`The digest for ${date} is already ${existing.status.toLowerCase()}`);
 
     const passOk = await this.verificationPass();
-    const content = buildDigest(await this.gather(now, !passOk));
-    const status = digestMode();
+    const input = await this.gather(now, !passOk);
+    // Publication gate. Failing it never produces an empty or misleading digest: the previous one stays up (with its age)
+    // and this job fails, backs off and tries again by itself.
+    const problems: string[] = [];
+    if (!passOk) problems.push('the verification pass failed');
+    if (!input.kevRetrieved) problems.push('the CISA KEV catalog has not been retrieved');
+    const c = input.coverage;
+    if (c && c.total > 0 && (c.healthy === 0 || (c.healthy * 100) / c.total < c.minPct)) problems.push(`only ${c.healthy} of ${c.total} news and research sources are healthy (minimum ${c.minPct}%)`);
+    if (problems.length && !opts.actor) throw new PublicationGateError(`Not published: ${problems.join('; ')}`);
+    const content = buildDigest(input);
+    // An administrator may still generate by hand (to look at a held or degraded digest): it is held for review, never auto-published.
+    const status: 'SHADOW' | 'PUBLISHED' = problems.length || opts.actor || conf.publishMode === 'HOLD' ? 'SHADOW' : 'PUBLISHED';
     const data = { status, generatedAt: now, generatedById: opts.actor?.id ?? null, windowStart: new Date(content.windowStart), windowEnd: new Date(content.windowEnd), content: content as any, publishedAt: status === 'PUBLISHED' ? now : null, publishedById: null };
     let row;
     try {
@@ -189,20 +217,50 @@ export class DigestService {
     if (this.running) return;
     this.running = true;
     try {
-      await this.runScheduled(new Date());
+      const now = new Date();
+      // Through the runner: paused pipeline, cross-instance lease, run history and exponential retry apply.
+      // A conflict (another instance published first) is not a failure.
+      if (this.runner) {
+        await this.runner.run('digest', async () => {
+          try {
+            return { generated: await this.runScheduled(now) };
+          } catch (e) {
+            if (e instanceof ConflictException) return { generated: false, note: 'already handled' };
+            throw e;
+          }
+        }, { now });
+      } else {
+        await this.runScheduled(now);
+      }
+      if (this.runner) await this.runner.run('retention', () => this.pruneOld(now), { requirePipeline: false, now });
     } catch (e) {
-      if (!(e instanceof ConflictException)) this.log.error(`Scheduled digest failed: ${(e as Error).message}`); // retried on the next tick
+      if (!(e instanceof ConflictException)) this.log.error(`Scheduled digest failed: ${(e as Error).message}`);
     } finally {
       this.running = false;
     }
   }
 
-  /** Generates today's digest if the IST clock is past the configured time and none exists yet. Returns whether it generated. */
+  /**
+   * Generates today's digest once the clock in the configured timezone is past the configured time and none exists yet.
+   * Because it only asks "is there one for today?", a restart, a missed tick or a failed attempt is simply retried on
+   * the next tick, and repeating it can never create a second digest (the date is unique and writes are conditional).
+   */
   async runScheduled(now: Date): Promise<boolean> {
-    if (istMinutes(now) < parseDigestTime(process.env.CYBERDIGEST_DIGEST_TIME)) return false;
-    if (await this.prisma.digestIssue.findUnique({ where: { digestDate: istDate(now) } })) return false;
+    const conf = await this.cfg();
+    if (zonedMinutes(now, conf.timezone) < parseDigestTime(conf.publishTime)) return false;
+    if (await this.prisma.digestIssue.findUnique({ where: { digestDate: zonedDate(now, conf.timezone) } })) return false;
     await this.generate({ now });
     return true;
+  }
+
+  /** Old digests, job history and expired events are removed after the configured retention. The newest published digest is always kept. */
+  async pruneOld(now: Date): Promise<{ digests: number; runs: number }> {
+    const conf = await this.cfg();
+    const cutoff = new Date(now.getTime() - conf.retentionDays * 86_400_000);
+    const newest = await this.prisma.digestIssue.findFirst({ where: { status: 'PUBLISHED' }, orderBy: { digestDate: 'desc' }, select: { id: true } });
+    const digests = await this.prisma.digestIssue.deleteMany({ where: { generatedAt: { lt: cutoff }, ...(newest ? { id: { not: newest.id } } : {}) } });
+    const runs = await this.prisma.digestJobRun.deleteMany({ where: { startedAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } } });
+    return { digests: digests.count, runs: runs.count };
   }
 
   // ------------------------------------------------------------------------------------------------ publishing
@@ -274,13 +332,31 @@ export class DigestService {
     return rows.map((r) => this.meta(r));
   }
 
+  /**
+   * What people see by default: the newest published digest, and how old it is. If today's digest could not be published
+   * (sources down, pipeline paused), this is still the previous one, clearly dated, never an empty or invented one.
+   */
+  async latest(canReview: boolean, now = new Date()) {
+    const conf = await this.cfg();
+    const row = await this.prisma.digestIssue.findFirst({ where: { status: 'PUBLISHED' }, orderBy: { digestDate: 'desc' } });
+    const today = zonedDate(now, conf.timezone);
+    if (!row) return { today, latest: null, stale: true, ageHours: null, pipelineEnabled: this.config ? (await this.config.get()).pipelineEnabled : true };
+    const age = Math.max(0, Math.round(((now.getTime() - (row.publishedAt ?? row.generatedAt).getTime()) / 3600_000) * 10) / 10);
+    const view = await this.get(row.digestDate, canReview);
+    return {
+      today, latest: view, stale: row.digestDate !== today, ageHours: age, publishedFor: row.digestDate,
+      pipelineEnabled: this.config ? (await this.config.get()).pipelineEnabled : true,
+    };
+  }
+
   async get(date: string, canReview: boolean) {
     this.checkDate(date);
     const row = await this.prisma.digestIssue.findUnique({ where: { digestDate: date } });
     if (!row || (row.status === 'SHADOW' && !canReview)) throw new NotFoundException('No digest for that date');
     const meta = this.meta(row);
     if (row.status === 'WITHDRAWN' && !canReview) return { meta, content: null, overlay: null };
-    const content = row.content as unknown as DigestContent;
+    // Stored content is untrusted: every link in it is re-validated now, against today's allowlist, before it reaches a browser.
+    const content = rewriteUrls(row.content as unknown as DigestContent, await this.linkHosts());
 
     // Corrections made after generation are shown on top of the frozen content; the content itself is never edited.
     const ids = idsFromContent(content);

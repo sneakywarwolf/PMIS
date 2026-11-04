@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { JobRunner } from './job-runner';
 import { Cron } from '@nestjs/schedule';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -41,6 +42,7 @@ export class StoryReviewService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
+    @Optional() private runner?: JobRunner,
   ) {}
 
   private reason(v: unknown): string {
@@ -101,7 +103,8 @@ export class StoryReviewService {
     if (this.running) return;
     this.running = true;
     try {
-      await this.refresh();
+      if (this.runner) await this.runner.run('story-review', async () => ({ changed: await this.refresh() }));
+      else await this.refresh();
     } catch (e) {
       this.log.error(`Story review pass failed: ${(e as Error).message}`);
     } finally {

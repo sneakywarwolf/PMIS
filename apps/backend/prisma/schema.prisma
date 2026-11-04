@@ -94,6 +94,10 @@ enum AuditAction {
   CYBERDIGEST_DIGEST_GENERATED
   CYBERDIGEST_DIGEST_PUBLISHED
   CYBERDIGEST_DIGEST_WITHDRAWN
+  CYBERDIGEST_CONFIG_UPDATED
+  CYBERDIGEST_ALLOWLIST_CHANGED
+  CYBERDIGEST_SOURCE_ADDED
+  CYBERDIGEST_BULK_APPROVED
 }
 
 enum ComplianceType {
@@ -955,6 +959,45 @@ model DigestIssue {
   withdrawReason String?
 
   @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Cyberdigest: administrator configuration, job history and job locks.
+// ---------------------------------------------------------------------------
+
+// One row. moduleEnabledForNonAdmins and pipelineEnabled are deliberately separate switches.
+model DigestConfig {
+  id                       String   @id @default("singleton")
+  moduleEnabledForNonAdmins Boolean @default(true)
+  pipelineEnabled          Boolean  @default(true)
+  publishTime              String   @default("08:00") // HH:MM in `timezone`
+  timezone                 String   @default("Asia/Kolkata")
+  publishMode              String   @default("AUTO") // AUTO = publish when the gate passes; HOLD = keep as shadow for an admin
+  minDiscoveryCoveragePct  Int      @default(50) // share of enabled news/research sources that must be healthy to publish
+  retentionDays            Int      @default(365)
+  jobRetryBackoffMinutes   Int      @default(10)
+  linkHosts                String[] // exact hostnames users may click through to (admin-managed)
+  updatedById              String?
+  updatedAt                DateTime @updatedAt
+}
+
+model DigestJobRun {
+  id         String    @id @default(uuid())
+  job        String
+  status     String // RUNNING | OK | FAILED | SKIPPED
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+  detail     Json?
+
+  @@index([job, startedAt])
+}
+
+// A lease, not a permanent lock: it expires, so a crashed worker cannot block a job forever.
+model DigestLock {
+  name      String   @id
+  holder    String
+  expiresAt DateTime
 }
 
 // Append-only history of what changed and when, per entity.

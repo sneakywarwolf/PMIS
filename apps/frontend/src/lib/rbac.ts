@@ -13,7 +13,6 @@ export const ROUTE_PERMISSIONS: [string, string[]][] = [
   ['/dashboard/projects', ['projects.view']],
   ['/dashboard/reports', ['reports.page']],
   ['/dashboard/vulnerabilities', ['vulns.view']],
-  ['/dashboard/cyberdigest', ['cyberdigest.view']],
   ['/dashboard/retention', ['retention.view']],
   ['/dashboard/users', ['users.page']],
 ];

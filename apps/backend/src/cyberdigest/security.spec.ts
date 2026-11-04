@@ -1,13 +1,14 @@
 import 'reflect-metadata';
 import { RequestMethod } from '@nestjs/common';
-import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import { GUARDS_METADATA, METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { BadRequestException } from '@nestjs/common';
 import { CyberdigestController, StrOnly } from './cyberdigest.controller';
-import { PERMISSION_KEY, permissionRules } from '../common/permissions';
+import { ADMIN_ONLY_KEY, CyberdigestAccessGuard } from './access.guard';
+import { PERMISSION_KEYS } from '../common/permission-catalog';
 import { safeFetch, SafeFetchError } from './safe-fetch';
 import { ALLOWED_HOSTS } from './sources.config';
 import { parseFeed } from './feed-parser';
-import { publicError } from './cve-verification.service';
+import { publicError } from './errors';
 import { UpstreamFormatError } from './cve-clients';
 import { ZeroDayService } from './zero-day.service';
 import { StoryReviewService } from './story-review.service';
@@ -15,30 +16,27 @@ import { StoryReviewService } from './story-review.service';
 const proto = CyberdigestController.prototype as any;
 const routes = Object.getOwnPropertyNames(proto)
   .filter((n) => n !== 'constructor' && typeof proto[n] === 'function' && Reflect.getMetadata(METHOD_METADATA, proto[n]) !== undefined)
-  .map((n) => ({ name: n, method: Reflect.getMetadata(METHOD_METADATA, proto[n]) as RequestMethod, path: Reflect.getMetadata(PATH_METADATA, proto[n]) as string, key: Reflect.getMetadata(PERMISSION_KEY, proto[n]) as string | undefined }));
+  .map((n) => ({ name: n, method: Reflect.getMetadata(METHOD_METADATA, proto[n]) as RequestMethod, path: Reflect.getMetadata(PATH_METADATA, proto[n]) as string, adminOnly: !!Reflect.getMetadata(ADMIN_ONLY_KEY, proto[n]) }));
 
-describe('authorization: every Cyberdigest route is gated (PermissionGuard allows routes with no @Permission)', () => {
-  // 17 routes today; the test after this one is what protects any route added later.
-  it('finds the routes', () => expect(routes.length).toBeGreaterThanOrEqual(17));
-  it('no route is missing a @Permission', () => expect(routes.filter((r) => !r.key).map((r) => r.name)).toEqual([]));
-  it('reads need cyberdigest.view; every write needs review or manage_sources', () => {
-    for (const r of routes) {
-      if (r.method === RequestMethod.GET) expect([r.name, r.key]).toEqual([r.name, 'cyberdigest.view']);
-      else expect(['cyberdigest.review', 'cyberdigest.manage_sources']).toContain(r.key);
-    }
+describe('authorization model: administrators manage, everyone else reads', () => {
+  it('the access guard is attached to the whole controller, so a new route cannot miss it', () => {
+    expect(Reflect.getMetadata(GUARDS_METADATA, CyberdigestController)).toContain(CyberdigestAccessGuard);
   });
-  it('source management routes need manage_sources, decisions need review', () => {
-    for (const r of routes.filter((x) => /^(updateSource|pollNow)$/.test(x.name))) expect(r.key).toBe('cyberdigest.manage_sources');
-    for (const r of routes.filter((x) => /(approve|reject|correct|retract|transition|withdraw|addEvidence)/i.test(x.name))) expect(r.key).toBe('cyberdigest.review');
+  it('finds the routes', () => expect(routes.length).toBeGreaterThanOrEqual(33));
+  it('every route that changes anything is AdminOnly', () => {
+    expect(routes.filter((r) => r.method !== RequestMethod.GET && !r.adminOnly).map((r) => r.name)).toEqual([]);
   });
-  it('by default only Admin can review or manage; every role can read', () => {
-    for (const role of ['AVP', 'TEAM_LEAD', 'TESTER']) {
-      expect(permissionRules.can(role, 'cyberdigest.view')).toBe(true);
-      expect(permissionRules.can(role, 'cyberdigest.review')).toBe(false);
-      expect(permissionRules.can(role, 'cyberdigest.manage_sources')).toBe(false);
-    }
-    expect(permissionRules.can('ADMIN', 'cyberdigest.review')).toBe(true);
-    expect(permissionRules.can(undefined, 'cyberdigest.view')).toBe(false);
+  it('the only GET routes open to readers are the reading ones; everything operational is AdminOnly', () => {
+    const open = routes.filter((r) => r.method === RequestMethod.GET && !r.adminOnly).map((r) => r.name).sort();
+    expect(open).toEqual(['access', 'cve', 'cves', 'digestByDate', 'digests', 'latest', 'stories', 'zeroDay1', 'zeroDays']);
+  });
+  it('configuration, sources, jobs, health, verification and every decision route are AdminOnly', () => {
+    const must = ['getConfig', 'setConfig', 'addLinkHost', 'removeLinkHost', 'addSource', 'jobs', 'jobHistory', 'health', 'verification', 'updateSource', 'pollNow', 'generateDigest', 'publishDigest', 'withdrawDigest', 'approveStory', 'rejectStory', 'correctStory', 'bulkApproveStories', 'bulkApproveZeroDays', 'approve', 'withdraw', 'transition', 'addEvidence', 'retract'];
+    const admin = new Set(routes.filter((r) => r.adminOnly).map((r) => r.name));
+    expect(must.filter((m) => !admin.has(m))).toEqual([]);
+  });
+  it('write rights are not an RBAC-matrix feature: no per-role setting can widen them', () => {
+    expect([...PERMISSION_KEYS].filter((k) => k.startsWith('cyberdigest.'))).toEqual([]);
   });
 });
 

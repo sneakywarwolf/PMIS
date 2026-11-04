@@ -35,5 +35,15 @@ export const SOURCES: SourceDef[] = [
   { slug: 'cisa-kev', name: 'CISA KEV', type: 'KEV_JSON', endpoint: 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json', website: 'https://www.cisa.gov/known-exploited-vulnerabilities-catalog', trustRole: 'AUTHORITATIVE', pollIntervalMinutes: 45, enabled: true },
 ];
 
+/**
+ * Initial list of hosts users may click through to. Seeded into the database once; after that the administrator owns
+ * the list (Cyberdigest > Administration). Exact hostnames only: `blog.cloudflare.com` does not allow `cloudflare.com`.
+ */
+export const DEFAULT_LINK_HOSTS: readonly string[] = [
+  'thehackernews.com', 'www.bleepingcomputer.com', 'bleepingcomputer.com', 'cybersecuritynews.com',
+  'www.cve.org', 'cve.org', 'nvd.nist.gov', 'www.cisa.gov', 'cisa.gov',
+  'www.cert-in.org.in', 'cert-in.org.in', 'portswigger.net', 'blog.cloudflare.com', 'www.cloudflare.com',
+];
+
 /** Only these hosts may ever be fetched. Derived from the registry so the two cannot drift. */
 export const ALLOWED_HOSTS: ReadonlySet<string> = new Set(SOURCES.map((s) => new URL(s.endpoint).hostname));
