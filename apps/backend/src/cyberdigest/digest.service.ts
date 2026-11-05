@@ -254,13 +254,19 @@ export class DigestService {
   }
 
   /** Old digests, job history and expired events are removed after the configured retention. The newest published digest is always kept. */
-  async pruneOld(now: Date): Promise<{ digests: number; runs: number }> {
+  async pruneOld(now: Date): Promise<{ digests: number; runs: number; stories: number; rawItems: number; events: number }> {
     const conf = await this.cfg();
     const cutoff = new Date(now.getTime() - conf.retentionDays * 86_400_000);
-    const newest = await this.prisma.digestIssue.findFirst({ where: { status: 'PUBLISHED' }, orderBy: { digestDate: 'desc' }, select: { id: true } });
+    const newest = await this.prisma.digestIssue.findFirst({ where: { status: 'PUBLISHED' }, orderBy: { digestDate: 'desc' }, select: { id: true, content: true } });
     const digests = await this.prisma.digestIssue.deleteMany({ where: { generatedAt: { lt: cutoff }, ...(newest ? { id: { not: newest.id } } : {}) } });
     const runs = await this.prisma.digestJobRun.deleteMany({ where: { startedAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } } });
-    return { digests: digests.count, runs: runs.count };
+    // Collected material ages out on the same schedule. Stories the newest digest still links to are kept, because the
+    // digest is a frozen snapshot that points at them. The audit log, CVE records and zero-day cases/evidence are not touched.
+    const keepIds = newest ? idsFromContent(newest.content).storyIds : [];
+    const stories = await this.prisma.digestStory.deleteMany({ where: { ingestedAt: { lt: cutoff }, ...(keepIds.length ? { id: { notIn: keepIds } } : {}) } });
+    const rawItems = await this.prisma.digestRawItem.deleteMany({ where: { fetchedAt: { lt: cutoff } } });
+    const events = await this.prisma.digestEvent.deleteMany({ where: { createdAt: { lt: cutoff }, entityType: { in: ['STORY', 'SOURCE', 'JOB'] } } });
+    return { digests: digests.count, runs: runs.count, stories: stories.count, rawItems: rawItems.count, events: events.count };
   }
 
   // ------------------------------------------------------------------------------------------------ publishing

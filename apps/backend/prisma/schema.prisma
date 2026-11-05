@@ -923,6 +923,7 @@ model DigestZeroDayEvidence {
   eventDate    DateTime? // the date the SOURCE states for the event; null when it gives none
   note         String?
   addedById    String? // null = added by the system (KEV sync, story scan)
+  system       Boolean           @default(false) // true only for rows written by the system's own sync code; no API route can set it
   createdAt    DateTime          @default(now())
   retractedAt  DateTime?
   retractedById String?

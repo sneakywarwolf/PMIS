@@ -340,8 +340,20 @@ describe('DigestService', () => {
     (f.prisma as any).digestIssue.findFirst = async () => f.issues.filter((i) => i.status === 'PUBLISHED').sort((a, b) => b.digestDate.localeCompare(a.digestDate))[0] ?? null;
     (f.prisma as any).digestJobRun = { deleteMany: async () => ({ count: 2 }) };
     const old = new Date(NOW.getTime() - 200 * 86_400_000);
-    f.issues.push({ id: 'a', digestDate: '2026-04-01', status: 'PUBLISHED', generatedAt: old, content: {} }, { id: 'b', digestDate: '2026-04-02', status: 'PUBLISHED', generatedAt: old, content: {} }, { id: 'c', digestDate: '2026-11-03', status: 'PUBLISHED', generatedAt: new Date(NOW.getTime() - 86_400_000), content: {} });
-    expect(await f.svc.pruneOld(NOW)).toEqual({ digests: 2, runs: 2 });
+    // Collected material: old stories go, except one the newest digest still points at; recent ones stay.
+    const gone: any[] = [];
+    f.stories.push(f.row({ id: 'old-unlinked', ingestedAt: old }), f.row({ id: 'old-linked', ingestedAt: old }), f.row({ id: 'recent', ingestedAt: new Date(NOW.getTime() - 86_400_000) }));
+    (f.prisma as any).digestStory.deleteMany = async ({ where }: any) => {
+      const hit = f.stories.filter((s) => s.ingestedAt < where.ingestedAt.lt && (!where.id?.notIn || !where.id.notIn.includes(s.id)));
+      hit.forEach((h) => { f.stories.splice(f.stories.indexOf(h), 1); gone.push(h.id); });
+      return { count: hit.length };
+    };
+    (f.prisma as any).digestRawItem = { deleteMany: async ({ where }: any) => { expect(where.fetchedAt.lt).toEqual(new Date(NOW.getTime() - 30 * 86_400_000)); return { count: 4 }; } };
+    (f.prisma as any).digestEvent.deleteMany = async ({ where }: any) => { expect(where.entityType.in).toEqual(['STORY', 'SOURCE', 'JOB']); return { count: 6 }; }; // zero-day and CVE history are never pruned
+    f.issues.push({ id: 'a', digestDate: '2026-04-01', status: 'PUBLISHED', generatedAt: old, content: {} }, { id: 'b', digestDate: '2026-04-02', status: 'PUBLISHED', generatedAt: old, content: {} }, { id: 'c', digestDate: '2026-11-03', status: 'PUBLISHED', generatedAt: new Date(NOW.getTime() - 86_400_000), content: { news: [{ sources: [{ storyId: 'old-linked' }] }] } });
+    expect(await f.svc.pruneOld(NOW)).toEqual({ digests: 2, runs: 2, stories: 1, rawItems: 4, events: 6 });
+    expect(gone).toEqual(['old-unlinked']);
+    expect(f.stories.map((s) => s.id).sort()).toEqual(['old-linked', 'recent']);
     expect(f.issues.map((i) => i.id)).toEqual(['c']);
   });
 

@@ -44,7 +44,7 @@ function pairsFrom(cnaAffected: any[] | null | undefined, nvdAffected: { criteri
 
 const same = (claim: string, have: string) => claim === have || (claim.length >= 3 && (have.includes(claim) || claim.includes(have)));
 
-export function checkAffectedClaim(cve: { affected?: any[] | null; nvdAffected?: any[] | null }, claim: AffectedClaim): { vendor: Match; product: Match; version: VersionMatch } {
+export function checkAffectedClaim(cve: { affected?: any[] | null; nvdAffected?: any[] | null; nvdAffectedTruncated?: boolean }, claim: AffectedClaim): { vendor: Match; product: Match; version: VersionMatch } {
   const pairs = pairsFrom(cve.affected, cve.nvdAffected);
   const known = (key: 'vendor' | 'product') => pairs.map((p) => p[key]).filter(isReal);
   const matchOn = (key: 'vendor' | 'product', value?: string): Match => {
@@ -63,7 +63,8 @@ export function checkAffectedClaim(cve: { affected?: any[] | null; nvdAffected?:
     const listed = scoped.flatMap((p) => p.versions.map(norm));
     const anyRange = scoped.some((p) => p.hasRange);
     if (listed.includes(norm(claim.version))) version = 'LISTED';
-    else if (listed.length && !anyRange) version = 'NOT_LISTED';
+    // "Not listed" is only a safe conclusion when the list is complete; a truncated NVD list proves nothing about what is missing.
+    else if (listed.length && !anyRange && !cve.nvdAffectedTruncated) version = 'NOT_LISTED';
   }
   return { vendor, product, version };
 }

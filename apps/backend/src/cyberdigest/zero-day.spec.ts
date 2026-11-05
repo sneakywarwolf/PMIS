@@ -134,7 +134,7 @@ function fakes(cve: any = { cveId: 'CVE-2026-0001', recordStatus: 'PUBLISHED', d
       create: async ({ data }: any) => { const e = { id: `ev${++i}`, createdAt: new Date(i), retractedAt: null, retractedById: null, retractReason: null, ...data }; evidence.push(e); return e; },
       findUnique: async ({ where }: any) => { const e = evidence.find((x) => x.id === where.id); return e ? { ...e, case: cases.find((c) => c.id === e.caseId) } : null; },
       update: async ({ where, data }: any) => Object.assign(evidence.find((x) => x.id === where.id), data),
-      findFirst: async ({ where }: any) => evidence.find((e) => e.caseId === where.caseId && (!where.sourceName || e.sourceName === where.sourceName) && (!where.url || e.url === where.url) && (!where.kind || e.kind === where.kind) && (where.addedById === undefined || e.addedById === where.addedById) && !e.retractedAt) ?? null,
+      findFirst: async ({ where }: any) => evidence.find((e) => e.caseId === where.caseId && (!where.sourceName || e.sourceName === where.sourceName) && (!where.url || e.url === where.url) && (!where.kind || e.kind === where.kind) && (where.addedById === undefined || e.addedById === where.addedById) && (where.system === undefined || e.system === where.system) && !e.retractedAt) ?? null,
     },
     digestCve: { findUnique: async ({ where }: any) => cves.find((c) => c.cveId === where.cveId) ?? null, findMany: async ({ where }: any) => cves.filter((c) => (where?.kevListed === undefined || c.kevListed === where.kevListed) && (!where?.cveId?.in || where.cveId.in.includes(c.cveId))) },
     digestEvent: { create: async ({ data }: any) => { events.push(data); } },
@@ -263,7 +263,7 @@ describe('ZeroDayService', () => {
     await svc.recomputeAll();
     expect(prisma.cases[0].state).toBe('KNOWN_EXPLOITED_UNCONFIRMED');
     expect(prisma.evidence).toHaveLength(1);
-    expect(prisma.evidence[0]).toMatchObject({ sourceName: 'CISA KEV', eventDate: null, addedById: null });
+    expect(prisma.evidence[0]).toMatchObject({ sourceName: 'CISA KEV', eventDate: null, addedById: null, system: true });
     await expect(svc.approve(ID, U)).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -273,9 +273,10 @@ describe('ZeroDayService', () => {
       await expect(svc.addEvidence(ID, { kind: 'EXPLOITATION_OBSERVED', sourceType: 'GOVERNMENT', sourceName: name, url: 'https://x.example/a' }, U)).rejects.toBeInstanceOf(BadRequestException);
     }
     await svc.ensureCase(ID);
-    prisma.evidence.push({ id: 'fake', caseId: prisma.cases[0].id, kind: 'EXPLOITATION_OBSERVED', sourceType: 'GOVERNMENT', sourceName: 'CISA KEV', url: 'https://x.example/a', eventDate: null, addedById: 'u1', retractedAt: null }); // e.g. inserted by other means
+    prisma.evidence.push({ id: 'fake', caseId: prisma.cases[0].id, kind: 'EXPLOITATION_OBSERVED', sourceType: 'GOVERNMENT', sourceName: 'CISA KEV', url: 'https://x.example/a', eventDate: null, addedById: null, system: false, retractedAt: null }); // no author, but not written by the sync: must not count as system evidence // e.g. inserted by other means
     expect(await svc.syncKevCases()).toBe(1);
-    expect(prisma.evidence.filter((e: any) => e.sourceName === 'CISA KEV' && e.addedById === null)).toHaveLength(1);
+    expect(prisma.evidence.filter((e: any) => e.sourceName === 'CISA KEV' && e.system === true)).toHaveLength(1);
+    expect((await svc.view(ID)).evidence.map((e: any) => e.addedBy).sort()).toEqual(['system', 'unattributed']); // the look-alike is not shown as system evidence
   });
 
   it('story claims: a "zero-day" headline opens only a REPORTED case; articles naming many CVEs are not attributed', async () => {

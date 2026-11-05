@@ -159,6 +159,7 @@ export class CyberdigestController {
       kev: { listed: r.kevListed, dateAdded: r.kevDateAdded, details: r.kevData },
       affected: r.affected,
       nvdAffected: r.nvdAffected,
+      nvdAffectedTruncated: !!(r.provenance as any)?.nvd?.affectedTruncated,
       references: refs,
       conflicts: r.conflicts,
       lastVerifiedAt: r.lastVerifiedAt,

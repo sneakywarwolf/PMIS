@@ -254,7 +254,7 @@ export class ZeroDayService {
       cve: cve ? { recordStatus: cve.recordStatus, description: cve.description, kevListed: cve.kevListed, kevDateAdded: cve.kevDateAdded, lastVerifiedAt: cve.lastVerifiedAt } : null,
       evidence: [...c.evidence].sort((a: any, b: any) => +new Date(a.createdAt) - +new Date(b.createdAt)).map((e: any) => ({
         id: e.id, kind: e.kind, sourceType: e.sourceType, primary: !['NEWS', 'SOCIAL', 'OTHER'].includes(e.sourceType), sourceName: e.sourceName, url: e.url, eventDate: e.eventDate, note: e.note,
-        addedBy: e.addedById ? names.get(e.addedById) ?? 'unknown user' : 'system', createdAt: e.createdAt, retracted: !!e.retractedAt, retractReason: e.retractReason ?? null,
+        addedBy: e.system ? 'system' : e.addedById ? names.get(e.addedById) ?? 'unknown user' : 'unattributed', createdAt: e.createdAt, retracted: !!e.retractedAt, retractReason: e.retractReason ?? null,
       })),
     };
   }
@@ -277,9 +277,9 @@ export class ZeroDayService {
     let n = 0;
     for (const { cveId } of kevCves) {
       const c = await this.ensureCase(cveId);
-      const has = await this.prisma.digestZeroDayEvidence.findFirst({ where: { caseId: c.id, sourceName: 'CISA KEV', addedById: null, retractedAt: null } }); // only the system's own row counts
+      const has = await this.prisma.digestZeroDayEvidence.findFirst({ where: { caseId: c.id, sourceName: 'CISA KEV', system: true, retractedAt: null } }); // only the system's own row counts
       if (has) continue;
-      await this.prisma.digestZeroDayEvidence.create({ data: { caseId: c.id, kind: 'EXPLOITATION_OBSERVED', sourceType: 'GOVERNMENT', sourceName: 'CISA KEV', url: KEV_PAGE, eventDate: null, note: 'Listed in the CISA Known Exploited Vulnerabilities catalog. The catalog does not say when exploitation began.', addedById: null } });
+      await this.prisma.digestZeroDayEvidence.create({ data: { caseId: c.id, kind: 'EXPLOITATION_OBSERVED', sourceType: 'GOVERNMENT', sourceName: 'CISA KEV', url: KEV_PAGE, eventDate: null, note: 'Listed in the CISA Known Exploited Vulnerabilities catalog. The catalog does not say when exploitation began.', addedById: null, system: true } });
       await this.event(cveId, 'EVIDENCE_ADDED', { kind: 'EXPLOITATION_OBSERVED', source: 'CISA KEV', by: 'system' });
       n++;
     }
@@ -294,9 +294,9 @@ export class ZeroDayService {
       if (!ZERO_DAY_WORDS.test(`${s.title} ${s.summary ?? ''}`) || s.cveIds.length > MAX_CVES_PER_CLAIM) continue;
       for (const cveId of s.cveIds.filter(isValidCveId)) {
         const c = await this.ensureCase(cveId);
-        const has = await this.prisma.digestZeroDayEvidence.findFirst({ where: { caseId: c.id, url: s.canonicalUrl, kind: 'ZERO_DAY_CLAIM', addedById: null, retractedAt: null } });
+        const has = await this.prisma.digestZeroDayEvidence.findFirst({ where: { caseId: c.id, url: s.canonicalUrl, kind: 'ZERO_DAY_CLAIM', system: true, retractedAt: null } });
         if (has) continue;
-        await this.prisma.digestZeroDayEvidence.create({ data: { caseId: c.id, kind: 'ZERO_DAY_CLAIM', sourceType: 'NEWS', sourceName: s.source.name, url: s.canonicalUrl, eventDate: s.publishedAt ?? null, note: 'Article uses the term zero-day and names this CVE. Reported, not verified.', addedById: null } });
+        await this.prisma.digestZeroDayEvidence.create({ data: { caseId: c.id, kind: 'ZERO_DAY_CLAIM', sourceType: 'NEWS', sourceName: s.source.name, url: s.canonicalUrl, eventDate: s.publishedAt ?? null, note: 'Article uses the term zero-day and names this CVE. Reported, not verified.', addedById: null, system: true } });
         await this.event(cveId, 'EVIDENCE_ADDED', { kind: 'ZERO_DAY_CLAIM', source: s.source.name, by: 'system' });
         n++;
       }
