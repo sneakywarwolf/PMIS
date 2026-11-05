@@ -46,7 +46,7 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-call npx prisma migrate deploy
+call npm run db:migrate
 if errorlevel 1 (
     echo [ERROR] Database migration failed. Check the error above.
     popd
