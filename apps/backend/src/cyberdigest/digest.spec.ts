@@ -159,7 +159,7 @@ function fakes() {
     digestIssue: {
       findUnique: async ({ where }: any) => issues.find((i) => i.digestDate === where.digestDate) ?? null,
       findFirst: async ({ where }: any = {}) => issues.filter((i) => !where?.status || i.status === where.status).sort((a, b) => b.digestDate.localeCompare(a.digestDate))[0] ?? null,
-      findMany: async ({ where }: any = {}) => issues.filter((i) => (!where?.status?.not || i.status !== where.status.not) && (!where?.status?.in || where.status.in.includes(i.status)) && (!where?.digestDate?.lt || i.digestDate < where.digestDate.lt)).sort((a, b) => b.digestDate.localeCompare(a.digestDate)),
+      findMany: async ({ where }: any = {}) => issues.filter((i) => !where?.OR || where.OR.some((c: any) => (c.generatedAt?.gte ? i.generatedAt >= c.generatedAt.gte : c.id === i.id))).filter((i) => (!where?.status?.not || i.status !== where.status.not) && (!where?.status?.in || where.status.in.includes(i.status)) && (!where?.digestDate?.lt || i.digestDate < where.digestDate.lt)).sort((a, b) => b.digestDate.localeCompare(a.digestDate)),
       create: async ({ data }: any) => { if (issues.some((i) => i.digestDate === data.digestDate)) throw Object.assign(new Error('dup'), { code: 'P2002' }); const r = { id: `i${++id}`, publishedAt: null, withdrawnAt: null, withdrawReason: null, ...data }; issues.push(r); return r; },
       update: async ({ where, data }: any) => Object.assign(issues.find((i) => i.digestDate === where.digestDate), data),
       // Like the database: the status condition is evaluated together with the write.
@@ -342,19 +342,26 @@ describe('DigestService', () => {
     const old = new Date(NOW.getTime() - 200 * 86_400_000);
     // Collected material: old stories go, except one the newest digest still points at; recent ones stay.
     const gone: any[] = [];
-    f.stories.push(f.row({ id: 'old-unlinked', ingestedAt: old }), f.row({ id: 'old-linked', ingestedAt: old }), f.row({ id: 'recent', ingestedAt: new Date(NOW.getTime() - 86_400_000) }));
+    f.stories.push(f.row({ id: 'old-unlinked', ingestedAt: old }), f.row({ id: 'old-linked', ingestedAt: old }), f.row({ id: 'linked-by-older-digest', ingestedAt: new Date(NOW.getTime() - 31 * 86_400_000) }), f.row({ id: 'recent', ingestedAt: new Date(NOW.getTime() - 86_400_000) }));
     (f.prisma as any).digestStory.deleteMany = async ({ where }: any) => {
       const hit = f.stories.filter((s) => s.ingestedAt < where.ingestedAt.lt && (!where.id?.notIn || !where.id.notIn.includes(s.id)));
       hit.forEach((h) => { f.stories.splice(f.stories.indexOf(h), 1); gone.push(h.id); });
       return { count: hit.length };
     };
     (f.prisma as any).digestRawItem = { deleteMany: async ({ where }: any) => { expect(where.fetchedAt.lt).toEqual(new Date(NOW.getTime() - 30 * 86_400_000)); return { count: 4 }; } };
-    (f.prisma as any).digestEvent.deleteMany = async ({ where }: any) => { expect(where.entityType.in).toEqual(['STORY', 'SOURCE', 'JOB']); return { count: 6 }; }; // zero-day and CVE history are never pruned
-    f.issues.push({ id: 'a', digestDate: '2026-04-01', status: 'PUBLISHED', generatedAt: old, content: {} }, { id: 'b', digestDate: '2026-04-02', status: 'PUBLISHED', generatedAt: old, content: {} }, { id: 'c', digestDate: '2026-11-03', status: 'PUBLISHED', generatedAt: new Date(NOW.getTime() - 86_400_000), content: { news: [{ sources: [{ storyId: 'old-linked' }] }] } });
+    let eventFilter: any;
+    (f.prisma as any).digestEvent.deleteMany = async ({ where }: any) => { eventFilter = where; return { count: 6 }; }; // zero-day and CVE history are never pruned
+    // 'd' is recent enough to survive and links a story that is older than the cutoff; 'c' is the newest published digest.
+    f.issues.push({ id: 'a', digestDate: '2026-04-01', status: 'PUBLISHED', generatedAt: old, content: {} }, { id: 'b', digestDate: '2026-04-02', status: 'PUBLISHED', generatedAt: old, content: {} },
+      { id: 'd', digestDate: '2026-10-20', status: 'PUBLISHED', generatedAt: new Date(NOW.getTime() - 15 * 86_400_000), content: { news: [{ sources: [{ storyId: 'linked-by-older-digest' }] }] } },
+      { id: 'c', digestDate: '2026-11-03', status: 'PUBLISHED', generatedAt: new Date(NOW.getTime() - 86_400_000), content: { news: [{ sources: [{ storyId: 'old-linked' }] }] } });
     expect(await f.svc.pruneOld(NOW)).toEqual({ digests: 2, runs: 2, stories: 1, rawItems: 4, events: 6 });
     expect(gone).toEqual(['old-unlinked']);
-    expect(f.stories.map((s) => s.id).sort()).toEqual(['old-linked', 'recent']);
-    expect(f.issues.map((i) => i.id)).toEqual(['c']);
+    expect(f.stories.map((s) => s.id).sort()).toEqual(['linked-by-older-digest', 'old-linked', 'recent']); // every surviving digest keeps its stories
+    expect(eventFilter.entityType.in).toEqual(['STORY', 'SOURCE', 'JOB']);
+    expect(eventFilter.NOT.entityType).toBe('STORY'); // their correction history is kept too
+    expect([...eventFilter.NOT.entityId.in].sort()).toEqual(['linked-by-older-digest', 'old-linked']);
+    expect(f.issues.map((i) => i.id).sort()).toEqual(['c', 'd']);
   });
 
   it('a shadow digest can be regenerated, a published one cannot', async () => {

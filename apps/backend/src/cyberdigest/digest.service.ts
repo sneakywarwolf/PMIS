@@ -262,10 +262,13 @@ export class DigestService {
     const runs = await this.prisma.digestJobRun.deleteMany({ where: { startedAt: { lt: new Date(now.getTime() - 90 * 86_400_000) } } });
     // Collected material ages out on the same schedule. Stories the newest digest still links to are kept, because the
     // digest is a frozen snapshot that points at them. The audit log, CVE records and zero-day cases/evidence are not touched.
-    const keepIds = newest ? idsFromContent(newest.content).storyIds : [];
+    // "Surviving" = every digest generated within retention, plus the newest published one: all of them show correction flags.
+    const surviving = await this.prisma.digestIssue.findMany({ where: { OR: [{ generatedAt: { gte: cutoff } }, ...(newest ? [{ id: newest.id }] : [])] }, select: { content: true } });
+    const keepIds = [...new Set(surviving.flatMap((d) => idsFromContent(d.content).storyIds))];
     const stories = await this.prisma.digestStory.deleteMany({ where: { ingestedAt: { lt: cutoff }, ...(keepIds.length ? { id: { notIn: keepIds } } : {}) } });
     const rawItems = await this.prisma.digestRawItem.deleteMany({ where: { fetchedAt: { lt: cutoff } } });
-    const events = await this.prisma.digestEvent.deleteMany({ where: { createdAt: { lt: cutoff }, entityType: { in: ['STORY', 'SOURCE', 'JOB'] } } });
+    // Correction history (rejected / corrected / withdrawn) of stories a surviving digest links to is kept with them.
+    const events = await this.prisma.digestEvent.deleteMany({ where: { createdAt: { lt: cutoff }, entityType: { in: ['STORY', 'SOURCE', 'JOB'] }, NOT: { entityType: 'STORY', entityId: { in: keepIds } } } });
     return { digests: digests.count, runs: runs.count, stories: stories.count, rawItems: rawItems.count, events: events.count };
   }
 
