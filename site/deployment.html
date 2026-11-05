@@ -232,7 +232,7 @@ docker compose up -d
 # Built from source:
 git pull
 docker compose up -d --build</code></pre></li>
-      <li>Database migrations run automatically when the backend starts. Watch with <code>docker compose logs -f backend</code> until it reports healthy in <code>docker compose ps</code>.</li>
+      <li>Database migrations run automatically when the backend starts. Watch with <code>docker compose logs -f backend</code> until it reports healthy in <code>docker compose ps</code>. Take a database backup (<code>pg_dump -Fc</code>) before every upgrade that changes the schema. A database created before the single baseline migration is recognised and brought onto it without touching any data, but only if its schema matches exactly; otherwise the backend stops with a message that says why and nothing is changed. If the backend container keeps restarting, read its log: the line starting <code>[db-baseline]</code> or Prisma's migration error explains it.</li>
     </ol>
   </section>
 
