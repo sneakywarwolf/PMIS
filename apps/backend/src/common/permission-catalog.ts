@@ -122,6 +122,7 @@ export const PERMISSIONS: PermissionDef[] = [
   // Updates
   { key: 'updates.install_now', group: 'Updates', label: 'Install an update right away', description: 'Check for updates; when one is available the update starts.', defaults: NONE },
   { key: 'updates.schedule', group: 'Updates', label: 'Schedule or cancel an update', description: 'Schedule an update for a date and time, or cancel it.', defaults: NONE },
+
 ];
 
 export const PERMISSION_KEYS = new Set(PERMISSIONS.map((p) => p.key));

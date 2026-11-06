@@ -27,6 +27,7 @@ import {
   Menu,
   Search,
   Info,
+  Newspaper,
 } from 'lucide-react';
 import { CommandPalette } from '@/components/command-palette';
 import { UpdateGate } from '@/components/update-gate';
@@ -43,6 +44,8 @@ interface NavItem {
   icon: React.ElementType;
   // Opens when the role may use any of these features (Settings > RBAC); none = every signed-in user.
   features?: string[];
+  // Shown only while the server says this role may use Cyberdigest (the server enforces it; this only hides the link).
+  cyberdigest?: boolean;
   adminOnly?: boolean;
 }
 
@@ -63,6 +66,7 @@ const navItems: NavItem[] = [
   { label: 'Reports', href: '/dashboard/reports', icon: FileText, features: ['reports.page'] },
   { label: 'Vulnerabilities', href: '/dashboard/vulnerabilities', icon: ShieldAlert, features: ['vulns.view'] },
   { label: 'Quiz', href: '/dashboard/quiz', icon: HelpCircle, features: ['quiz.play'] },
+  { label: 'Cyberdigest', href: '/dashboard/cyberdigest', icon: Newspaper, cyberdigest: true },
   { label: 'Retention', href: '/dashboard/retention', icon: Clock, features: ['retention.view'] },
   { label: 'Users', href: '/dashboard/users', icon: Users, features: ['users.page'] },
   { label: 'Settings', href: '/dashboard/settings', icon: Settings, adminOnly: true },
@@ -114,6 +118,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [user, loading, router]);
 
+  // Whether this account may use Cyberdigest right now. The server answers 403 once an Admin switches it off for the
+  // role; the link disappears and the page stops showing anything. Re-asked on each page change and every minute.
+  const [cyberdigestOk, setCyberdigestOk] = useState(false);
+  useEffect(() => {
+    if (!user) { setCyberdigestOk(false); return; }
+    let cancelled = false;
+    const ask = () => api.get('/cyberdigest/access').then(() => !cancelled && setCyberdigestOk(true)).catch(() => !cancelled && setCyberdigestOk(false));
+    ask();
+    const t = setInterval(ask, 60_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [user?.id, pathname]);
+
   useEffect(() => {
     if (user && permissionsLoaded && !isRouteAllowed(pathname, user.role, can)) {
       router.replace(`/unauthorized?from=${encodeURIComponent(pathname)}`);
@@ -132,7 +148,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (user.isForcePasswordChange) return <ForceChangePasswordGate />;
   if (!permissionsLoaded || !isRouteAllowed(pathname, user.role, can)) return null;
 
-  const filteredNav = navItems.filter((item) => (item.adminOnly ? user.role === 'ADMIN' : !item.features || item.features.some(can)));
+  const filteredNav = navItems.filter((item) => (item.cyberdigest ? cyberdigestOk : item.adminOnly ? user.role === 'ADMIN' : !item.features || item.features.some(can)));
 
   return (
     <div className="min-h-screen bg-cyber-bg flex">

@@ -10,6 +10,8 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/src/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "db:migrate": "node prisma/baseline-guard.js && prisma migrate deploy",
+    "db:status": "node prisma/baseline-guard.js --check && prisma migrate status",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

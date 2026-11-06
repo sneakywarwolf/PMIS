@@ -39,6 +39,11 @@ REM Apply pending DB migrations and regenerate the Prisma client BEFORE the back
 REM otherwise code that expects newer tables/columns fails at runtime.
 echo Applying database migrations...
 pushd apps\backend
+REM .env is gitignored, so a fresh clone or worktree has none: create it from the dev template (same as setup.bat).
+if not exist .env (
+    copy ..\..\.env.dev.example .env >nul
+    echo      Created apps\backend\.env from .env.dev.example
+)
 call npx prisma generate
 if errorlevel 1 (
     echo [ERROR] prisma generate failed. Is a backend still running? Run stop.bat first.
@@ -46,7 +51,7 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-call npx prisma migrate deploy
+call npm run db:migrate
 if errorlevel 1 (
     echo [ERROR] Database migration failed. Check the error above.
     popd

@@ -46,6 +46,10 @@ Open http://localhost:3000, sign in as `admin` with that password, and set a new
 
 Reports are filled from your own Word templates (and Excel templates for Network projects). A project's template is chosen automatically from its compliance category and Testing Type. The documentation lists every supported placeholder, how names are matched, and the tables and rows that repeat: [Reports](https://sneakywarwolf.github.io/PMIS/reports.html). Word placeholders are detected from their literal `{…}` text, so no highlighting is needed.
 
+## Cyberdigest
+
+A verified daily cybersecurity digest for the team (left menu). It collects news from six security feeds, checks every CVE against CVE.org and the NVD, and syncs the CISA KEV catalog; each item shows its source and verification status, and unsupported claims are withheld or labelled. No AI model is used. The digest is built and published automatically every day (default `08:00` Asia/Kolkata) once its checks pass; Administrators control the module, schedule, sources and approved link hostnames from its Administration tab, and every other role is read-only. Optional environment settings: `NVD_API_KEY`, `CYBERDIGEST_REQUIRE_SECOND_APPROVER=1` (first-run seeds: `CYBERDIGEST_DIGEST_TIME`, `CYBERDIGEST_DIGEST_MODE`). Security findings: [CYBERDIGEST-SECURITY-AUDIT.md](CYBERDIGEST-SECURITY-AUDIT.md). Details: [User Guide](https://sneakywarwolf.github.io/PMIS/user-guide.html#cyberdigest).
+
 ## Links
 
 - [Documentation site](https://sneakywarwolf.github.io/PMIS/) (source in `site/`; update it together with any user-visible change)

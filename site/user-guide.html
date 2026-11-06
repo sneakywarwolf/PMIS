@@ -168,6 +168,50 @@
     </ul>
   </section>
 
+  <section id="cyberdigest">
+    <h2>Cyberdigest</h2>
+    <p>The <em>Cyberdigest</em> menu item is a daily cybersecurity digest for the team. It collects news and research, checks every CVE against the official records, and shows each item with its source and how far it has been verified. The aim is a trustworthy view, not a long one: anything that cannot be supported is left out or labelled, never presented as fact.</p>
+    <h3>Sources</h3>
+    <ul>
+      <li><strong>Discovery</strong> (what happened): The Hacker News, BleepingComputer, Cyber Security News, the PortSwigger blog and research feeds, and the Cloudflare blog. An article proves that a publisher reported something, not that it is true.</li>
+      <li><strong>Authoritative</strong> (what is true): the CVE Program (cve.org), the NIST National Vulnerability Database and the CISA Known Exploited Vulnerabilities (KEV) catalog.</li>
+      <li><strong>Not covered:</strong> CERT-In advisories. CERT-In publishes no machine-readable feed, so they are not included, and every digest says so.</li>
+    </ul>
+    <h3>What each tab shows</h3>
+    <ul>
+      <li><strong>Daily digest:</strong> the day&rsquo;s summary: confirmed zero-day alerts, new KEV additions, new or updated CVEs, news (the same incident under several headlines is grouped, with every source link kept), PortSwigger and Cloudflare research, corrections to earlier items, and a closing list of what the digest could not cover (failing sources, items still awaiting verification). A day with nothing that qualifies says so. Items are ordered by a published policy (confirmed zero-day, then KEV, then analyst-verified, then provider severity, then recency); no numeric score is calculated.</li>
+      <li><strong>News</strong> and <strong>CVEs:</strong> everything ingested, with filters (search, category, state and dates for news; vendor, provider severity, KEV and NVD status for CVEs). A CVE&rsquo;s official record status, NVD enrichment and KEV listing are separate badges. Every CVSS score is shown with the provider that assigned it. Missing values stay <em>unknown</em>.</li>
+      <li><strong>Zero-days:</strong> confirmed alerts, known-exploited vulnerabilities whose zero-day status is unconfirmed, and a review queue for reports that lack evidence.</li>
+      <li><strong>Verification &amp; source health:</strong> per-source status and last successful check, items waiting for verification or in conflict, rejections and corrections. The page never says everything is healthy while an enabled source is failing.</li>
+    </ul>
+    <h3>How an item gets its label</h3>
+    <ul>
+      <li><strong>Attributed reporting, not independently confirmed</strong> is the most the system will say about an article. <strong>Verified by analyst</strong> is set only by a reviewer, and only when every CVE the article cites exists in the official record. A story citing a CVE that is rejected or unknown to CVE.org is marked <strong>Conflicting evidence</strong>, and a verified story drops back automatically if its CVE evidence turns bad.</li>
+      <li><strong>Confirmed zero-day</strong> needs dated primary evidence (vendor, researcher, government or incident report) that exploitation happened, primary evidence that no fix existed at the time, a published CVE record, no contradicting primary source, and a recorded reviewer approval. A headline, a KEV listing, a public proof of concept or a missing patch is never enough on its own. If the evidence is later retracted, the confirmation is withdrawn at once.</li>
+      <li>Summaries are the publisher&rsquo;s own words, trimmed. They are checked against the article text, and any summary that adds a CVE, score, version, date or exploitation claim not in it is dropped. No AI model is used anywhere in Cyberdigest.</li>
+    </ul>
+    <h3>Who can do what</h3>
+    <p><strong>Administrators</strong> control everything: the <em>Administration</em> tab, source health, verification, and every decision (verify or reject stories, record zero-day evidence, approve or withdraw, hold or withdraw a digest). <strong>Every other role is a read-only reader</strong> of published content only: no buttons, no working material (pending or conflicting items, review queue, reviewer notes, user names, source health), and the server refuses any write or administrative request from them. This is fixed in the code; it is not part of <em>Settings &gt; RBAC</em>. Every decision needs a written reason and is recorded in the audit log.</p>
+    <h3>Administration tab (Admins only)</h3>
+    <ul>
+      <li><strong>Available to non-administrators</strong>: one switch. Off, and every non-admin request to Cyberdigest is refused by the server on its next call; the menu entry disappears within a minute and an open page shows a notice. Administrators keep access.</li>
+      <li><strong>Processing pipeline running</strong>: a separate switch. Off, and nothing is collected, verified or published; existing data and published digests stay, and readers see the latest digest with its date.</li>
+      <li>Daily publish time and time zone (any IANA zone, default <code>08:00</code> Asia/Kolkata), publish automatically or hold for an administrator, the minimum share of healthy news sources, digest retention in days, and the retry delay for failed jobs. All values are validated by the server and every change is audited with the old and new value.</li>
+      <li><strong>Approved link destinations</strong>: the exact hostnames readers may click through to. Anything else shows as plain text. <code>blog.example.com</code> does not allow <code>example.com</code>; shorteners and IP addresses are refused. <strong>Add a news feed</strong> does both in one step: the server starts collecting the feed and its website becomes clickable. Feed hosts are checked against the public internet on every connection; private and internal addresses are refused.</li>
+      <li><strong>Background jobs</strong>: last success, last run and failure streak for ingestion, CVE checks, zero-days, story checks, the digest and housekeeping. Failed jobs retry by themselves with growing delays and alert the Admins.</li>
+    </ul>
+    <h3>Automatic daily digest, schedule and notifications</h3>
+    <ul>
+      <li>News feeds are checked every 20 to 30 minutes and the KEV catalog about every 45 minutes. CVEs mentioned in stories are looked up on CVE.org and NVD in the background and rechecked daily.</li>
+      <li>The digest is built and <strong>published automatically</strong> once a day after the configured time, with no click from anyone and no login needed. It publishes only if the checks pass: the verification pass succeeded, the KEV catalog has been retrieved, and enough news sources are healthy. If a source is down the digest says how many were checked (&ldquo;only 3 of 6&rdquo;). If the checks fail, nothing is published, the job retries by itself, and readers keep seeing the previous digest with its age. A restart or missed run is caught up on the next tick, and a digest can never be created twice for a day. When everything was checked and nothing qualifies, a &ldquo;no qualifying updates&rdquo; digest is published. Everyone gets an in-app notification.</li>
+      <li>A published digest is never edited. If a story or zero-day in it is later rejected or withdrawn, the digest shows a correction flag on that item and the next digest lists the correction. An Admin can withdraw a whole digest. Old digests are removed after the retention period; the newest one is always kept.</li>
+      <li>Admins are notified when a source or a background job fails repeatedly, once a day while it lasts, and again when it recovers. All Cyberdigest notification types can be switched per role in <em>Settings &gt; Notifications</em>.</li>
+      <li>Admin bulk actions (optional, nothing depends on them): <em>Approve selected</em> for zero-day cases whose evidence qualifies, and <em>Verify selected</em> for stories. Each item is still checked on its own and refused if it does not qualify.</li>
+      <li>Security: links open only on a click, only to approved hostnames over https, in a new tab with no referrer. There is no redirect or proxy route, nothing in articles is fetched or rendered as HTML, and the page loads no third-party images, scripts or frames. See <code>CYBERDIGEST-SECURITY-AUDIT.md</code> in the repository for findings and residual risks.</li>
+      <li>Optional environment settings: <code>NVD_API_KEY</code> raises the NVD request limit. <code>CYBERDIGEST_REQUIRE_SECOND_APPROVER=1</code> stops the person who recorded zero-day evidence from also approving it. <code>CYBERDIGEST_DIGEST_TIME</code> and <code>CYBERDIGEST_DIGEST_MODE</code> (<code>hold</code> or <code>auto</code>) only seed the first-run values; after that the Administration tab is the only place they change. To limit what the server can reach, also restrict the backend container's outbound network to the feed hosts and DNS.</li>
+    </ul>
+  </section>
+
   <section id="retention">
     <h2>Retention</h2>
     <p>PMIS deletes old data automatically, once an hour, under two Admin-configurable policies in <em>Settings</em>:</p>

@@ -28,7 +28,7 @@ const nextConfig = {
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // globals.css @imports Google Fonts
-      "img-src 'self' data: blob: https:",
+      "img-src 'self' data: blob:", // no remote images: Cyberdigest and article content never load third-party pictures or tracking pixels
       "font-src 'self' data: https://fonts.gstatic.com",
       "connect-src 'self' ws: wss:",
       "object-src 'none'",

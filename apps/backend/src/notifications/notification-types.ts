@@ -21,6 +21,8 @@ export const NOTIFICATION_TYPES: NotificationTypeInfo[] = [
   { type: 'USER_UPDATED', label: 'User account updated', description: 'An account was changed. Sent to the user and to the person who made the change.' },
   { type: 'QUIZ_QUESTION_LIVE', label: 'Quiz question is live', description: 'Today\'s quiz question was published. Sent to everyone.' },
   { type: 'QUIZ_ANSWER_REVEALED', label: 'Quiz answer revealed', description: 'The answer to a quiz question was revealed. Sent to everyone.' },
+  { type: 'CYBERDIGEST_DIGEST', label: 'Cyberdigest daily digest', description: 'The daily cybersecurity digest was published. Sent to everyone.' },
+  { type: 'CYBERDIGEST_SOURCE_DOWN', label: 'Cyberdigest source down', description: 'A Cyberdigest news or vulnerability source stopped working, or recovered. Sent to Administrators.' },
   { type: 'SYSTEM_UPDATE', label: 'System update', description: 'An update was scheduled, is about to start, or has finished. Sent to everyone.' },
 ];
 
