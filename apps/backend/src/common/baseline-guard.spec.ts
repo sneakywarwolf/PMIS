@@ -1,9 +1,12 @@
 import { createHash } from 'crypto';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
+import { mkdtempSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { spawnSync } from 'child_process';
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { decide, BASELINE, LEGACY_LAST } = require('../../prisma/baseline-guard.js');
+const { decide, loadEnv, BASELINE, LEGACY_LAST } = require('../../prisma/baseline-guard.js');
 
 const done = (name: string) => ({ name, finished: true, rolledBack: false });
 const base = { hasHistoryTable: true, appTableCount: 30, schemaMatches: null as boolean | null };
@@ -68,5 +71,29 @@ describe('migration directory policy', () => {
   it('the baseline carries no seed data and no destructive statements', () => {
     const sql = readFileSync(join(dir, BASELINE, 'migration.sql'), 'utf8').replace(/^--.*$/gm, '');
     expect(sql).not.toMatch(/\b(INSERT\s+INTO|UPDATE\s+"|DELETE\s+FROM|DROP\s+(TABLE|TYPE|INDEX|COLUMN)|TRUNCATE)\b/i);
+  });
+});
+
+describe('baseline guard environment', () => {
+  const saved = process.env.DATABASE_URL;
+  afterEach(() => { if (saved === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = saved; });
+  const envDir = (line: string) => { const d = mkdtempSync(join(tmpdir(), 'guard-')); writeFileSync(join(d, '.env'), line); return d; };
+
+  it('loads DATABASE_URL from .env when the shell has none', () => {
+    delete process.env.DATABASE_URL;
+    loadEnv(envDir('DATABASE_URL="postgresql://x@h:5432/db"\n'));
+    expect(process.env.DATABASE_URL).toBe('postgresql://x@h:5432/db');
+  });
+  it('a DATABASE_URL already in the environment wins over .env', () => {
+    process.env.DATABASE_URL = 'postgresql://real';
+    loadEnv(envDir('DATABASE_URL=postgresql://file\n'));
+    expect(process.env.DATABASE_URL).toBe('postgresql://real');
+  });
+  it('fails (does not silently succeed) when DATABASE_URL is nowhere', () => {
+    const env = { ...process.env }; delete env.DATABASE_URL;
+    const guard = join(__dirname, '../../prisma/baseline-guard.js');
+    const r = spawnSync(process.execPath, [guard, '--check'], { env, encoding: 'utf8', cwd: tmpdir() });
+    // Only meaningful when apps/backend/.env is absent (CI); with a local .env the guard legitimately proceeds.
+    if (!require('fs').existsSync(join(__dirname, '../../.env'))) expect(r.status).toBe(1);
   });
 });

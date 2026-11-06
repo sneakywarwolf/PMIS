@@ -17,6 +17,7 @@
  */
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
@@ -82,11 +83,19 @@ function schemaMatches() {
   return r.status === 0;
 }
 
+/** Like Prisma, take DATABASE_URL from apps/backend/.env when the shell has none. Real env wins over the file. */
+function loadEnv(dir = path.join(__dirname, '..')) {
+  const file = path.join(dir, '.env');
+  if (!process.env.DATABASE_URL && fs.existsSync(file)) process.env.DATABASE_URL = require('util').parseEnv(fs.readFileSync(file, 'utf8')).DATABASE_URL;
+}
+
 async function main() {
   const checkOnly = process.argv.includes('--check');
+  loadEnv();
   if (!process.env.DATABASE_URL) {
-    log('DATABASE_URL is not set; nothing checked.');
-    process.exit(0);
+    // Exiting 0 here let `migrate deploy` run unguarded against a pre-baseline database.
+    log('DATABASE_URL is not set (shell or apps/backend/.env); refusing to continue.');
+    process.exit(1);
   }
   const { PrismaClient } = require('@prisma/client');
   const prisma = new PrismaClient();
@@ -113,4 +122,4 @@ async function main() {
 }
 
 if (require.main === module) main();
-module.exports = { decide, BASELINE, LEGACY_LAST };
+module.exports = { decide, loadEnv, BASELINE, LEGACY_LAST };
