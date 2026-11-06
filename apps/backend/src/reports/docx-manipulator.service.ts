@@ -168,7 +168,7 @@ export class DocxManipulatorService {
       let match: RegExpExecArray | null;
       while ((match = re.exec(fullText))) {
         const raw = match[1].trim();
-        if (/^[#/]\s*(VA|PT|NETWORK|SCR)$/i.test(raw)) continue; // conditional block marker, not a field
+        if (/^[#/]\s*(VA|PT|NETWORK|WEB|MOBILE|TC|SCR)$/i.test(raw)) continue; // conditional block marker, not a field
         if (!raw) continue;
 
         const normalizedName = this.normalizeFieldName(raw);
@@ -288,7 +288,7 @@ export class DocxManipulatorService {
     this.mergeAllHighlightedRuns(doc);
 
     // Step 1.2: {#VA}...{/VA} / {#PT}...{/PT} blocks, kept or dropped by the project's activity type
-    this.applyActivityBlocks(doc, options?.activityType, options?.projectCategory, options?.projectSubType);
+    this.applyActivityBlocks(doc, options?.activityType, options?.projectSubType);
 
     // Step 1.25: a sub-heading must continue its parent heading's list, not restart another one ("2.1")
     this.alignSubheadingNumbering(doc);
@@ -373,20 +373,22 @@ export class DocxManipulatorService {
     const updatedXml = serializer.serializeToString(doc);
     zip.file('word/document.xml', updatedXml);
 
-    await this.fillHeaderFooterStatus(zip, options?.complianceStatus);
+    await this.fillHeaderFooterStatus(zip, options?.complianceStatus, options?.activityType, options?.projectSubType);
     await this.markFieldsForUpdate(zip);
 
     return zip.generateAsync({ type: 'nodebuffer' });
   }
 
-  /** {Project Status} / {Compliance Status} in page headers and footers (cover banners etc.), which document.xml does not hold. */
-  private async fillHeaderFooterStatus(zip: any, status?: string | null): Promise<void> {
+  /** {Project Status} / {Compliance Status} and conditional blocks in page headers and footers, which document.xml does not hold. */
+  private async fillHeaderFooterStatus(zip: any, status?: string | null, activityType?: string | null, projectSubType?: string | null): Promise<void> {
     const names = Object.keys(zip.files).filter((n) => /^word\/(header|footer)\d*\.xml$/.test(n));
     for (const name of names) {
       const xml: string = await zip.file(name).async('text');
-      if (!/status/i.test(xml.replace(/<[^>]+>/g, ''))) continue;
+      const text = xml.replace(/<[^>]+>/g, '');
+      if (!/status/i.test(text) && !/\{\s*[#/]/.test(text)) continue;
       const part = new DOMParser().parseFromString(xml, 'text/xml');
       this.mergeAllHighlightedRuns(part);
+      this.applyActivityBlocks(part, activityType, projectSubType);
       this.applyComplianceStatus(part, status);
       zip.file(name, new XMLSerializer().serializeToString(part));
     }
@@ -452,21 +454,23 @@ export class DocxManipulatorService {
    * before the block. Blank paragraphs / page breaks that end up adjacent only because a block was
    * removed are collapsed to one, so no gap or blank page appears.
    *
-   * `{#network}` and `{#SCR}` blocks use this same engine; only the keep rule differs. `{#network}` is kept for a
-   * Cert-In + Network project, `{#SCR}` for an SCR project, and each is dropped for everything else (never kept
-   * "by default"). Like {#VA} / {#PT}, both are optional: a template without them generates normally, and a block
+   * `{#network}`, `{#web}`, `{#mobile}`, `{#tc}` and `{#SCR}` blocks use this same engine; only the keep rule differs.
+   * They are kept by the project's Testing Type (platform, i.e. subType): NETWORK, WEB or API, MOBILE, THICK_CLIENT, SCR,
+   * and dropped for everything else (never kept "by default"). Like {#VA} / {#PT}, all are optional: a template without them generates normally, and a block
    * whose closing marker is missing is logged and left as it is, never an error.
    */
-  private applyActivityBlocks(doc: Document, activityType?: string | null, projectCategory?: string | null, projectSubType?: string | null): void {
+  private applyActivityBlocks(doc: Document, activityType?: string | null, projectSubType?: string | null): void {
     const activity = (activityType || '').trim().toUpperCase();
-    const category = (projectCategory || '').trim().toUpperCase();
     const subType = (projectSubType || '').trim().toUpperCase();
     const keep = (kind: string) =>
-      kind === 'NETWORK' ? category === 'CERT_IN' && subType === 'NETWORK'
+      kind === 'NETWORK' ? subType === 'NETWORK'
+      : kind === 'WEB' ? subType === 'WEB' || subType === 'API'
+      : kind === 'MOBILE' ? subType === 'MOBILE'
+      : kind === 'TC' ? subType === 'THICK_CLIENT'
       : kind === 'SCR' ? subType === 'SCR'
       : !['VA', 'PT', 'VAPT'].includes(activity) || activity.includes(kind);
     const W = this.W_NS;
-    const MARKER_RE = /^\{\s*([#/])\s*(VA|PT|NETWORK|SCR)\s*\}$/i;
+    const MARKER_RE = /^\{\s*([#/])\s*(VA|PT|NETWORK|WEB|MOBILE|TC|SCR)\s*\}$/i;
 
     const isPara = (n: Node | null): n is Element => !!n && n.nodeType === 1 && (n as Element).localName === 'p';
     const has = (el: Element, name: string) => el.getElementsByTagNameNS(W, name).length > 0;
@@ -526,6 +530,28 @@ export class DocxManipulatorService {
         open.parentNode!.insertBefore(carrier, open);
       }
     };
+
+    // Inline blocks: `{#network}text{/network}` inside one paragraph (markers may be split across runs). Characters are
+    // deleted in place across the w:t nodes, so runs and formatting stay; the block loop below only sees whole-paragraph markers.
+    const INLINE_RE = /(\{\s*#\s*(VA|PT|NETWORK|WEB|MOBILE|TC|SCR)\s*\})([\s\S]*?)(\{\s*\/\s*\2\s*\})/gi;
+    for (const para of Array.from(doc.getElementsByTagNameNS(W, 'p')) as Element[]) {
+      const ts = Array.from(para.getElementsByTagNameNS(W, 't')) as Element[];
+      const full = ts.map((t) => t.textContent || '').join('');
+      const cuts: [number, number][] = [];
+      for (const m of full.matchAll(INLINE_RE)) {
+        const end = m.index! + m[0].length;
+        if (keep(m[2].toUpperCase())) cuts.push([m.index!, m.index! + m[1].length], [end - m[4].length, end]);
+        else cuts.push([m.index!, end]);
+      }
+      if (!cuts.length) continue;
+      let off = 0;
+      for (const t of ts) {
+        const s = t.textContent || '';
+        t.textContent = s.split('').filter((_, i) => !cuts.some(([a, b]) => off + i >= a && off + i < b)).join('');
+        off += s.length;
+      }
+      if (isBlank(para) && para.parentNode && (para.parentNode as Element).localName !== 'tc') para.parentNode.removeChild(para); // a cell keeps its last paragraph
+    }
 
     const edges: (Node | null)[] = []; // what sat just outside each block, to trim the template's padding there afterwards
     for (const open of Array.from(doc.getElementsByTagNameNS(W, 'p')) as Element[]) {

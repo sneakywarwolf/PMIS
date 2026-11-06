@@ -49,7 +49,7 @@ if errorlevel 1 (
 
 echo [3/6] Generating Prisma client + applying migrations...
 call npx prisma generate
-call npx prisma migrate deploy
+call npm run db:migrate
 if errorlevel 1 (
     echo [ERROR] Migration failed. Try running setup.bat --clean instead.
     pause

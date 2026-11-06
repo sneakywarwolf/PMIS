@@ -1,4 +1,4 @@
-import * as Minio from 'minio';
+import { S3Client, HeadBucketCommand, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import IORedis from 'ioredis';
 import { Queue } from 'bullmq';
 import { ResetCache, ResetStorage } from './reset';
@@ -27,22 +27,34 @@ const REPORT_QUEUE = 'report-generation'; // REPORT_GENERATION_QUEUE in reports/
 const SESSION_KEY_PATTERNS = ['refresh_token:*', 'active_session:*', 'session_activity:*', 'login_attempts:*'];
 
 export function minioStorage(cfg: InfraConfig['minio']): ResetStorage {
-  const { bucket, ...conn } = cfg;
-  const client = new Minio.Client({ ...conn });
+  const { bucket, endPoint, port, useSSL, accessKey, secretKey } = cfg;
+  const client = new S3Client({
+    endpoint: `${useSSL ? 'https' : 'http'}://${endPoint}:${port}`,
+    region: 'us-east-1',
+    forcePathStyle: true,
+    credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
+  });
   return {
     async list(prefix) {
       // A missing bucket just means there's nothing to clean.
-      if (!(await client.bucketExists(bucket))) return [];
-      return new Promise<string[]>((resolve, reject) => {
-        const keys: string[] = [];
-        const stream = client.listObjectsV2(bucket, prefix, true);
-        stream.on('data', (o) => o.name && keys.push(o.name));
-        stream.on('end', () => resolve(keys));
-        stream.on('error', reject);
+      const exists = await client.send(new HeadBucketCommand({ Bucket: bucket })).then(() => true, (e: any) => {
+        if (e?.$metadata?.httpStatusCode === 404 || e?.name === 'NotFound' || e?.name === 'NoSuchBucket') return false;
+        throw e;
       });
+      if (!exists) return [];
+      const keys: string[] = [];
+      let token: string | undefined;
+      do {
+        const page = await client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }));
+        for (const o of page.Contents ?? []) if (o.Key) keys.push(o.Key);
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (token);
+      return keys;
     },
     async remove(keys) {
-      for (let i = 0; i < keys.length; i += 1000) await client.removeObjects(bucket, keys.slice(i, i + 1000));
+      for (let i = 0; i < keys.length; i += 1000) {
+        await client.send(new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: keys.slice(i, i + 1000).map((Key) => ({ Key })), Quiet: true } }));
+      }
     },
   };
 }

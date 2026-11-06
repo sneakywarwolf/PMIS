@@ -82,6 +82,22 @@ enum AuditAction {
   QUIZ_QUESTION_CREATED
   QUIZ_QUESTION_UPDATED
   QUIZ_QUESTION_DELETED
+  CYBERDIGEST_EVIDENCE_ADDED
+  CYBERDIGEST_EVIDENCE_RETRACTED
+  CYBERDIGEST_ZERODAY_TRANSITION
+  CYBERDIGEST_ZERODAY_APPROVED
+  CYBERDIGEST_ZERODAY_WITHDRAWN
+  CYBERDIGEST_STORY_APPROVED
+  CYBERDIGEST_STORY_REJECTED
+  CYBERDIGEST_STORY_CORRECTED
+  CYBERDIGEST_SOURCE_UPDATED
+  CYBERDIGEST_DIGEST_GENERATED
+  CYBERDIGEST_DIGEST_PUBLISHED
+  CYBERDIGEST_DIGEST_WITHDRAWN
+  CYBERDIGEST_CONFIG_UPDATED
+  CYBERDIGEST_ALLOWLIST_CHANGED
+  CYBERDIGEST_SOURCE_ADDED
+  CYBERDIGEST_BULK_APPROVED
 }
 
 enum ComplianceType {
@@ -135,6 +151,8 @@ enum NotificationType {
   QUIZ_ANSWER_REVEALED
   SYSTEM_UPDATE
   PROJECT_ASSIGNED
+  CYBERDIGEST_DIGEST
+  CYBERDIGEST_SOURCE_DOWN
 }
 
 model User {
@@ -697,4 +715,300 @@ model PatternMapScore {
   @@index([userId])
   @@index([score])
   @@map("pattern_map_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Cyberdigest (verified cybersecurity intelligence digest) - Phase 1: sources,
+// raw evidence and stories. Verification / zero-day / digest models come later.
+// ---------------------------------------------------------------------------
+
+enum DigestSourceType {
+  NEWS_RSS
+  RESEARCH_RSS
+  CVE_API
+  NVD_API
+  KEV_JSON
+}
+
+enum DigestSourceHealth {
+  UNKNOWN
+  HEALTHY
+  STALE
+  FAILING
+}
+
+// Fail-closed: a story starts PENDING and only a later verification step may move it.
+enum DigestVerificationState {
+  PENDING
+  ATTRIBUTED
+  VERIFIED
+  CONFLICTING
+  REJECTED
+  SOURCE_UNAVAILABLE
+}
+
+model DigestSource {
+  id                  String             @id @default(uuid())
+  slug                String             @unique
+  name                String
+  type                DigestSourceType
+  endpoint            String
+  website             String
+  trustRole           String // DISCOVERY | AUTHORITATIVE
+  enabled             Boolean            @default(true)
+  pollIntervalMinutes Int
+  health              DigestSourceHealth @default(UNKNOWN)
+  lastAttemptAt       DateTime?
+  lastSuccessAt       DateTime?
+  lastError           String?
+  consecutiveFailures Int                @default(0)
+  etag                String?
+  lastModified        String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  rawItems DigestRawItem[]
+  stories  DigestStory[]
+}
+
+// Immutable evidence: exactly what a source returned, with a hash. Never edited.
+model DigestRawItem {
+  id          String       @id @default(uuid())
+  sourceId    String
+  source      DigestSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  externalId  String
+  url         String
+  contentHash String
+  fetchedAt   DateTime     @default(now())
+  payload     Json
+
+  @@unique([sourceId, externalId, contentHash])
+  @@index([sourceId, fetchedAt])
+}
+
+model DigestStory {
+  id                String                  @id @default(uuid())
+  sourceId          String
+  source            DigestSource            @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  canonicalUrl      String
+  title             String
+  author            String?
+  publishedAt       DateTime? // null = the source gave no usable date; never guessed
+  updatedAtSource   DateTime?
+  ingestedAt        DateTime                @default(now())
+  lastVerifiedAt    DateTime?
+  dedupKey          String                  @unique
+  contentHash       String
+  summary           String? // extractive only: trimmed text from the source itself
+  cveIds            String[]
+  groupId           String?
+  verificationState DigestVerificationState @default(PENDING)
+  rawItemId         String?
+  categories        String[] // rule-based labels from the publisher's own text; never from a model
+  stateNote         String? // why the story is in this state (conflict detail, review reason)
+  reviewedById      String?
+  reviewedAt        DateTime?
+
+  @@unique([sourceId, canonicalUrl])
+  @@index([publishedAt])
+  @@index([groupId])
+}
+
+// ---------------------------------------------------------------------------
+// Cyberdigest phase 2: authoritative CVE / NVD / CISA KEV data.
+// Record existence, enrichment, severity and KEV status are SEPARATE facts and
+// are only ever written by the verification code from retrieved data.
+// ---------------------------------------------------------------------------
+
+enum DigestCveRecordStatus {
+  PUBLISHED
+  RESERVED
+  REJECTED
+  NOT_FOUND // CVE.org has no public record for this id (not the same as "invalid")
+  UNAVAILABLE // CVE.org could not be reached; nothing is known
+}
+
+enum DigestNvdEnrichment {
+  PENDING // NVD has no record yet, or has not finished analysis
+  ENRICHED
+  UNAVAILABLE // NVD could not be reached
+}
+
+model DigestCve {
+  id                String                @id @default(uuid())
+  cveId             String                @unique
+  recordStatus      DigestCveRecordStatus
+  description       String? // official CVE.org text, never rewritten
+  assigner          String?
+  recordPublishedAt DateTime?
+  recordUpdatedAt   DateTime?
+  affected          Json? // CNA affected products exactly as published
+  references        Json?
+  cvss              Json? // [{provider, source, version, score, vector, severity}] one entry per provider, never merged
+  maxCvssScore      Float? // highest score any provider gave; used only for filtering/sorting
+  maxCvssSeverity   String? // that same provider's own label (not calculated by PMIS)
+  vendors           String[] // vendors named by CVE.org / NVD, lower-cased, for filtering
+  nvdEnrichment     DigestNvdEnrichment   @default(PENDING)
+  nvdStatus         String? // NVD's own vulnStatus string
+  nvdLastModified   DateTime?
+  nvdAffected       Json? // CPE criteria from NVD
+  kevListed         Boolean? // null = KEV catalog unavailable, so unknown (false means checked and absent)
+  kevDateAdded      DateTime?
+  kevData           Json?
+  conflicts         Json? // authoritative sources disagree, e.g. [{field, detail}]
+  provenance        Json // {field: {source, url, retrievedAt}}
+  lastAttemptAt     DateTime?
+  lastVerifiedAt    DateTime? // last time CVE.org was successfully read
+  lastError         String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([recordStatus])
+  @@index([kevListed])
+}
+
+model DigestKevEntry {
+  cveId            String    @id
+  vendorProject    String
+  product          String
+  name             String
+  dateAdded        DateTime
+  dueDate          DateTime?
+  ransomwareUse    String
+  shortDescription String
+  notes            String?
+  catalogVersion   String
+  syncedAt         DateTime  @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Cyberdigest phase 3: zero-day classification. CONFIRMED is reachable only
+// through an analyst approval that the evidence rules allow; never automatically.
+// ---------------------------------------------------------------------------
+
+enum DigestZeroDayState {
+  CONFIRMED // confirmed zero-day exploitation (evidence rules met AND analyst approved)
+  REPORTED_UNVERIFIED // someone reports a zero-day; qualifying evidence missing
+  KNOWN_EXPLOITED_UNCONFIRMED // exploitation established; zero-day timeline is not
+  NOT_SUBSTANTIATED // evidence contradicts or fails to support the claim
+  UNKNOWN // evidence unavailable, conflicting or inconclusive
+}
+
+model DigestZeroDayCase {
+  id            String             @id @default(uuid())
+  cveId         String             @unique
+  state         DigestZeroDayState @default(REPORTED_UNVERIFIED)
+  stateReasons  Json // why the case is in this state / what evidence is missing
+  stateSetById  String? // null = set by the system rules; otherwise the analyst who chose it
+  stateSetAt    DateTime           @default(now())
+  approvedById  String? // only ever set together with state CONFIRMED
+  approvedAt    DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  evidence DigestZeroDayEvidence[]
+
+  @@index([state])
+}
+
+// Immutable once written. A mistake is corrected by retracting and adding new evidence.
+model DigestZeroDayEvidence {
+  id           String            @id @default(uuid())
+  caseId       String
+  case         DigestZeroDayCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  kind         String // EXPLOITATION_OBSERVED | PATCH_RELEASED | NO_PATCH_AVAILABLE | VENDOR_AWARENESS | DISCLOSURE | POC_PUBLIC | ZERO_DAY_CLAIM | CONTRADICTS_EXPLOITATION | CONTRADICTS_ZERO_DAY
+  sourceType   String // VENDOR | RESEARCHER | GOVERNMENT | INCIDENT_REPORT | TECHNICAL_INVESTIGATION | NEWS | SOCIAL | OTHER
+  sourceName   String
+  url          String
+  eventDate    DateTime? // the date the SOURCE states for the event; null when it gives none
+  note         String?
+  addedById    String? // null = added by the system (KEV sync, story scan)
+  system       Boolean           @default(false) // true only for rows written by the system's own sync code; no API route can set it
+  createdAt    DateTime          @default(now())
+  retractedAt  DateTime?
+  retractedById String?
+  retractReason String?
+
+  @@index([caseId])
+}
+
+// ---------------------------------------------------------------------------
+// Cyberdigest phase 5: the daily digest. The content is a frozen snapshot of what
+// passed the publication gate when it was generated; later corrections are shown
+// on top of it, never edited into it.
+// ---------------------------------------------------------------------------
+
+enum DigestIssueStatus {
+  SHADOW // generated, visible to reviewers only, nobody notified
+  PUBLISHED
+  WITHDRAWN
+}
+
+model DigestIssue {
+  id             String            @id @default(uuid())
+  digestDate     String            @unique // YYYY-MM-DD, Asia/Kolkata calendar date
+  status         DigestIssueStatus
+  generatedAt    DateTime          @default(now())
+  generatedById  String? // null = generated by the schedule
+  windowStart    DateTime
+  windowEnd      DateTime
+  content        Json
+  publishedAt    DateTime?
+  publishedById  String?
+  withdrawnAt    DateTime?
+  withdrawnById  String?
+  withdrawReason String?
+
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Cyberdigest: administrator configuration, job history and job locks.
+// ---------------------------------------------------------------------------
+
+// One row. moduleEnabledForNonAdmins and pipelineEnabled are deliberately separate switches.
+model DigestConfig {
+  id                       String   @id @default("singleton")
+  moduleEnabledForNonAdmins Boolean @default(true)
+  pipelineEnabled          Boolean  @default(true)
+  publishTime              String   @default("08:00") // HH:MM in `timezone`
+  timezone                 String   @default("Asia/Kolkata")
+  publishMode              String   @default("AUTO") // AUTO = publish when the gate passes; HOLD = keep as shadow for an admin
+  minDiscoveryCoveragePct  Int      @default(50) // share of enabled news/research sources that must be healthy to publish
+  retentionDays            Int      @default(365)
+  jobRetryBackoffMinutes   Int      @default(10)
+  linkHosts                String[] // exact hostnames users may click through to (admin-managed)
+  updatedById              String?
+  updatedAt                DateTime @updatedAt
+}
+
+model DigestJobRun {
+  id         String    @id @default(uuid())
+  job        String
+  status     String // RUNNING | OK | FAILED | SKIPPED
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  error      String?
+  detail     Json?
+
+  @@index([job, startedAt])
+}
+
+// A lease, not a permanent lock: it expires, so a crashed worker cannot block a job forever.
+model DigestLock {
+  name      String   @id
+  holder    String
+  expiresAt DateTime
+}
+
+// Append-only history of what changed and when, per entity.
+model DigestEvent {
+  id         String   @id @default(uuid())
+  entityType String
+  entityId   String
+  event      String
+  detail     Json
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
 }

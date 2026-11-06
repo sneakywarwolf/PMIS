@@ -36,6 +36,13 @@ WORKDIR /app
 # carries vulnerable tar/minimatch/etc.); Prisma's query engine needs OpenSSL on Alpine
 RUN apk upgrade --no-cache && apk add --no-cache openssl && npm install -g npm@latest
 
+# npm@latest still bundles undici 6.29.0 (three HIGH advisories, fixed in 6.29.1; same major, so npm is unaffected).
+# Swap the bundled copy until npm ships a fixed one; drop this block then.
+RUN cd /tmp && npm pack undici@6.29.1 >/dev/null && tar -xzf undici-6.29.1.tgz \
+    && rm -rf /usr/local/lib/node_modules/npm/node_modules/undici \
+    && mv package /usr/local/lib/node_modules/npm/node_modules/undici \
+    && rm undici-6.29.1.tgz
+
 # Set Node.js to production
 ENV NODE_ENV=production
 
@@ -65,5 +72,8 @@ EXPOSE 4000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD node -e "require('http').get('http://localhost:4000/settings/public-theme', (r) => r.statusCode === 200 ? process.exit(0) : process.exit(1))"
 
-# Apply migrations, seed (idempotent; creates the admin user on first run), then start
-CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/src/main"]
+# Apply migrations, seed (idempotent; creates the admin user on first run), then start. `db:migrate` first checks whether
+# the database predates the baseline migration (and stamps it if the schema matches exactly), then runs
+# `prisma migrate deploy`. If either step fails the chain stops: the container exits and does not start the app on a
+# half-migrated database.
+CMD ["sh", "-c", "npm run db:migrate && npx prisma db seed && node dist/src/main"]

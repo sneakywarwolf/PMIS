@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as Minio from 'minio';
+import {
+  S3Client, HeadBucketCommand, CreateBucketCommand, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, ListObjectsV2Command,
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { PrismaService } from '../prisma/prisma.service';
 import { quotaError } from '../common/quota';
 import { readEffectiveSettings } from '../settings/settings.store';
@@ -8,18 +11,19 @@ import { readEffectiveSettings } from '../settings/settings.store';
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
-  private readonly minioClient: Minio.Client;
+  private readonly s3: S3Client;
   private readonly bucket: string;
 
   constructor(private configService: ConfigService, private prisma: PrismaService) {
-    this.minioClient = new Minio.Client({
-      endPoint: configService.get('MINIO_ENDPOINT', 'localhost'),
-      port: parseInt(configService.get('MINIO_PORT', '9000')),
-      useSSL: configService.get('MINIO_USE_SSL', 'false') === 'true',
-      accessKey: configService.get('MINIO_ACCESS_KEY', ''),
-      secretKey: configService.get('MINIO_SECRET_KEY', ''),
+    // Any S3-compatible store (RustFS). The MINIO_* variable names are kept so existing .env files keep working.
+    const ssl = configService.get('MINIO_USE_SSL', 'false') === 'true';
+    this.s3 = new S3Client({
+      endpoint: `${ssl ? 'https' : 'http'}://${configService.get('MINIO_ENDPOINT', 'localhost')}:${parseInt(configService.get('MINIO_PORT', '9000'))}`,
+      region: 'us-east-1',
+      forcePathStyle: true,
+      credentials: { accessKeyId: configService.get('MINIO_ACCESS_KEY', ''), secretAccessKey: configService.get('MINIO_SECRET_KEY', '') },
     });
-    
+
     this.bucket = configService.get('MINIO_BUCKET', 'vapt-reports');
     this.ensureBucket();
   }
@@ -28,7 +32,7 @@ export class StorageService {
     const endpoint = this.configService.get('MINIO_ENDPOINT', 'localhost');
     const port = parseInt(this.configService.get('MINIO_PORT', '9000'));
     try {
-      await this.minioClient.bucketExists(this.bucket);
+      await this.s3.send(new HeadBucketCommand({ Bucket: this.bucket }));
       return { reachable: true, bucket: this.bucket, endpoint, port };
     } catch {
       return { reachable: false, bucket: this.bucket, endpoint, port };
@@ -37,9 +41,12 @@ export class StorageService {
 
   private async ensureBucket() {
     try {
-      const exists = await this.minioClient.bucketExists(this.bucket);
+      const exists = await this.s3.send(new HeadBucketCommand({ Bucket: this.bucket })).then(() => true, (e: any) => {
+        if (e?.$metadata?.httpStatusCode === 404 || e?.name === 'NotFound' || e?.name === 'NoSuchBucket') return false;
+        throw e;
+      });
       if (!exists) {
-        await this.minioClient.makeBucket(this.bucket, 'us-east-1');
+        await this.s3.send(new CreateBucketCommand({ Bucket: this.bucket }));
         this.logger.log(`Created bucket: ${this.bucket}`);
       }
     } catch (error) {
@@ -64,24 +71,17 @@ export class StorageService {
   async uploadFile(objectName: string, buffer: Buffer, contentType: string): Promise<string> {
     await this.assertRoomFor(buffer.length);
     if (this.used) this.used.bytes += buffer.length;
-    await this.minioClient.putObject(this.bucket, objectName, buffer, buffer.length, {
-      'Content-Type': contentType,
-    });
+    await this.s3.send(new PutObjectCommand({ Bucket: this.bucket, Key: objectName, Body: buffer, ContentLength: buffer.length, ContentType: contentType }));
     return objectName;
   }
 
   async getFile(objectName: string): Promise<Buffer> {
-    const stream = await this.minioClient.getObject(this.bucket, objectName);
-    const chunks: Buffer[] = [];
-    return new Promise((resolve, reject) => {
-      stream.on('data', (chunk) => chunks.push(chunk));
-      stream.on('end', () => resolve(Buffer.concat(chunks)));
-      stream.on('error', reject);
-    });
+    const res = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: objectName }));
+    return Buffer.from(await res.Body!.transformToByteArray());
   }
 
   async deleteFile(objectName: string): Promise<void> {
-    await this.minioClient.removeObject(this.bucket, objectName);
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: objectName }));
   }
 
   /**
@@ -91,22 +91,19 @@ export class StorageService {
    * should never leak into the user-facing filename.
    */
   getPresignedUrl(objectName: string, expirySeconds: number = 3600, downloadFileName?: string): Promise<string> {
-    const reqParams = downloadFileName
-      ? { 'response-content-disposition': `attachment; filename="${downloadFileName.replace(/["\\\r\n]/g, '_')}"` }
-      : undefined;
-    return this.minioClient.presignedGetObject(this.bucket, objectName, expirySeconds, reqParams);
+    const disposition = downloadFileName ? `attachment; filename="${downloadFileName.replace(/["\\\r\n]/g, '_')}"` : undefined;
+    return getSignedUrl(this.s3, new GetObjectCommand({ Bucket: this.bucket, Key: objectName, ResponseContentDisposition: disposition }), { expiresIn: expirySeconds });
   }
 
   /** Live sum of every object's size in the bucket, in bytes. */
   async getUsedBytes(): Promise<number> {
-    return new Promise((resolve, reject) => {
-      let total = 0;
-      const stream = this.minioClient.listObjectsV2(this.bucket, '', true);
-      stream.on('data', (obj) => {
-        total += obj.size || 0;
-      });
-      stream.on('end', () => resolve(total));
-      stream.on('error', reject);
-    });
+    let total = 0;
+    let token: string | undefined;
+    do {
+      const page = await this.s3.send(new ListObjectsV2Command({ Bucket: this.bucket, ContinuationToken: token }));
+      for (const o of page.Contents ?? []) total += o.Size || 0;
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return total;
   }
 }

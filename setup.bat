@@ -57,18 +57,14 @@ if errorlevel 1 (
 echo [5/6] Setting up database...
 call npx prisma generate
 
-REM Check if this is a fresh database or has existing migrations
-FOR /F "tokens=*" %%g IN ('npx prisma migrate status 2^>^&1 ^| findstr "Database schema is up to date"') do (
-    echo      Database already up to date. Skipping migrations.
-    goto MIGRATIONS_DONE
-)
-
-REM Fresh database or pending migrations — use deploy for non-interactive apply
+REM Apply the version-controlled migrations (checks first whether the database predates the baseline migration, then
+REM runs prisma migrate deploy). Never falls back to "migrate dev": that can propose resetting a database that holds data.
 echo      Applying migrations...
-call npx prisma migrate deploy
+call npm run db:migrate
 if errorlevel 1 (
-    echo [WARN] migrate deploy failed, trying migrate dev...
-    call npx prisma migrate dev --name init
+    echo [ERROR] Database migration failed. Check the error above. The database was not changed by a failed step.
+    pause
+    exit /b 1
 )
 
 :MIGRATIONS_DONE

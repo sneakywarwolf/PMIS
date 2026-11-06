@@ -6,7 +6,7 @@ describe('StorageService storage quota', () => {
     const prisma = { appSettings: { findUnique: jest.fn().mockResolvedValue({ data: { system: { totalStorageQuotaMb: quotaMb } }, updatedAt: new Date(), updatedById: null }) } } as any;
     const svc = new StorageService(config, prisma);
     const put = jest.fn().mockResolvedValue(undefined);
-    (svc as any).minioClient = { putObject: put };
+    (svc as any).s3 = { send: put };
     svc.getUsedBytes = jest.fn().mockResolvedValue(usedBytes);
     return { svc, put, prisma };
   };

@@ -34,7 +34,7 @@ npm install
 
 echo "[5/6] Setting up database..."
 npx prisma generate
-npx prisma migrate dev --name init
+npm run db:migrate
 npx prisma db seed
 
 echo "[6/6] Starting backend server..."

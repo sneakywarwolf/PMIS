@@ -379,9 +379,8 @@ export class ReportsService {
 
     // Activating (= approving) a template replaces whatever was active for the same category + Activity Type +
     // report format. Projects explicitly pinned to a replaced template are rebound to the new one first, so
-    // Template Mapping and future generation resolve against the new template at once. A replaced template that
-    // generated reports still point at is kept, inactive (history and audit); one nothing references is deleted,
-    // file included. Reports already generated are never touched.
+    // Template Mapping and future generation resolve against the new template at once. The replaced template is
+    // deleted, file included. Reports already generated are never touched.
     //
     // All of it is one transaction, serialised per category + format by an advisory lock: a failure part-way
     // leaves the previously active template exactly as it was, and two concurrent activations cannot both win.
@@ -417,12 +416,10 @@ export class ReportsService {
         if (rebound.count > 0) {
           this.logger.log(`Rebound ${rebound.count} project(s) from replaced template ${old.id} to ${id}`);
         }
-        if ((await tx.reportGeneration.count({ where: { templateId: old.id } })) > 0) {
-          await tx.reportTemplate.update({ where: { id: old.id }, data: { isActive: false, effectiveTo: new Date() } });
-        } else {
-          await tx.reportTemplate.delete({ where: { id: old.id } });
-          orphanedFiles.push(old.filePath);
-        }
+        // The replaced template is always deleted, never kept as an inactive copy in Browse Templates. Reports it
+        // already generated keep their files: their pointer to the template is cleared (templateId is SetNull).
+        await tx.reportTemplate.delete({ where: { id: old.id } });
+        orphanedFiles.push(old.filePath);
       }
       return tx.reportTemplate.update({ where: { id }, data: { isActive: true } });
     });
@@ -1029,7 +1026,8 @@ export class ReportsService {
       description: isVa ? nessusTextForReport(stripNessusBoilerplate(f.vulnerability.description)) : f.vulnerability.description,
       impact: f.vulnerability.impact,
       remediation: f.vulnerability.remediation,
-      references: f.vulnerability.references,
+      // Fortify references are a numbered list ([1] ..., [2] ...): one per line, which Word only does for the line-separator marker.
+      references: f.classification === 'SCR Finding' ? String(f.vulnerability.references ?? '').replace(/\r?\n/g, LINE_SEP) : f.vulnerability.references,
       cveId: f.vulnerability.cveId,
       cweId: f.vulnerability.cweId,
       affectedInstances: (f.affectedInstances || []).join('\n'),
