@@ -76,13 +76,13 @@ cd PMIS</code></pre>
 <pre><code>copy .env.example .env</code></pre>
 
     <p><strong>3a. Fill in the four required secrets.</strong> Each one must be its own long random value. Linux, macOS and Git Bash:</p>
-<pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
+<pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD REDIS_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
   sed -i.bak "s|^$k=CHANGE_ME|$k=$(openssl rand -hex 32)|" .env
 done
 rm -f .env.bak
 grep '=CHANGE_ME' .env || echo "All secrets set"</code></pre>
     <p>Windows PowerShell, run inside the PMIS folder:</p>
-<pre><code>$names = 'POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'
+<pre><code>$names = 'POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD', 'REDIS_PASSWORD', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'
 $lines = Get-Content .env
 foreach ($name in $names) {
   $bytes = New-Object byte[] 32
@@ -144,13 +144,13 @@ curl.exe -fsSL https://raw.githubusercontent.com/sneakywarwolf/PMIS/master/.env.
 
     <h3>3. Set the secrets in <code>.env</code></h3>
     <p><strong>3a. Fill in the four required secrets.</strong> Linux, macOS and Git Bash:</p>
-<pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
+<pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD REDIS_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
   sed -i.bak "s|^$k=CHANGE_ME|$k=$(openssl rand -hex 32)|" .env
 done
 rm -f .env.bak
 grep '=CHANGE_ME' .env || echo "All secrets set"</code></pre>
     <p>Windows PowerShell, run inside the <code>pmis</code> folder:</p>
-<pre><code>$names = 'POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'
+<pre><code>$names = 'POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD', 'REDIS_PASSWORD', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'
 $lines = Get-Content .env
 foreach ($name in $names) {
   $bytes = New-Object byte[] 32

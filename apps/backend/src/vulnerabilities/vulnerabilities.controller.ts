@@ -52,7 +52,7 @@ export class VulnerabilitiesController {
     @Res() response: Response,
   ) {
     const csv = await this.vulnerabilitiesService.exportToCsv(severity);
-    const filename = severity ? `vulnerabilities-${severity.toLowerCase()}.csv` : 'vulnerabilities-all.csv';
+    const filename = severity ? `vulnerabilities-${String(severity).toLowerCase().replace(/[^a-z0-9_-]/g, '_').slice(0, 40)}.csv` : 'vulnerabilities-all.csv';
 
     response.setHeader('Content-Type', 'text/csv');
     response.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

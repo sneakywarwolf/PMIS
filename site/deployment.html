@@ -118,6 +118,7 @@ server {
       <tbody>
         <tr><td><code>POSTGRES_PASSWORD</code></td><td>Yes</td><td>none</td><td>Database password. Changing it later requires changing it inside the database too, so set it once.</td></tr>
         <tr><td><code>MINIO_ROOT_PASSWORD</code></td><td>Yes</td><td>none</td><td>Secret key of the object storage. The name is kept from earlier versions so existing <code>.env</code> files work.</td></tr>
+        <tr><td><code>REDIS_PASSWORD</code></td><td>Yes</td><td>none</td><td>Password of the Redis cache (sessions, rate limits, job queue). Every connection must authenticate. Use a hex value (<code>openssl rand -hex 32</code>) so it is safe inside the connection URL. Existing installs: add this line to <code>.env</code> before the next <code>docker compose up</code>.</td></tr>
         <tr><td><code>JWT_ACCESS_SECRET</code></td><td>Yes</td><td>none</td><td>Signs sign-in session tokens</td></tr>
         <tr><td><code>JWT_REFRESH_SECRET</code></td><td>Yes</td><td>none</td><td>Signs session renewals. Must differ from the access secret.</td></tr>
         <tr><td><code>RUSTFS_IMAGE</code></td><td>No</td><td><code>rustfs/rustfs:1.0.3</code></td><td>Object storage image. Pin a version or digest in production.</td></tr>
@@ -168,7 +169,7 @@ server {
 docker compose exec -T postgres pg_dump -U pmis -d pmis -Fc &gt; backup/pmis-db-$D.dump
 
 # 2. Redis: write a snapshot to disk, then archive the volume
-docker compose exec -T redis redis-cli SAVE
+docker compose exec -T redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --no-auth-warning SAVE'
 docker run --rm -v pmis_redis_data:/data:ro -v "$PWD/backup":/backup postgres:16.4-alpine   tar czpf /backup/pmis-redis-$D.tgz -C /data .
 
 # 3. RustFS: archive the volume (templates, reports, screenshots)

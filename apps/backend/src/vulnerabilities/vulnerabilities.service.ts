@@ -87,6 +87,17 @@ export class VulnerabilitiesService {
     return this.visibleVuln(id, viewer);
   }
 
+  /**
+   * Only the library's own content fields ever reach the database. The controllers take the body as `any` (the global
+   * validation pipe only filters typed DTOs), so without this a caller could also set status, isActive, requestedById,
+   * reviewedById, id and the like: approving their own entry or forging who requested or reviewed it.
+   */
+  private pickContent(data: any) {
+    const out: any = {};
+    for (const field of this.EDITABLE_FIELDS) if (data?.[field] !== undefined) out[field] = data[field];
+    return out;
+  }
+
   async create(data: {
     name: string;
     severity: string;
@@ -100,7 +111,7 @@ export class VulnerabilitiesService {
     cweId?: string;
     category?: string;
   }, actorId?: string) {
-    const created = await this.prisma.vulnerability.create({ data: data as any });
+    const created = await this.prisma.vulnerability.create({ data: this.pickContent(data) });
     if (actorId) {
       await this.auditService.log({
         actorId,
@@ -275,7 +286,7 @@ export class VulnerabilitiesService {
 
     const updated = await this.prisma.vulnerability.update({
       where: { id },
-      data,
+      data: this.pickContent(data),
     });
 
     // Notify requester if this was a requested vulnerability
@@ -386,7 +397,7 @@ export class VulnerabilitiesService {
   createRequest(db: Pick<PrismaService, 'vulnerability'>, data: any, requestedById: string) {
     return db.vulnerability.create({
       data: {
-        ...data,
+        ...this.pickContent(data),
         status: VulnerabilityStatus.PENDING,
         requestedById,
       } as any,
@@ -520,7 +531,7 @@ export class VulnerabilitiesService {
       const row = [
         i + 1,
         this.escapeCsv(v.name),
-        v.severity,
+        this.escapeCsv(v.severity), // free text in the database: a stored =HYPERLINK(...) must not become a live formula
         v.cvssScore ?? '',
         this.escapeCsv(stripCvssPrefix(v.cvssVector)),
         this.escapeCsv(v.description),

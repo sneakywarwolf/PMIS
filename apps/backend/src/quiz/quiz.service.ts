@@ -153,9 +153,11 @@ export class QuizService {
 
     try {
       // pointsAwarded stays 0 until revealQuestion scores it at the 24-hour reveal.
-      return await this.prisma.quizAttempt.create({
+      const { isCorrect: _hidden, pointsAwarded: _score, ...visible } = await this.prisma.quizAttempt.create({
         data: { questionId, userId, selectedOption, isCorrect, pointsAwarded: 0 },
       });
+      // Correctness stays hidden until the 24-hour reveal (see revealedAttemptsWhere); answering must not be an oracle for it.
+      return visible;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('You have already answered this question.');

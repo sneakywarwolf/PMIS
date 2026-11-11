@@ -11,6 +11,17 @@ services:
     build:
       context: ./apps/frontend
     restart: unless-stopped
+    # Hardening: no privilege gain, no Linux capabilities (the app only listens on an unprivileged port), bounded process count.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
+    # Read-only root filesystem: the app writes only to these in-memory scratch areas (Next's image cache, temp files).
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+      - /app/.next/cache:size=256m
     depends_on:
       - backend
     ports:
@@ -25,18 +36,28 @@ services:
         # "latest" is not a version and is ignored (package.json is used instead).
         APP_VERSION: ${PMIS_VERSION:-}
     restart: unless-stopped
+    # Hardening: no privilege gain, no Linux capabilities (the app only listens on an unprivileged port), bounded process count.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
+    # Read-only root filesystem: the app writes only to this in-memory scratch area (uploads are streamed or held in memory).
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       rustfs:
         condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: "4000"
       DATABASE_URL: postgresql://pmis:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/pmis?schema=public
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env (openssl rand -hex 32)}@redis:6379
       MINIO_ENDPOINT: rustfs
       MINIO_PORT: "9000"
       MINIO_USE_SSL: "false"
@@ -75,7 +96,18 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env (openssl rand -hex 32)}
+    # Password required for every connection (the stack's network is internal, but any container on it could otherwise
+    # read or tamper with sessions, rate limits and job queues). Use a hex value so it is safe inside the REDIS_URL.
+    command: ["sh", "-c", "exec redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction --requirepass \"$$REDIS_PASSWORD\""]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # S3-compatible object storage (reports, templates, PoC images). The backend's MINIO_* settings and the
   # MINIO_ROOT_* variables keep their names so existing .env files work; they are the S3 access and secret key.

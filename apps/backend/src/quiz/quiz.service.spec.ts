@@ -161,7 +161,8 @@ describe('QuizService.submitAnswer', () => {
 
     const result = await service.submitAnswer('u1', 'q1', 2);
 
-    expect(result.isCorrect).toBe(true);
+    // Stored, but never returned: correctness is hidden until the reveal.
+    expect(result).toEqual({ id: 'a1' });
     expect(prisma.quizAttempt.create).toHaveBeenCalledWith({
       data: { questionId: 'q1', userId: 'u1', selectedOption: 2, isCorrect: true, pointsAwarded: 0 },
     });
