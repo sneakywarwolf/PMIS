@@ -36,7 +36,25 @@ describe('delegated user management cannot reach Admin accounts', () => {
   });
 
   it('a non-admin cannot change their own role', async () => {
-    await expect(svc.update('t1', { role: UserRole.AVP } as any, 't1', 'ip', 'ua', UserRole.TESTER)).rejects.toThrow(/own role/);
+    await expect(svc.update('t1', { role: UserRole.AVP } as any, 't1', 'ip', 'ua', UserRole.TESTER)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('a Team Lead can only manage Testers of their own team, and only as Testers', async () => {
+    prisma.user.findUnique.mockImplementation(async ({ where }: any) => ({
+      adm: adminRow,
+      mine: { id: 'mine', role: UserRole.TESTER, assignedTlId: 'tl1' },
+      theirs: { id: 'theirs', role: UserRole.TESTER, assignedTlId: 'tl2' },
+      peer: { id: 'peer', role: UserRole.TEAM_LEAD, assignedTlId: null },
+    } as any)[where.id] ?? null);
+    for (const id of ['theirs', 'peer']) {
+      await expect(svc.forcePasswordReset(id, 'tl1', 'ip', 'ua', UserRole.TEAM_LEAD)).rejects.toThrow(ForbiddenException);
+      await expect(svc.softDelete(id, 'tl1', 'ip', 'ua', UserRole.TEAM_LEAD)).rejects.toThrow(ForbiddenException);
+      await expect(svc.update(id, { email: 'a@b.co' } as any, 'tl1', 'ip', 'ua', UserRole.TEAM_LEAD)).rejects.toThrow(ForbiddenException);
+    }
+    await expect(svc.update('mine', { role: UserRole.AVP } as any, 'tl1', 'ip', 'ua', UserRole.TEAM_LEAD)).rejects.toThrow(ForbiddenException);
+    await expect(svc.update('mine', { assignedTlId: 'tl2' } as any, 'tl1', 'ip', 'ua', UserRole.TEAM_LEAD)).rejects.toThrow(ForbiddenException);
+    await expect(svc.create({ username: 'n', email: 'n@x.co', role: UserRole.TESTER, assignedTlId: 'tl2' } as any, 'tl1', 'ip', 'ua', UserRole.TEAM_LEAD)).rejects.toThrow(ForbiddenException);
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
   it('fails closed when the caller role is not supplied', async () => {

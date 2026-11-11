@@ -45,4 +45,11 @@ describe('AuthService.validateUser: no account enumeration', () => {
     expect(err).toBeInstanceOf(UnauthorizedException);
     expect(err.message).toMatch(/temporarily locked/);
   });
+
+  it('does the password-hash work for a locked real account too', async () => {
+    prisma.user.findUnique.mockResolvedValue({ id: 'u', username: 'real', isActive: true, passwordHash: 'h' });
+    const svc = new AuthService(prisma, {} as any, { isAccountLocked: jest.fn().mockResolvedValue(true) } as any, { get: jest.fn() } as any, {} as any, {} as any);
+    await expect(svc.validateUser('real', 'x', 'ip', 'ua')).rejects.toThrow(/temporarily locked/);
+    expect(verifySpy).toHaveBeenCalledTimes(1);
+  });
 });

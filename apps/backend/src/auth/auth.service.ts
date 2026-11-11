@@ -66,6 +66,7 @@ export class AuthService {
     const isLocked = await this.redisService.isAccountLocked(lockoutKey);
     if (isLocked) {
       this.logger.warn(`Login attempt on locked account: ${lockoutKey} from ${ipAddress}`);
+      await argon2.verify(await this.getDummyHash(), password).catch(() => false); // same cost as every other rejection
       throw new UnauthorizedException('Account is temporarily locked. Please try again in 15 minutes.');
     }
 

@@ -14,12 +14,19 @@ import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
 const TL_ROLES: UserRole[] = [UserRole.TEAM_LEAD, UserRole.AVP, UserRole.ADMIN];
 
 /**
- * Settings > RBAC lets an Admin hand user-management features to other roles. That must never become a route to the
- * Admin role: only an Admin may create, promote, edit, reset or deactivate an Admin account, or change their own role.
+ * Settings > RBAC lets an Admin hand user-management features to other roles. That must never become a route to
+ * higher privilege or to other teams: a non-Admin (or an unknown caller) may only create users as Testers of their own
+ * team, and may only edit, reset or deactivate Testers assigned to them: the same scope findOne/findAll apply.
  */
-function assertAdminAccountsOnlyForAdmins(actorRole: string | undefined, ...roles: (string | undefined)[]) {
-  if (actorRole !== UserRole.ADMIN && roles.includes(UserRole.ADMIN)) {
-    throw new ForbiddenException('Only an Admin can create or manage Admin accounts.');
+function assertMayAssignRole(actorRole: string | undefined, role: string | undefined) {
+  if (actorRole !== UserRole.ADMIN && role !== undefined && role !== UserRole.TESTER) {
+    throw new ForbiddenException('You can only manage Tester accounts.');
+  }
+}
+function assertMayManageTarget(actorRole: string | undefined, actorId: string, target: { role: string; assignedTlId?: string | null }) {
+  if (actorRole === UserRole.ADMIN) return;
+  if (target.role !== UserRole.TESTER || target.assignedTlId !== actorId) {
+    throw new ForbiddenException('You can only manage Tester accounts assigned to you.');
   }
 }
 
@@ -108,7 +115,11 @@ export class UsersService {
   }
 
   async create(dto: CreateUserDto, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
-    assertAdminAccountsOnlyForAdmins(actorRole, dto.role);
+    assertMayAssignRole(actorRole, dto.role);
+    if (actorRole !== UserRole.ADMIN) {
+      if (dto.assignedTlId && dto.assignedTlId !== adminId) throw new ForbiddenException('You can only add Testers to your own team.');
+      dto = { ...dto, assignedTlId: adminId };
+    }
     const existing = await this.prisma.user.findFirst({
       where: {
         OR: [{ username: dto.username }, { email: dto.email }],
@@ -193,9 +204,10 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    assertAdminAccountsOnlyForAdmins(actorRole, user.role, dto.role);
-    if (actorRole !== UserRole.ADMIN && id === adminId && dto.role && dto.role !== user.role) {
-      throw new ForbiddenException('You cannot change your own role.');
+    assertMayManageTarget(actorRole, adminId, user);
+    assertMayAssignRole(actorRole, dto.role);
+    if (actorRole !== UserRole.ADMIN && dto.assignedTlId !== undefined && dto.assignedTlId !== adminId) {
+      throw new ForbiddenException('You can only keep Testers in your own team.');
     }
 
     // Check for duplicate username/email on other users
@@ -276,7 +288,7 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    assertAdminAccountsOnlyForAdmins(actorRole, user.role);
+    assertMayManageTarget(actorRole, adminId, user);
 
     const { settings } = await this.settingsService.get();
     const tempPassword = this.generateSecurePassword(
@@ -367,7 +379,7 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    assertAdminAccountsOnlyForAdmins(actorRole, user.role);
+    assertMayManageTarget(actorRole, adminId, user);
 
     // Data is purged by the retention cron after the 24h grace period expires
     // (see RetentionService.deleteExpiredUsers), not here — reactivating
@@ -596,8 +608,8 @@ export class UsersService {
         results.errors.push(`Row ${i + 1}: Invalid role "${roleStr}". Valid: Admin, AVP, Team Lead, Tester.`);
         continue;
       }
-      if (role === UserRole.ADMIN && actorRole !== UserRole.ADMIN) {
-        results.errors.push(`Row ${i + 1}: Only an Admin can create Admin accounts.`);
+      if (role !== UserRole.TESTER && actorRole !== UserRole.ADMIN) {
+        results.errors.push(`Row ${i + 1}: You can only add Tester accounts.`);
         continue;
       }
 
@@ -620,6 +632,7 @@ export class UsersService {
         );
         if (tl) assignedTlId = tl.id;
       }
+      if (actorRole !== UserRole.ADMIN) assignedTlId = adminId; // non-Admins add Testers to their own team only
 
       // Look up Manager by full name (case-insensitive, active, role AVP)
       let managerId: string | null = null;
