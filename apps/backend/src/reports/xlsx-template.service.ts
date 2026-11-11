@@ -185,7 +185,8 @@ export class XlsxTemplateService {
     const unescape = (s: string) => s.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
     const sheets = [...wbXml.matchAll(/<sheet\b[^>]*>/g)].map((m) => {
       const rid = /r:id="([^"]+)"/.exec(m[0])?.[1];
-      const target = new RegExp(`<Relationship\\b[^>]*Id="${rid}"[^>]*>`).exec(relsXml)?.[0].match(/Target="([^"]+)"/)?.[1] ?? '';
+      // rid comes from the uploaded template: escape it so it can only ever be matched literally, never act as a pattern.
+      const target = new RegExp(`<Relationship\\b[^>]*Id="${(rid ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>`).exec(relsXml)?.[0].match(/Target="([^"]+)"/)?.[1] ?? '';
       return { name: /name="([^"]*)"/.exec(m[0])?.[1] ?? '', path: target.startsWith('/') ? target.slice(1) : 'xl/' + target };
     });
     const moves: { sheet: string; at: number; k: number }[] = [];

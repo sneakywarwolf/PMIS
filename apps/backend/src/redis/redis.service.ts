@@ -63,13 +63,15 @@ export class RedisService extends Redis implements OnModuleDestroy {
   }
 
   async revokeAllUserTokens(userId: string): Promise<void> {
-    const keys = await this.keys(`refresh_token:*`);
-    for (const key of keys) {
-      const uid = await this.get(key);
-      if (uid === userId) {
-        await this.del(key);
+    // SCAN, not KEYS: KEYS walks the whole keyspace in one blocking call, stalling every login and request on this Redis.
+    let cursor = '0';
+    do {
+      const [next, keys] = await this.scan(cursor, 'MATCH', 'refresh_token:*', 'COUNT', 500);
+      cursor = next;
+      for (const key of keys) {
+        if ((await this.get(key)) === userId) await this.del(key);
       }
-    }
+    } while (cursor !== '0');
   }
 
   // Rate limiting methods

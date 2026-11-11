@@ -20,7 +20,7 @@ function makeService(security: { passwordMinLength: number; passwordRequireCompl
 describe('UsersService.forcePasswordReset temp password', () => {
   it.each([8, 10, 14, 32])('uses the admin-configured length (%i)', async (len) => {
     const { service } = makeService({ passwordMinLength: len, passwordRequireComplexity: true });
-    const { tempPassword } = await service.forcePasswordReset('u1', 'admin', 'ip', 'ua');
+    const { tempPassword } = await service.forcePasswordReset('u1', 'admin', 'ip', 'ua', 'ADMIN');
     expect(tempPassword).toHaveLength(len);
   });
 
@@ -28,7 +28,7 @@ describe('UsersService.forcePasswordReset temp password', () => {
     const { service } = makeService({ passwordMinLength: 8, passwordRequireComplexity: true });
     // 8 = the smallest allowed policy length, so only the guaranteed picks plus 4 random chars
     for (let i = 0; i < 50; i++) {
-      const { tempPassword: p } = await service.forcePasswordReset('u1', 'admin', 'ip', 'ua');
+      const { tempPassword: p } = await service.forcePasswordReset('u1', 'admin', 'ip', 'ua', 'ADMIN');
       expect(p).toMatch(/[a-z]/);
       expect(p).toMatch(/[A-Z]/);
       expect(p).toMatch(/[0-9]/);
@@ -38,14 +38,14 @@ describe('UsersService.forcePasswordReset temp password', () => {
 
   it('revokes every existing session of the user on admin reset', async () => {
     const { service, redis } = makeService({ passwordMinLength: 10, passwordRequireComplexity: false });
-    await service.forcePasswordReset('u1', 'admin', 'ip', 'ua');
+    await service.forcePasswordReset('u1', 'admin', 'ip', 'ua', 'ADMIN');
     expect(redis.revokeAllUserTokens).toHaveBeenCalledWith('u1');
     expect(redis.clearActiveSession).toHaveBeenCalledWith('u1');
   });
 
   it('still hashes and stores the generated password with the force-change flag', async () => {
     const { service, prisma } = makeService({ passwordMinLength: 10, passwordRequireComplexity: false });
-    const { tempPassword } = await service.forcePasswordReset('u1', 'admin', 'ip', 'ua');
+    const { tempPassword } = await service.forcePasswordReset('u1', 'admin', 'ip', 'ua', 'ADMIN');
     const data = prisma.user.update.mock.calls[0][0].data;
     expect(data.isForcePasswordChange).toBe(true);
     expect(data.passwordHash).toMatch(/^hashed:/);

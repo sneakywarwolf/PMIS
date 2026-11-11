@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -12,6 +12,16 @@ import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
 
 // Roles that can lead a team (be assigned testers). Admins can act as team leads too.
 const TL_ROLES: UserRole[] = [UserRole.TEAM_LEAD, UserRole.AVP, UserRole.ADMIN];
+
+/**
+ * Settings > RBAC lets an Admin hand user-management features to other roles. That must never become a route to the
+ * Admin role: only an Admin may create, promote, edit, reset or deactivate an Admin account, or change their own role.
+ */
+function assertAdminAccountsOnlyForAdmins(actorRole: string | undefined, ...roles: (string | undefined)[]) {
+  if (actorRole !== UserRole.ADMIN && roles.includes(UserRole.ADMIN)) {
+    throw new ForbiddenException('Only an Admin can create or manage Admin accounts.');
+  }
+}
 
 /** Phone numbers saved without a country code get +91. Blank stays blank. */
 export const withDefaultPrefix = (phone?: string | null) => {
@@ -97,7 +107,8 @@ export class UsersService {
     return user;
   }
 
-  async create(dto: CreateUserDto, adminId: string, ipAddress: string, userAgent: string) {
+  async create(dto: CreateUserDto, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
+    assertAdminAccountsOnlyForAdmins(actorRole, dto.role);
     const existing = await this.prisma.user.findFirst({
       where: {
         OR: [{ username: dto.username }, { email: dto.email }],
@@ -177,10 +188,14 @@ export class UsersService {
     return { ...user, tempPassword };
   }
 
-  async update(id: string, dto: UpdateUserDto, adminId: string, ipAddress: string, userAgent: string) {
+  async update(id: string, dto: UpdateUserDto, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+    assertAdminAccountsOnlyForAdmins(actorRole, user.role, dto.role);
+    if (actorRole !== UserRole.ADMIN && id === adminId && dto.role && dto.role !== user.role) {
+      throw new ForbiddenException('You cannot change your own role.');
     }
 
     // Check for duplicate username/email on other users
@@ -256,11 +271,12 @@ export class UsersService {
     return updated;
   }
 
-  async forcePasswordReset(userId: string, adminId: string, ipAddress: string, userAgent: string) {
+  async forcePasswordReset(userId: string, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
+    assertAdminAccountsOnlyForAdmins(actorRole, user.role);
 
     const { settings } = await this.settingsService.get();
     const tempPassword = this.generateSecurePassword(
@@ -346,11 +362,12 @@ export class UsersService {
     });
   }
 
-  async softDelete(id: string, adminId: string, ipAddress: string, userAgent: string) {
+  async softDelete(id: string, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
+    assertAdminAccountsOnlyForAdmins(actorRole, user.role);
 
     // Data is purged by the retention cron after the 24h grace period expires
     // (see RetentionService.deleteExpiredUsers), not here — reactivating
@@ -511,7 +528,7 @@ export class UsersService {
     return `${headers}\n${sampleRow}\n`;
   }
 
-  async bulkUpload(csvContent: string, adminId: string, ipAddress: string, userAgent: string) {
+  async bulkUpload(csvContent: string, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
     const allRows = parseCsv(csvContent.trim());
     if (allRows.length < 2) {
       throw new BadRequestException('CSV file is empty or missing data rows.');
@@ -577,6 +594,10 @@ export class UsersService {
       const role = this.mapRole(roleStr);
       if (!role) {
         results.errors.push(`Row ${i + 1}: Invalid role "${roleStr}". Valid: Admin, AVP, Team Lead, Tester.`);
+        continue;
+      }
+      if (role === UserRole.ADMIN && actorRole !== UserRole.ADMIN) {
+        results.errors.push(`Row ${i + 1}: Only an Admin can create Admin accounts.`);
         continue;
       }
 

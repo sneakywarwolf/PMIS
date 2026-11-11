@@ -36,13 +36,13 @@ describe('UsersService.softDelete', () => {
   it('throws NotFoundException when the user does not exist', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
 
-    await expect(service.softDelete('u1', 'admin1', '1.2.3.4', 'jest')).rejects.toThrow(NotFoundException);
+    await expect(service.softDelete('u1', 'admin1', '1.2.3.4', 'jest', 'ADMIN')).rejects.toThrow(NotFoundException);
   });
 
   it('deactivates the user and starts the 24h grace period without purging any data', async () => {
     prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
 
-    const result = await service.softDelete('u1', 'admin1', '1.2.3.4', 'jest');
+    const result = await service.softDelete('u1', 'admin1', '1.2.3.4', 'jest', 'ADMIN');
 
     expect(prisma.user.update).toHaveBeenCalledWith({
       where: { id: 'u1' },
@@ -87,7 +87,7 @@ describe('UsersService.bulkUpload', () => {
       '1,Jane Doe,jane@example.com,555-1234,QA,Tester,,',
     ].join('\n');
 
-    await expect(service.bulkUpload(badCsv, 'admin1', '1.2.3.4', 'jest')).rejects.toThrow(
+    await expect(service.bulkUpload(badCsv, 'admin1', '1.2.3.4', 'jest', 'ADMIN')).rejects.toThrow(
       'Missing or incorrect header(s): Email',
     );
     expect(prisma.user.create).not.toHaveBeenCalled();
@@ -99,7 +99,7 @@ describe('UsersService.bulkUpload', () => {
       'jane@example.com,1,Tester,Jane Doe,555-1234,QA,,',
     ].join('\n');
 
-    const results = await service.bulkUpload(reorderedCsv, 'admin1', '1.2.3.4', 'jest');
+    const results = await service.bulkUpload(reorderedCsv, 'admin1', '1.2.3.4', 'jest', 'ADMIN');
 
     expect(prisma.user.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ email: 'jane@example.com', fullName: 'Jane Doe' }) }),

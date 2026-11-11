@@ -23,6 +23,12 @@ export class AuthService {
     private settingsService: SettingsService,
   ) {}
 
+  private dummyHash?: Promise<string>;
+  /** A real argon2id hash (same parameters as user hashes) to verify against when no such user exists. */
+  private getDummyHash(): Promise<string> {
+    return (this.dummyHash ??= argon2.hash(uuidv4(), { type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 4 }));
+  }
+
   async validateUser(username: string, password: string, ipAddress: string, userAgent: string) {
     const normalizedInput = username.trim();
 
@@ -38,17 +44,19 @@ export class AuthService {
       });
     }
 
-    // 3. Try case-insensitive email match (manual fallback)
+    // 3. Try case-insensitive email match (in the database: no user-list scan, no 500-user cap, no hashes loaded for every account)
     if (!user && normalizedInput.includes('@')) {
-      const allUsers = await this.prisma.user.findMany({
-        select: { id: true, username: true, email: true, passwordHash: true, role: true, fullName: true, isActive: true, assignedTlId: true, isForcePasswordChange: true, lastLoginAt: true },
-        take: 500,
-      });
-      user = (allUsers.find(u => u.email && u.email.toLowerCase() === normalizedInput.toLowerCase()) as any) || null;
+      user = await this.prisma.user.findFirst({ where: { email: { equals: normalizedInput, mode: 'insensitive' } } });
     }
 
     if (!user || !user.isActive) {
-      await this.redisService.incrementLoginAttempts(normalizedInput);
+      // Unknown and disabled accounts must look exactly like a wrong password: same hashing work (no timing tell)
+      // and the same lock-out message after the same number of attempts (no "locked" tell that proves a name exists).
+      await argon2.verify(await this.getDummyHash(), password).catch(() => false);
+      const attempts = await this.redisService.incrementLoginAttempts(normalizedInput);
+      if (attempts >= this.configService.get<number>('MAX_LOGIN_ATTEMPTS', 5)) {
+        throw new UnauthorizedException('Account is temporarily locked. Please try again in 15 minutes.');
+      }
       throw new UnauthorizedException('Invalid credentials');
     }
 

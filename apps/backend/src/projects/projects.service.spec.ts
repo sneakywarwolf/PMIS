@@ -81,14 +81,17 @@ describe('ProjectsService.remove', () => {
   let service: ProjectsService;
   let audit: { log: jest.Mock };
   let projectPurge: { loadPurgeableProject: jest.Mock; purgeProject: jest.Mock };
+  let prisma: any;
+  const admin = { id: 'admin-1', role: 'ADMIN' } as any;
 
   beforeEach(async () => {
     audit = { log: jest.fn() };
     projectPurge = { loadPurgeableProject: jest.fn(), purgeProject: jest.fn() };
+    prisma = { project: { findUnique: jest.fn().mockResolvedValue({ id: 'p1', testerId: 't1', tlId: 'tl1', tester: { assignedTlId: 'tl1' } }) } };
     const moduleRef = await Test.createTestingModule({
       providers: [
         ProjectsService,
-        { provide: PrismaService, useValue: {} },
+        { provide: PrismaService, useValue: prisma },
         { provide: AuditService, useValue: audit },
         { provide: SettingsService, useValue: {} },
         { provide: NotificationsService, useValue: {} },
@@ -102,7 +105,7 @@ describe('ProjectsService.remove', () => {
     projectPurge.loadPurgeableProject.mockResolvedValue({ id: 'p1' });
     projectPurge.purgeProject.mockResolvedValue({ filesDeleted: 3 });
 
-    const result = await service.remove('p1', 'admin-1', '1.2.3.4', 'jest');
+    const result = await service.remove('p1', admin, '1.2.3.4', 'jest');
 
     expect(projectPurge.purgeProject).toHaveBeenCalledWith({ id: 'p1' });
     expect(audit.log).toHaveBeenCalledWith(
@@ -112,10 +115,26 @@ describe('ProjectsService.remove', () => {
   });
 
   it('throws NotFoundException when the project does not exist', async () => {
-    projectPurge.loadPurgeableProject.mockResolvedValue(null);
+    prisma.project.findUnique.mockResolvedValue(null);
 
-    await expect(service.remove('missing', 'admin-1', '1.2.3.4', 'jest')).rejects.toThrow('Project not found');
+    await expect(service.remove('missing', admin, '1.2.3.4', 'jest')).rejects.toThrow('Project not found');
     expect(projectPurge.purgeProject).not.toHaveBeenCalled();
+  });
+
+  // "Delete projects" is delegable in Settings > RBAC; it must stay inside the caller's own team.
+  it.each([
+    [{ id: 'tl-other', role: 'TEAM_LEAD' }],
+    [{ id: 'avp-other', role: 'AVP' }],
+    [{ id: 't9', role: 'TESTER' }],
+  ])('refuses to delete a project outside the caller scope (%p)', async (actor) => {
+    await expect(service.remove('p1', actor as any, '1.2.3.4', 'jest')).rejects.toThrow('Access denied');
+    expect(projectPurge.purgeProject).not.toHaveBeenCalled();
+  });
+
+  it('lets a Team Lead delete a project of their own team', async () => {
+    projectPurge.loadPurgeableProject.mockResolvedValue({ id: 'p1' });
+    projectPurge.purgeProject.mockResolvedValue({ filesDeleted: 0 });
+    await expect(service.remove('p1', { id: 'tl1', role: 'TEAM_LEAD' } as any, 'ip', 'ua')).resolves.toBeDefined();
   });
 });
 

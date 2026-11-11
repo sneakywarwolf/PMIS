@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
+import { assertZipInflatesWithin } from './zip-limits.util';
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10MB
 
@@ -73,6 +74,8 @@ async function parseXlsxToCsv(buffer: Buffer): Promise<string> {
   if (entryNames.length > 500 || declared > 100 * 1024 * 1024) {
     throw new BadRequestException('File rejected: workbook is too large when decompressed.');
   }
+  // The declared sizes are sender-controlled (and absent on some entries): count what the entries really inflate to.
+  await assertZipInflatesWithin(zip, 100 * 1024 * 1024, 'File rejected: workbook is too large when decompressed.');
   if (entryNames.some((entry) => DANGEROUS_ENTRY_PATTERNS.some((p) => p.test(entry)))) {
     throw new BadRequestException(
       'File rejected: macros, embedded objects, or external links are not allowed in bulk upload files.',

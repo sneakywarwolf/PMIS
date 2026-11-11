@@ -89,12 +89,12 @@ export class UsersController {
   @ApiOperation({ summary: 'Create new user' })
   async create(
     @Body() dto: CreateUserDto,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() actor: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.usersService.create(dto, adminId, ipAddress, userAgent);
+    return this.usersService.create(dto, actor.id, ipAddress, userAgent, actor.role);
   }
 
   @Post('bulk-upload')
@@ -112,7 +112,7 @@ export class UsersController {
     const csv = await parseUploadedFileToCsv(file, attachmentLimits.maxBytes('userBulk', file?.originalname));
     const ipAddress = req.ip || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
-    return this.usersService.bulkUpload(csv, user.id, ipAddress, userAgent);
+    return this.usersService.bulkUpload(csv, user.id, ipAddress, userAgent, user.role);
   }
 
   @Put(':id')
@@ -121,12 +121,12 @@ export class UsersController {
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() actor: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.usersService.update(id, dto, adminId, ipAddress, userAgent);
+    return this.usersService.update(id, dto, actor.id, ipAddress, userAgent, actor.role);
   }
 
   @Put(':id/activate')
@@ -134,12 +134,12 @@ export class UsersController {
   @ApiOperation({ summary: 'Activate deactivated user' })
   async activate(
     @Param('id') id: string,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() actor: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.usersService.update(id, { isActive: true }, adminId, ipAddress, userAgent);
+    return this.usersService.update(id, { isActive: true }, actor.id, ipAddress, userAgent, actor.role);
   }
 
   @Post(':id/reset-password')
@@ -147,12 +147,12 @@ export class UsersController {
   @ApiOperation({ summary: 'Force password reset' })
   async forcePasswordReset(
     @Param('id') id: string,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() actor: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.usersService.forcePasswordReset(id, adminId, ipAddress, userAgent);
+    return this.usersService.forcePasswordReset(id, actor.id, ipAddress, userAgent, actor.role);
   }
 
   @Delete(':id')
@@ -160,11 +160,11 @@ export class UsersController {
   @ApiOperation({ summary: 'Deactivate user with a 24h grace period; reactivating within the window restores the user with data intact, otherwise owned project data/files are purged' })
   async softDelete(
     @Param('id') id: string,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() actor: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.usersService.softDelete(id, adminId, ipAddress, userAgent);
+    return this.usersService.softDelete(id, actor.id, ipAddress, userAgent, actor.role);
   }
 }
