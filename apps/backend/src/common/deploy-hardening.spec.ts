@@ -26,6 +26,21 @@ describe('docker-compose.yml hardening', () => {
     expect(service(compose, 'backend')).toMatch(/REDIS_URL: redis:\/\/:\$\{REDIS_PASSWORD:\?/);
   });
 
+  it('redis starts through the image entrypoint (so it drops to the redis user) with a minimal capability set', () => {
+    const redis = service(compose, 'redis');
+    expect(redis).toMatch(/command: \["redis-server",/); // a shell wrapper would leave Redis running as root
+    expect(redis).toMatch(/cap_drop:\n\s+- ALL/);
+    expect(redis).not.toMatch(/cap_add:[\s\S]*(SYS_ADMIN|NET_ADMIN|SYS_PTRACE)/);
+  });
+
+  it('postgres and rustfs drop all capabilities', () => {
+    for (const name of ['postgres', 'rustfs']) expect(service(compose, name)).toMatch(/cap_drop:\n\s+- ALL/);
+  });
+
+  it('app containers have a memory ceiling', () => {
+    for (const name of ['frontend', 'backend']) expect(service(compose, name)).toMatch(/mem_limit:/);
+  });
+
   it('only the frontend publishes a port', () => {
     for (const name of ['backend', 'postgres', 'redis', 'rustfs']) expect(service(compose, name)).not.toMatch(/^\s+ports:/m);
     expect(service(compose, 'frontend')).toMatch(/^\s+ports:/m);

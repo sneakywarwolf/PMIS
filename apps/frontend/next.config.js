@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Self-contained server for the Docker image (see Dockerfile): only the files the app uses are copied into the image.
+  output: 'standalone',
   images: {
     domains: ['localhost'],
   },
@@ -23,14 +25,14 @@ const nextConfig = {
   async headers() {
     const dev = process.env.NODE_ENV !== 'production';
     // 'unsafe-inline' is needed for Next's inline bootstrap and the static theme script in layout.tsx;
-    // 'unsafe-eval' only for the dev server. ws:/wss: = Socket.IO. HSTS is left to the HTTPS terminator.
+    // 'unsafe-eval' and ws:/wss: only for the dev server. HSTS is left to the HTTPS terminator.
     const csp = [
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}`,
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // globals.css @imports Google Fonts
       "img-src 'self' data: blob:", // no remote images: Cyberdigest and article content never load third-party pictures or tracking pixels
       "font-src 'self' data: https://fonts.gstatic.com",
-      "connect-src 'self' ws: wss:",
+      `connect-src 'self'${dev ? ' ws: wss:' : ''}`, // the only socket (/easter-egg) is same-origin long-polling; ws: only for the dev hot-reload socket
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
@@ -45,6 +47,10 @@ const nextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'no-referrer' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // Not shared with other origins' windows or embedders (no cross-origin popups or embeds are used). COEP is left off:
+          // require-corp would block the Google Fonts stylesheet.
+          { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+          { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
         ],
       },
     ];

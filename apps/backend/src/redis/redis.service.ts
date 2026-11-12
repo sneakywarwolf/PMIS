@@ -58,8 +58,9 @@ export class RedisService extends Redis implements OnModuleDestroy {
     return this.get(`refresh_token:${tokenId}`);
   }
 
-  async revokeRefreshToken(tokenId: string): Promise<void> {
-    await this.del(`refresh_token:${tokenId}`);
+  /** Deletes the token and says whether this call was the one that removed it (DEL is atomic: one winner). */
+  async revokeRefreshToken(tokenId: string): Promise<boolean> {
+    return (await this.del(`refresh_token:${tokenId}`)) === 1;
   }
 
   async revokeAllUserTokens(userId: string): Promise<void> {

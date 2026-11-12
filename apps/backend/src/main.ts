@@ -30,12 +30,13 @@ async function bootstrap() {
     logger: process.env.NEST_DEBUG_LOGS === '1' ? ['error', 'warn', 'log', 'debug'] : ['error', 'warn', 'log'],
   });
 
-  // Behind the Next.js proxy (loopback in dev, docker network in compose): take the client IP from
-  // X-Forwarded-For for per-IP rate limits.
-  // ponytail: Next only sets X-Forwarded-For when absent, so clients can spoof it and dodge the anonymous
-  // per-IP limit. Brute force is still stopped by the per-username login lockout. Put nginx/an LB in front
-  // that overwrites the header if per-IP limits must be strict.
-  app.set('trust proxy', 'loopback, uniquelocal');
+  // Client IP for per-IP rate limits and the audit log. The frontend container appends the address of the peer that
+  // connected to it (apps/frontend/forwarded-for.js), so exactly one hop is trusted by default and everything to the left
+  // of it is client-supplied and ignored. Behind one more reverse proxy / tunnel that also appends (nginx, Cloudflare),
+  // set TRUST_PROXY_HOPS=2 so the real client, not the proxy, is the one rate-limited. Counting hops, not address ranges,
+  // is what keeps a private-network client from being mistaken for a proxy and a forged header from winning.
+  const hops = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? '1', 10);
+  app.set('trust proxy', Number.isInteger(hops) && hops >= 0 ? hops : 1);
 
   // Payload size limits (uploads are capped separately via UPLOAD_LIMITS)
   app.useBodyParser('json', { limit: '1mb' });

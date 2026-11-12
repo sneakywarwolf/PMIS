@@ -5,14 +5,13 @@ Branch `security-audit`, source base `d5a5d84` (v1.1.3, unreleased). Audit date 
 ## 1. Executive summary
 
 A source-led security review of the PMIS backend (NestJS/Prisma), frontend (Next.js), Docker deployment, dependencies and CI, with fixes
-made in code and verified by unit tests and by a live test of the rebuilt Docker stack. **18 findings were confirmed and fixed**
-remain open or accepted (section 8, 10 items). Nothing Critical was found. The most serious confirmed issues were privilege escalation and
+made in code and verified by unit tests and by a live test of the rebuilt Docker stack. **26 findings were confirmed and fixed**
+remain open or accepted (section 8, 7 items). Nothing Critical was found. The most serious confirmed issues were privilege escalation and
 cross-team access through *delegated* RBAC permissions (High when an Admin delegates those permissions; not reachable with the default matrix).
 
 This is a single-reviewer pass (one assistant, no independent verification agents) with manual tests through the real API. It is **not** a
-certification, and a clean scanner result is not a claim that PMIS is secure. Not done: a proxy-based DAST (ZAP/Burp), Semgrep (runs in CI only),
-Docker Scout, a frontend type-check (no frontend `node_modules` in the worktree; the frontend was not changed), and testing against any
-production data or deployment (none exists on this machine; see section 6).
+certification, and a clean scanner result is not a claim that PMIS is secure. Not done: Burp or an authenticated/active DAST (only a ZAP *passive baseline* of the login surface was run), Docker Scout, and testing
+against any production data or deployment (none exists on this machine; see section 6).
 
 ## 2. Frameworks and method
 
@@ -32,13 +31,16 @@ Security Top 10 and ASVS as checklists, CIS Docker Benchmark items for container
 
 | Tool | Version | Result |
 |---|---|---|
-| `npm audit --omit=dev` backend | npm bundled with Node 26.8.1 | 10 moderate before, 9 after (see F-open-4); 0 high/critical |
+| `npm audit --omit=dev` backend | npm bundled with Node 26.8.1 | 10 moderate before, 6 after; 0 high/critical. The remaining 6 are `@nestjs/*` 10.x and need NestJS 12 |
 | `npm audit --omit=dev` frontend | same | 0 |
-| Trivy image scan (CI's pinned image) | 0.76.1 | backend (alpine 3.24.3 + node packages): 0 fixable High/Critical; frontend: 0 |
+| Trivy image scan (CI's pinned image) | 0.76.1 | backend (alpine 3.24.3 + node packages): 0 fixable High/Critical; frontend (now standalone, without npm): 0 |
 | gitleaks | 8.18.4 (Docker) | 334 commits, all branches: no leaks; current files: no leaks |
-| Jest (backend) | repo's | 107 suites passed, 1 skipped, 1202 tests passed, 28 skipped, `tsc --noEmit` clean |
+| Jest (backend) | repo's | 108 suites passed, 1 skipped, 1207 tests passed, 28 skipped, `tsc --noEmit` clean; frontend `node --test`: 42 pass |
 | Docker | 29.9.2 | images built, throwaway stack run and tested |
-| Semgrep, Docker Scout, ZAP/Burp | not run | see section 1 |
+| Semgrep (CI's ruleset: typescript, nodejs, secrets) | 1.185.0 (Docker) | 0 findings over 360 files; 4 non-fatal rule errors (2 timeouts, 1 partial parse of `reports/page.tsx`), so not exhaustive |
+| OWASP ZAP passive baseline (`zap-baseline.py`) | stable image | 0 FAIL, 63 PASS, 5 WARN: CSP `style-src 'unsafe-inline'` (accepted), `ws:`/`wss:` wildcard (fixed, F-23), COOP/CORP (fixed, F-23), COEP (accepted), informational cache/comment notes. Only the unauthenticated surface (login page and static assets) was crawled |
+| Browser check (Playwright + Chromium) | installed locally | login, dashboard, projects and vulnerabilities render identically before and after the CSP change; injected inline scripts, `onclick` and `onerror` payloads blocked |
+| Docker Scout | not run | needs a Docker Hub login |
 
 ## 5. Vulnerability register
 
@@ -64,6 +66,14 @@ environmental metrics are not in the repository.
 | F-15 | Medium | Dependency `qs` below the patched version (several DoS advisories). | `apps/backend/package.json`, lockfile | Fixed: override `^6.16.1` (resolves to 6.17.1) | 102 backend suites pass on a clean install of the new lockfile; the other 3 read repo files outside `apps/backend` and were not applicable in the scratch copy; they pass in the worktree |
 | F-16 | Informational | Docs said four secrets; `redis-cli SAVE` backup command needed auth. | `site/*.html`, `README.md` | Fixed | link checker |
 | F-18 | Low-Medium | Vulnerability CSV export wrote the free-text `severity` column unescaped, so a stored `=HYPERLINK(...)` became a live formula when an approved entry was exported and opened in Excel; the `severity` query value also went into the download filename unsanitised. | `vulnerabilities/vulnerabilities.service.ts`, `vulnerabilities.controller.ts` | Fixed: escaped like the other columns; filename restricted to `[a-z0-9_-]` | `vulnerabilities.mass-assignment.spec.ts`; live: export shows `'=HYPERLINK(...)`, filename `vulnerabilities-a__b.csv` (found in the second pass) |
+| F-19 | Low-Medium | Per-IP rate limit bypass: Next's `/api` proxy forwarded the browser's own `X-Forwarded-For` untouched, so a rotating forged header gave every request a fresh anonymous bucket. | `apps/backend/src/main.ts`, new `apps/frontend/forwarded-for.js`, `Dockerfile`, `docker-compose.yml` | Fixed: the frontend appends the real peer address; the backend trusts a configurable number of hops (`TRUST_PROXY_HOPS`, default 1) | live before/after: 50/50 forged-header logins passed, now 30 then 429; the backend logs the real client address and ignores the forged one |
+| F-20 | Low-Medium | A stolen access token stayed valid after a password change. | `auth/auth.service.ts`, `auth.controller.ts` | Fixed: the change ends the old session and signs the caller in on a new one (cookies refreshed) | `auth.change-password-session.spec.ts`; live: stolen token 401, caller 200 |
+| F-21 | Low | Refresh-token rotation was not atomic: simultaneous refreshes with one token could all succeed. | `auth/auth.service.ts`, `redis/redis.service.ts` | Fixed: only the request whose `DEL` removes the key succeeds | `auth.service.spec.ts`; live: 6 parallel refreshes gave 1 x 200 and 5 x 401 |
+| F-22 | Low | CSP allowed `'unsafe-inline'` scripts, so any injected inline script or `onclick`/`onerror` attribute would run. | `apps/frontend/src/middleware.ts`, `lib/csp.ts`, `app/layout.tsx` | Fixed: per-request nonce CSP; the two theme scripts and Next's own scripts carry it | `csp.test.ts`; Chromium: parser-inserted inline scripts and `onerror` payloads blocked (they ran before), all 8 inline scripts carry the nonce, no violations, same pages render |
+| F-23 | Low | `connect-src` allowed any `ws:`/`wss:` host; no COOP/CORP headers (ZAP). | `next.config.js`, `lib/csp.ts` | Fixed: `connect-src 'self'` in production; COOP and CORP `same-origin` | `csp.test.ts`; browser re-check |
+| F-24 | Low | `file-type` and `uuid` advisories. | `package.json`, lockfile | Fixed: `uuid` ^11.1.1, `file-type` ^22.3.0 override (neither is used by PMIS code) | full suite on the new lockfile |
+| F-25 | Medium (least privilege) | The application ran as the PostgreSQL superuser. | `docker-compose.yml`, new `apps/backend/database/restricted-user.sql`, deployment guide | Fixed as an opt-in (`PMIS_DB_USER`/`PMIS_DB_PASSWORD`); default unchanged so existing installs keep working | live: all 31 tables moved; backend, migrations (also on an empty database), bulk upload, report generation and `pg_database_size` work as the restricted role; `COPY ... PROGRAM` is refused |
+| F-26 | Low-Medium | Regression from my round-2 change, found by this review: wrapping the Redis command in `sh -c` stopped the image from dropping to the `redis` user, so Redis ran as root. | `docker-compose.yml` | Fixed: plain `redis-server` command through the image entrypoint, `cap_drop: ALL` with only the capabilities the entrypoint needs; it also repairs volume ownership | live: Redis runs as `redis`, persistence `ok`, ownership repaired; `deploy-hardening.spec.ts` |
 | F-17 | Informational | No guard against reverting the above. | | Added `deploy-hardening.spec.ts` | 9 tests |
 
 ## 6. Docker deployment verification
@@ -97,16 +107,13 @@ storage all "up"). Nessus/Fortify imports, quiz play, notifications and Excel re
 
 | Item | Severity | Notes / recommendation |
 |---|---|---|
-| Rate-limit bypass with a forged `X-Forwarded-For` | Low-Medium | Documented in `main.ts:38`. Put a reverse proxy that overwrites the header in front, or configure Next to. The per-account lockout still limits brute force. |
-| Session survives a password change | Low-Medium | A stolen access token lives until idle timeout. Fix revokes the active session on change; it signs the user out right after the change, so left for a product decision. Confirmed live. |
-| Refresh-token rotation is not atomic | Low | Two simultaneous refreshes with one token can both succeed. Needs an atomic `GETDEL`; changes existing test expectations. |
-| 9 moderate `npm audit` advisories (`@nestjs/*` 10, `file-type`, `uuid`) | Low | Fixes need NestJS 11/12 or `uuid` 14 (breaking), and npm's automatic "fix" would downgrade `@nestjs/common`. CI gate is high/critical. Plan a NestJS major upgrade. |
-| App database user is the Postgres superuser (`POSTGRES_USER`) | Medium | Least privilege needs a migration/role split (owner for migrations, restricted role for runtime). Not attempted without a staging database. |
-| Postgres, Redis, RustFS run without `cap_drop`/read-only | Low | Their entrypoints need privileges to start; Redis has `no-new-privileges`. Revisit per image. |
-| CSP still allows `'unsafe-inline'` scripts | Low | Needed for Next's bootstrap and the static theme script; moving to nonces is a larger change. |
-| `npm install -g npm@latest` in both Dockerfiles | Low | Unpinned at build time; pin once the bundled-npm advisories are fixed upstream. |
-| No memory limits on containers | Low | Left out deliberately: 500 MB Nessus imports need headroom. Set limits after measuring. |
-| Frontend image is 1.89 GB | Informational | Includes dev/build tooling in `node_modules`; Next "standalone" output would shrink it. |
+| 6 moderate `npm audit` advisories (`@nestjs/*` 10.x: core, common, platform-express, platform-socket.io, websockets, swagger, schedule) | Low | Fixed only in NestJS 12 (a major upgrade); npm's automatic fix would downgrade `@nestjs/common`. CI gates at high/critical. Plan the NestJS upgrade as its own change with the full regression suite. |
+| Restricted database user is opt-in | Medium (hardening) | Default stays the built-in superuser so upgrades never break; adopt it with the deployment-guide steps (tested live). |
+| CSP `style-src 'unsafe-inline'` | Low | React and framer-motion set inline style attributes, which cannot carry a nonce. |
+| COEP not set | Informational | `require-corp` would block the Google Fonts stylesheet. |
+| Postgres and RustFS: no read-only root filesystem and no memory limit | Low | They write to their own paths and their memory need depends on data size; all capabilities are dropped. |
+| ZAP covered only the unauthenticated surface; no Burp, no active scan, no Docker Scout; Semgrep had 4 non-fatal rule errors | Informational | Run an authenticated scan with a ZAP context against a staging copy before a major release. |
+| Nessus/Fortify imports, quiz play, notifications and Excel reports were tested by unit suites, not live | Informational | Cover them in a staging acceptance run with real sample files. |
 
 ## 9. Files changed
 
@@ -114,7 +121,7 @@ Backend: `auth/auth.service.ts`, `auth/dto/auth.dto.ts`, `users/users.{service,c
 `vulnerabilities/vulnerabilities.service.ts`, `quiz/quiz.service.ts`, `redis/redis.service.ts`, `common/{docx-package,bulk-upload-file}.util.ts`,
 new `common/zip-limits.util.ts`, `reports/xlsx-template.service.ts`, `package.json` + lockfile. Tests added: `auth.login-enumeration`, `users.admin-escalation`,
 `vulnerabilities.mass-assignment`, `zip-limits.util`, `redis.revoke-tokens`, `deploy-hardening` specs, plus updates to the users, projects and quiz specs.
-Deployment: `docker-compose.yml`, `docker-compose.dev.yml`, `.env.example`, `.github/workflows/{security,github-webpage}.yml`.
+Deployment: `docker-compose.yml`, `docker-compose.dev.yml`, `.env.example`, `.github/workflows/{security,github-webpage}.yml`, both Dockerfiles, new `apps/frontend/{forwarded-for.js,src/middleware.ts,src/lib/csp.ts}`, `apps/frontend/next.config.js`, `app/layout.tsx`, new `apps/backend/database/restricted-user.sql`.
 Docs: `README.md`, `site/installation.html`, `site/deployment.html`, `CHANGELOG.md`.
 
-**Upgrade note:** existing deployments must add `REDIS_PASSWORD` to `.env` before the next `docker compose up` (it stops with a clear message otherwise; no data is touched).
+**Upgrade notes:** existing deployments must add `REDIS_PASSWORD` to `.env` before the next `docker compose up` (it stops with a clear message otherwise; no data is touched). Behind one reverse proxy or tunnel, also set `TRUST_PROXY_HOPS=2`, or all users share one per-IP rate limit. Every page is now rendered per request (required for the CSP nonce), which has no visible effect for this client-rendered app.

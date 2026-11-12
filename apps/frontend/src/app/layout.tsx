@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import { Inter } from 'next/font/google';
 import { MotionConfig } from 'framer-motion';
 import './globals.css';
@@ -16,15 +17,18 @@ export const metadata: Metadata = {
   description: 'Security Testing Tool — by a Lazy Tester For Lazy Testers',
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // The per-request script nonce set by middleware.ts: the two inline scripts below only run with it.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
@@ -38,6 +42,7 @@ export default function RootLayout({
           }}
         />
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `
               (function() {

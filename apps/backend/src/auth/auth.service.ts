@@ -143,8 +143,11 @@ export class AuthService {
         }
       }
 
-      // Revoke old refresh token
-      await this.redisService.revokeRefreshToken(payload.jti);
+      // Rotate: exactly one request may redeem a refresh token. Two simultaneous refreshes with the same token both
+      // pass the checks above, so the one whose DEL does not actually remove the key is refused.
+      if (!(await this.redisService.revokeRefreshToken(payload.jti))) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
 
       // Renewing an access token is still the same logical session — reuse
       // its sessionId rather than minting a new one (which would look like
@@ -220,8 +223,11 @@ export class AuthService {
       },
     });
 
-    // Revoke all refresh tokens
+    // Revoke all refresh tokens and end the current session, so an access token stolen before the change stops working.
     await this.redisService.revokeAllUserTokens(userId);
+    const oldSessionId = await this.redisService.getActiveSession(userId);
+    if (oldSessionId) await this.redisService.clearSessionActivity(oldSessionId);
+    await this.redisService.clearActiveSession(userId);
 
     await this.auditService.log({
       actorId: userId,
@@ -229,6 +235,9 @@ export class AuthService {
       ipAddress,
       userAgent,
     });
+
+    // The person who just changed their password stays signed in: they get a fresh session of their own.
+    return this.generateTokens({ ...user, passwordHash: newHash, isForcePasswordChange: false });
   }
 
   private async generateTokens(user: User, existingSessionId?: string) {

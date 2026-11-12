@@ -83,7 +83,9 @@
 <pre><code>FRONTEND_PORT=127.0.0.1:3000</code></pre></li>
       <li>Set the public address and secure cookies in <code>.env</code>:
 <pre><code>FRONTEND_URL=https://pmis.example.org
-COOKIE_SECURE=true</code></pre></li>
+COOKIE_SECURE=true
+TRUST_PROXY_HOPS=2</code></pre>
+        <code>TRUST_PROXY_HOPS</code> is how many proxies append to <code>X-Forwarded-For</code> in front of the backend: 1 (the default) when users open PMIS directly, 2 with one reverse proxy or tunnel in front. Without it, everyone behind the proxy would share one per-IP rate limit.</li>
       <li>Configure the proxy. Example for nginx:
 <pre><code>map $http_upgrade $connection_upgrade { default upgrade; '' close; }
 
@@ -119,6 +121,9 @@ server {
         <tr><td><code>POSTGRES_PASSWORD</code></td><td>Yes</td><td>none</td><td>Database password. Changing it later requires changing it inside the database too, so set it once.</td></tr>
         <tr><td><code>MINIO_ROOT_PASSWORD</code></td><td>Yes</td><td>none</td><td>Secret key of the object storage. The name is kept from earlier versions so existing <code>.env</code> files work.</td></tr>
         <tr><td><code>REDIS_PASSWORD</code></td><td>Yes</td><td>none</td><td>Password of the Redis cache (sessions, rate limits, job queue). Every connection must authenticate. Use a hex value (<code>openssl rand -hex 32</code>) so it is safe inside the connection URL. Existing installs: add this line to <code>.env</code> before the next <code>docker compose up</code>.</td></tr>
+        <tr><td><code>TRUST_PROXY_HOPS</code></td><td>No</td><td><code>1</code></td><td>How many proxies append to <code>X-Forwarded-For</code> in front of the backend (used for per-IP rate limits). <code>1</code> = users open PMIS directly, <code>2</code> = one reverse proxy or tunnel in front. Do not set it higher than the real number: a forged header would then be trusted.</td></tr>
+        <tr><td><code>BACKEND_MEM_LIMIT</code>, <code>FRONTEND_MEM_LIMIT</code></td><td>No</td><td><code>3g</code>, <code>1536m</code></td><td>Memory ceiling of each container. Raise <code>BACKEND_MEM_LIMIT</code> if you import very large Fortify or Nessus files.</td></tr>
+        <tr><td><code>PMIS_DB_USER</code>, <code>PMIS_DB_PASSWORD</code></td><td>No</td><td>built-in admin user</td><td>Connect to PostgreSQL as a restricted owner instead of the built-in superuser. See "Run PMIS as a restricted database user".</td></tr>
         <tr><td><code>JWT_ACCESS_SECRET</code></td><td>Yes</td><td>none</td><td>Signs sign-in session tokens</td></tr>
         <tr><td><code>JWT_REFRESH_SECRET</code></td><td>Yes</td><td>none</td><td>Signs session renewals. Must differ from the access secret.</td></tr>
         <tr><td><code>RUSTFS_IMAGE</code></td><td>No</td><td><code>rustfs/rustfs:1.0.3</code></td><td>Object storage image. Pin a version or digest in production.</td></tr>
@@ -278,6 +283,18 @@ docker compose logs -f frontend</code></pre>
   </section>
 
   <section id="checklist">
+    <h2>Run PMIS as a restricted database user</h2>
+    <p>By default PMIS connects to PostgreSQL as the image's built-in <code>pmis</code> user, which is a superuser. PMIS does not need that: it uses no extensions or superuser features. Switching to a plain database owner means a flaw in PMIS could not be used to run programs or read files on the database server. This is optional, reversible (remove the two variables) and keeps all data. Back up first.</p>
+<pre><code># 1. Create the role and move ownership of PMIS's tables to it (safe to run again)
+APP_PW=$(openssl rand -hex 24)
+docker compose exec -T postgres psql -U pmis -d pmis -v ON_ERROR_STOP=1 -v app_pw="$APP_PW" -f - &lt; apps/backend/database/restricted-user.sql
+
+# 2. Tell PMIS to use it, then recreate the backend
+echo "PMIS_DB_USER=pmis_app" &gt;&gt; .env
+echo "PMIS_DB_PASSWORD=$APP_PW" &gt;&gt; .env
+docker compose up -d backend</code></pre>
+    <p>Migrations on later upgrades run as this user, which is the owner, so they work unchanged. <code>pg_dump</code> backups still use <code>-U pmis</code>.</p>
+
     <h2>Production checklist</h2>
     <ul class="plain">
       <li>The four secrets in <code>.env</code> are unique random values, and <code>.env</code> is readable only by the operator (<code>chmod 600 .env</code>).</li>

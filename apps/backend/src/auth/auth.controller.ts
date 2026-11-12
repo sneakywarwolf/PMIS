@@ -120,11 +120,26 @@ export class AuthController {
     @CurrentUser('id') userId: string,
     @Body() dto: ChangePasswordDto,
     @Req() request: Request,
+    @Res({ passthrough: true }) response: Response,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
 
-    await this.authService.changePassword(userId, dto, ipAddress, userAgent);
+    const result = await this.authService.changePassword(userId, dto, ipAddress, userAgent);
+
+    // Every earlier session was ended by the change; this caller continues on a new one.
+    response.cookie('access_token', result.access_token, {
+      httpOnly: true,
+      secure: COOKIE_SECURE,
+      sameSite: 'strict',
+      maxAge: result.access_expiry_seconds * 1000,
+    });
+    response.cookie('refresh_token', result.refresh_token, {
+      httpOnly: true,
+      secure: COOKIE_SECURE,
+      sameSite: 'strict',
+      maxAge: result.refresh_expiry_seconds * 1000,
+    });
 
     return { message: 'Password changed successfully' };
   }
