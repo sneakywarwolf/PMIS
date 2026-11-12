@@ -12,7 +12,8 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
   if (process.env.NODE_ENV === 'production') {
     for (const k of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET']) {
-      if (!process.env[k] || process.env[k]!.startsWith('CHANGE_ME')) {
+      // The dev example's published values and the old module fallback are as unusable as the CHANGE_ME placeholder.
+      if (!process.env[k] || /^(CHANGE_ME|vapt-(access|refresh)-secret|default-secret)/.test(process.env[k]!)) {
         throw new Error(`${k} must be set to a strong random value (see .env.example)`);
       }
       if (process.env[k]!.length < 32) logger.warn(`${k} is shorter than 32 characters; use "openssl rand -hex 32"`);

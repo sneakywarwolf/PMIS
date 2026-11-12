@@ -3,7 +3,7 @@ import { stripCvssPrefix } from '../common/cvss-vector.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
-import { UserRole, VulnerabilityStatus, NotificationType } from '@prisma/client';
+import { UserRole, VulnerabilityStatus, VulnerabilityCategory, NotificationType } from '@prisma/client';
 import { validateExactCsvHeaders, parseCsv } from '../common/csv-validation.util';
 import { permissionRules } from '../common/permissions';
 
@@ -95,6 +95,19 @@ export class VulnerabilitiesService {
   private pickContent(data: any) {
     const out: any = {};
     for (const field of this.EDITABLE_FIELDS) if (data?.[field] !== undefined) out[field] = data[field];
+    // Types and sizes: a wrong type would reach Prisma as an unhandled 500, and an absurd score or length would be stored and printed.
+    for (const [field, value] of Object.entries(out)) {
+      if (field === 'cvssScore') {
+        if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 10)) throw new BadRequestException('cvssScore must be a number from 0 to 10');
+      } else if (value !== null && typeof value !== 'string') {
+        throw new BadRequestException(`${field} must be text`);
+      } else if (typeof value === 'string' && value.length > (field === 'name' || field === 'severity' ? 500 : 200_000)) {
+        throw new BadRequestException(`${field} is too long`);
+      }
+    }
+    if (out.category !== undefined && !(Object.values(VulnerabilityCategory) as unknown[]).includes(out.category)) {
+      throw new BadRequestException(`category must be one of: ${Object.values(VulnerabilityCategory).join(', ')}`);
+    }
     return out;
   }
 
@@ -152,10 +165,8 @@ export class VulnerabilitiesService {
       select: { assignedTlId: true },
     });
 
-    const afterData: any = {};
-    for (const field of this.EDITABLE_FIELDS) {
-      if (data[field] !== undefined) afterData[field] = data[field];
-    }
+    // Validated now, because this is applied to the library as is when a reviewer approves it.
+    const afterData: any = this.pickContent(data);
 
     const changeRequest = await this.prisma.vulnerabilityChangeRequest.create({
       data: {

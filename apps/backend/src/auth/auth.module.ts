@@ -16,7 +16,8 @@ import { SettingsModule } from '../settings/settings.module';
     SettingsModule,
     PassportModule,
     JwtModule.register({
-      secret: process.env.JWT_ACCESS_SECRET || 'default-secret',
+      // No fallback value: a missing secret must make signing and verification fail, never use a published default.
+      secret: process.env.JWT_ACCESS_SECRET,
       signOptions: { expiresIn: '15m' },
     }),
   ],

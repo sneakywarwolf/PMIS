@@ -9,7 +9,7 @@ import { REPORT_DATE_FORMAT_OPTIONS, PLACEHOLDER_DATE_FORMAT_OPTIONS, DEFAULT_PL
 import { ATTACHMENT_FORMATS, ATTACHMENT_FORMAT_BY_KEY, ATTACHMENT_PURPOSES, attachmentLimits } from '../common/attachment-formats';
 import { CONFIGURABLE_NOTIFICATION_ROLES, NOTIFICATION_TYPES } from '../notifications/notification-types';
 import { resetQuotaCache } from '../common/quota';
-import { SETTINGS_ID, deepMerge, isPlainObject, pruneUnknown, readEffectiveSettings } from './settings.store';
+import { SETTINGS_ID, deepMerge, hasOwn, isPlainObject, pruneUnknown, readEffectiveSettings } from './settings.store';
 import { CONFIGURABLE_ROLES, PERMISSIONS, PERMISSION_GROUPS, PERMISSION_KEYS } from '../common/permission-catalog';
 import { permissionRules } from '../common/permissions';
 
@@ -42,7 +42,7 @@ function validatePatch(patch: any) {
   const knownCategories = Object.keys(DEFAULT_SETTINGS);
 
   for (const category of Object.keys(patch)) {
-    if (!knownCategories.includes(category)) {
+    if (!knownCategories.includes(category) || !hasOwn(patch, category)) {
       errors.push(`Unknown settings category "${category}"`);
       continue;
     }
@@ -52,7 +52,7 @@ function validatePatch(patch: any) {
       continue;
     }
     for (const key of Object.keys(value)) {
-      if (!(key in (DEFAULT_SETTINGS as any)[category])) {
+      if (!hasOwn((DEFAULT_SETTINGS as any)[category], key)) {
         errors.push(`Unknown setting "${category}.${key}"`);
       }
     }
@@ -72,7 +72,7 @@ function validatePatch(patch: any) {
     if (!isPlainObject(labels)) errors.push('workflow.severityLabels must be an object');
     else {
       for (const [sev, label] of Object.entries(labels)) {
-        if (!(sev in DEFAULT_SETTINGS.workflow.severityLabels)) errors.push(`Unknown severity "${sev}" in workflow.severityLabels`);
+        if (!hasOwn(DEFAULT_SETTINGS.workflow.severityLabels, sev)) errors.push(`Unknown severity "${sev}" in workflow.severityLabels`);
         else if (typeof label !== 'string' || !label.trim() || label.length > 30) errors.push(`The label for ${sev} must be text of 1 to 30 characters`);
       }
     }
@@ -191,7 +191,7 @@ function validatePatch(patch: any) {
     if (!pd || typeof pd !== 'object' || Array.isArray(pd)) errors.push('formatting.placeholderDates must be an object');
     else {
       for (const [key, value] of Object.entries(pd)) {
-        if (!(key in DEFAULT_PLACEHOLDER_DATE_FORMATS)) errors.push(`Unknown date placeholder "${key}"`);
+        if (!hasOwn(DEFAULT_PLACEHOLDER_DATE_FORMATS, key)) errors.push(`Unknown date placeholder "${key}"`);
         else if (!(PLACEHOLDER_DATE_FORMAT_OPTIONS as readonly string[]).includes(value as string)) {
           errors.push(`formatting.placeholderDates.${key} must be one of ${PLACEHOLDER_DATE_FORMAT_OPTIONS.join(', ')}`);
         }

@@ -28,4 +28,14 @@ describe('AuthService.changePassword: session handling', () => {
     expect(result.access_token).toBe('signed');
     expect(result.user.isForcePasswordChange).toBe(false);
   });
+
+  it('refuses a new password equal to the current one (e.g. keeping an admin-issued temporary password)', async () => {
+    const argon2 = require('argon2');
+    const hash = await argon2.hash('Same-Passw0rd!x1');
+    const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue({ id: 'u1', passwordHash: hash, isForcePasswordChange: true }), update: jest.fn() } };
+    const settings: any = { validatePassword: jest.fn().mockResolvedValue([]) };
+    const svc = new AuthService(prisma, {} as any, {} as any, { get: jest.fn() } as any, { log: jest.fn() } as any, settings);
+    await expect(svc.changePassword('u1', { newPassword: 'Same-Passw0rd!x1' } as any, 'ip', 'ua')).rejects.toThrow(/different/);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
 });

@@ -109,6 +109,7 @@ export class AuthService {
     try {
       const payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get('JWT_REFRESH_SECRET'),
+        algorithms: ['HS256'],
       });
 
       const storedUserId = await this.redisService.getRefreshTokenUserId(payload.jti);
@@ -162,6 +163,7 @@ export class AuthService {
     try {
       const payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get('JWT_REFRESH_SECRET'),
+        algorithms: ['HS256'],
       });
       await this.redisService.revokeRefreshToken(payload.jti);
     } catch (error) {
@@ -206,6 +208,11 @@ export class AuthService {
     const policyErrors = await this.settingsService.validatePassword(dto.newPassword);
     if (policyErrors.length > 0) {
       throw new BadRequestException(policyErrors.join('; '));
+    }
+
+    // An admin-issued temporary password is known to the admin, and a voluntary change that keeps the old password changes nothing.
+    if (await argon2.verify(user.passwordHash, dto.newPassword).catch(() => false)) {
+      throw new BadRequestException('The new password must be different from the current one');
     }
 
     const newHash = await argon2.hash(dto.newPassword, {

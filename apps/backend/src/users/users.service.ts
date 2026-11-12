@@ -121,8 +121,9 @@ export class UsersService {
       dto = { ...dto, assignedTlId: adminId };
     }
     const existing = await this.prisma.user.findFirst({
+      // Case-insensitive: login also matches emails ignoring case, so two accounts differing only by case would be ambiguous.
       where: {
-        OR: [{ username: dto.username }, { email: dto.email }],
+        OR: [{ username: { equals: dto.username, mode: 'insensitive' } }, { email: { equals: dto.email, mode: 'insensitive' } }],
       },
     });
 
@@ -215,8 +216,8 @@ export class UsersService {
       const duplicate = await this.prisma.user.findFirst({
         where: {
           OR: [
-            ...(dto.username ? [{ username: dto.username }] : []),
-            ...(dto.email ? [{ email: dto.email }] : []),
+            ...(dto.username ? [{ username: { equals: dto.username, mode: 'insensitive' as const } }] : []),
+            ...(dto.email ? [{ email: { equals: dto.email, mode: 'insensitive' as const } }] : []),
           ],
           id: { not: id },
         },

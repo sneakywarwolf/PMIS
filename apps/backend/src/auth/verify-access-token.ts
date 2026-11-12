@@ -28,10 +28,12 @@ export async function verifyAccessToken(
 ): Promise<AuthUser> {
   let payload: any;
   try {
-    payload = jwt.verify(token, { secret: process.env.JWT_ACCESS_SECRET });
+    payload = jwt.verify(token, { secret: process.env.JWT_ACCESS_SECRET, algorithms: ['HS256'] });
   } catch {
     throw new UnauthorizedException('Invalid or expired token');
   }
+  // A refresh token (the only kind that carries a jti) is not an access token, even if both secrets were configured alike.
+  if (payload.jti) throw new UnauthorizedException('Invalid or expired token');
 
   // Single-session enforcement: a newer login elsewhere overwrites the pointer.
   if (payload.sessionId && (await redis.getActiveSession(payload.sub)) !== payload.sessionId) {

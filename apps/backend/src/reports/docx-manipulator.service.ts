@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { replaceTags } from '../common/linear-regex.util';
 import { stripCvssPrefix } from '../common/cvss-vector.util';
 import { LINE_SEP } from '../common/nessus-text.util';
 import * as JSZip from 'jszip';
@@ -384,7 +385,7 @@ export class DocxManipulatorService {
     const names = Object.keys(zip.files).filter((n) => /^word\/(header|footer)\d*\.xml$/.test(n));
     for (const name of names) {
       const xml: string = await zip.file(name).async('text');
-      const text = xml.replace(/<[^>]+>/g, '');
+      const text = replaceTags(xml, /<[^>]+>/g, '');
       if (!/status/i.test(text) && !/\{\s*[#/]/.test(text)) continue;
       const part = new DOMParser().parseFromString(xml, 'text/xml');
       this.mergeAllHighlightedRuns(part);

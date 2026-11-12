@@ -11,6 +11,7 @@ import { assertPocKey, assertPocKeys } from '../common/upload-security.util';
 import { splitPocImagePaths } from '../common/poc-images.util';
 import { StorageService } from '../reports/storage.service';
 import { permissionRules } from '../common/permissions';
+import { assertFindingInput } from '../common/finding-input.util';
 
 /** new: can be imported · duplicate: this project already has it (same Nessus plugin or same name) · merge: same plugin already imported, but this file adds affected hosts */
 // 'refresh' = already imported, but its plugin output was not captured then (older import): the same file can add it.
@@ -398,6 +399,7 @@ export class FindingsService {
     cvssScoreOverride?: number;
     cvssVectorOverride?: string;
   }, user: User, ipAddress: string, userAgent: string) {
+    assertFindingInput(data);
     const project = await this.checkProjectAccess(data.projectId, user);
 
     if (user.role === UserRole.TESTER && project.testerId !== user.id) {
@@ -408,6 +410,17 @@ export class FindingsService {
     // (the request body is client-controlled, so never trust a projectVulnId from it).
     if (!data.vulnId === !data.projectVulnId) {
       throw new BadRequestException('Provide exactly one of vulnId or projectVulnId');
+    }
+    if (data.vulnId) {
+      // Same visibility rule as the library itself (VulnerabilitiesService.visibleVuln): a pending, rejected or retired entry
+      // belongs to whoever requested it and to reviewers. Without this check, attaching its id to a finding returned its content.
+      const vuln = typeof data.vulnId === 'string'
+        ? await this.prisma.vulnerability.findUnique({ where: { id: data.vulnId }, select: { status: true, isActive: true, requestedById: true } })
+        : null;
+      const published = vuln?.status === 'APPROVED' && vuln.isActive;
+      if (!vuln || (!published && vuln.requestedById !== user.id && !permissionRules.can(user.role, 'vulns.review_requests'))) {
+        throw new NotFoundException('Vulnerability not found');
+      }
     }
     if (data.projectVulnId) {
       const owned = await this.prisma.projectVulnerability.findFirst({
@@ -464,6 +477,7 @@ export class FindingsService {
   }
 
   async update(id: string, data: any, user: User, ipAddress: string, userAgent: string) {
+    assertFindingInput(data);
     const finding = await this.prisma.finding.findUnique({
       where: { id },
       include: { project: { include: { tester: true } } },

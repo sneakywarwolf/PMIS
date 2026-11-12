@@ -17,6 +17,7 @@ import { findingPocReadiness } from '../common/poc-validation.util';
 import { pocStepImagePaths } from '../common/poc-images.util';
 import { LINE_SEP, nessusTextForReport, stripNessusBoilerplate } from '../common/nessus-text.util';
 import { splitAuditDays, CANONICAL_TEMPLATE_PARAMETERS, CANONICAL_PARAMETER_KEYS, PLATFORM_TYPE_LABELS, resolveTemplateParameter } from './template-parameters';
+import { assertTemplateUploadInput } from './template-upload-input';
 import { canAccessProject } from '../common/project-access.util';
 import { assertSafeDocx, safeFileName } from '../common/docx-package.util';
 import { coveredSubTypes, coversSubType, coversAnySubType, eligibleForProject, isEligibleTemplate, parseExtraSubTypes } from './template-subtypes';
@@ -82,6 +83,7 @@ export class ReportsService {
     reportFormat: ReportFormat = ReportFormat.WORD,
     extraSubTypesRaw?: unknown,
   ) {
+    assertTemplateUploadInput({ name, category, subType, reportFormat, effectiveFrom, effectiveTo });
     const extraSubTypes = parseExtraSubTypes(extraSubTypesRaw, subType, category);
     if (reportFormat === ReportFormat.EXCEL) {
       return this.uploadExcelTemplate(file, name, category, subType, effectiveFrom, effectiveTo, adminId, ipAddress, userAgent, extraSubTypes);
