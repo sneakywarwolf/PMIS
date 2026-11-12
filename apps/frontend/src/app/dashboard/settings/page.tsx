@@ -432,6 +432,16 @@ function SecurityTab({ settings, setCategory }: any) {
         />
         <label htmlFor="passwordComplexity" className="text-sm text-gray-300">Require complexity (upper/lower/number/symbol)</label>
       </div>
+      <div>
+        <label className={labelCls} htmlFor="lockoutMaxAttempts">Failed Sign-ins Before a Lock</label>
+        <input id="lockoutMaxAttempts" type="number" min={3} max={20} step={1} value={s.lockoutMaxAttempts} onChange={(e) => setCategory('security', { lockoutMaxAttempts: parseInt(e.target.value) || 0 })} className={inputCls} />
+        <p className={hintCls}>Allowed range: 3–20. After this many wrong passwords in a row the account is locked temporarily.</p>
+      </div>
+      <div>
+        <label className={labelCls} htmlFor="lockoutDurationMinutes">Lock Duration (minutes)</label>
+        <input id="lockoutDurationMinutes" type="number" min={1} max={240} step={1} value={s.lockoutDurationMinutes} onChange={(e) => setCategory('security', { lockoutDurationMinutes: parseInt(e.target.value) || 0 })} className={inputCls} />
+        <p className={hintCls}>Allowed range: 1–240 minutes. Applies to locks created after you save; accounts that are already locked keep their current unlock time. Admins can unlock early under User Management.</p>
+      </div>
     </div>
   );
 }

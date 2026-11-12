@@ -3,6 +3,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
+import { AccountLockService } from './account-lock.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AuditService } from '../audit/audit.service';
@@ -45,6 +46,7 @@ describe('AuthService.refreshTokens — single-session enforcement', () => {
         { provide: RedisService, useValue: redisService },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: { log: jest.fn() } },
+        { provide: AccountLockService, useValue: { getActive: jest.fn().mockResolvedValue(null), lock: jest.fn() } },
         {
           provide: SettingsService,
           useValue: { get: jest.fn().mockResolvedValue({ settings: { security: { sessionTimeoutMinutes: 15 } } }) },

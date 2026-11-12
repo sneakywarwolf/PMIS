@@ -18,7 +18,7 @@ describe('AuthService.changePassword: session handling', () => {
     const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue({ id: 'u1', username: 'u', role: 'TESTER', assignedTlId: null, isForcePasswordChange: true, passwordHash: 'x' }), update: jest.fn() } };
     const jwt: any = { sign: jest.fn().mockReturnValue('signed') };
     const settings: any = { validatePassword: jest.fn().mockResolvedValue([]), get: jest.fn().mockResolvedValue({ settings: { security: { sessionTimeoutMinutes: 15 } } }) };
-    const svc = new AuthService(prisma, jwt, redis, { get: jest.fn() } as any, { log: jest.fn() } as any, settings);
+    const svc = new AuthService(prisma, jwt, redis, { get: jest.fn() } as any, { log: jest.fn() } as any, settings, {} as any);
 
     const result = await svc.changePassword('u1', { newPassword: 'A-Long-New-Passw0rd!' } as any, 'ip', 'ua');
 
@@ -34,7 +34,7 @@ describe('AuthService.changePassword: session handling', () => {
     const hash = await argon2.hash('Same-Passw0rd!x1');
     const prisma: any = { user: { findUnique: jest.fn().mockResolvedValue({ id: 'u1', passwordHash: hash, isForcePasswordChange: true }), update: jest.fn() } };
     const settings: any = { validatePassword: jest.fn().mockResolvedValue([]) };
-    const svc = new AuthService(prisma, {} as any, {} as any, { get: jest.fn() } as any, { log: jest.fn() } as any, settings);
+    const svc = new AuthService(prisma, {} as any, {} as any, { get: jest.fn() } as any, { log: jest.fn() } as any, settings, {} as any);
     await expect(svc.changePassword('u1', { newPassword: 'Same-Passw0rd!x1' } as any, 'ip', 'ua')).rejects.toThrow(/different/);
     expect(prisma.user.update).not.toHaveBeenCalled();
   });

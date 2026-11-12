@@ -138,11 +138,11 @@ server {
     </table></div>
 
     <h3>Sign-in protection settings</h3>
-    <p>The backend container receives only the variables listed above. To change sign-in lockout or request-rate limits, create <code>docker-compose.override.yml</code> next to <code>docker-compose.yml</code>. Compose reads it automatically.</p>
+    <p><strong>Temporary account lock.</strong> How many failed sign-ins lock an account, and for how long, are set in the application under <em>Settings &gt; Security</em> (defaults: 5 attempts, 15 minutes; allowed 3 to 20 attempts and 1 to 240 minutes). The <code>MAX_LOGIN_ATTEMPTS</code> variable is now only the starting value for installs that already set it, until an Admin saves the setting. Locked accounts are listed under <em>User Management</em> for Admins, who can unlock them. See the User Guide.</p>
+    <p>The backend container receives only the variables listed above. To change the request-rate limits, create <code>docker-compose.override.yml</code> next to <code>docker-compose.yml</code>. Compose reads it automatically.</p>
 <pre><code>services:
   backend:
     environment:
-      MAX_LOGIN_ATTEMPTS: "5"         # failed sign-ins before a temporary lock
       RATE_LIMIT_PER_MIN: "300"       # requests per minute per signed-in user
       AUTH_RATE_LIMIT_PER_MIN: "30"   # sign-in requests per minute per address</code></pre>
     <p>The values shown are the defaults. Lower them for stricter protection.</p>

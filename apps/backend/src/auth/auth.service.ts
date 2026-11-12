@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
 import { LoginDto, ChangePasswordDto } from './dto/auth.dto';
 import { v4 as uuidv4 } from 'uuid';
+import { AccountLockService } from './account-lock.service';
 import { User } from '@prisma/client';
 
 @Injectable()
@@ -21,12 +22,18 @@ export class AuthService {
     private configService: ConfigService,
     private auditService: AuditService,
     private settingsService: SettingsService,
+    private accountLocks: AccountLockService,
   ) {}
 
   private dummyHash?: Promise<string>;
   /** A real argon2id hash (same parameters as user hashes) to verify against when no such user exists. */
   private getDummyHash(): Promise<string> {
     return (this.dummyHash ??= argon2.hash(uuidv4(), { type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 4 }));
+  }
+
+  private lockedMessage(durationMinutes: number) {
+    // The same wording for every account, existing or not, and no per-account remaining time: that would tell the two apart.
+    return new UnauthorizedException(`Account is temporarily locked. Please try again in up to ${durationMinutes} minutes.`);
   }
 
   async validateUser(username: string, password: string, ipAddress: string, userAgent: string) {
@@ -49,40 +56,51 @@ export class AuthService {
       user = await this.prisma.user.findFirst({ where: { email: { equals: normalizedInput, mode: 'insensitive' } } });
     }
 
+    const policy = await this.settingsService.getLockoutPolicy();
+    const windowSeconds = policy.durationMinutes * 60;
+
     if (!user || !user.isActive) {
       // Unknown and disabled accounts must look exactly like a wrong password: same hashing work (no timing tell)
       // and the same lock-out message after the same number of attempts (no "locked" tell that proves a name exists).
       await argon2.verify(await this.getDummyHash(), password).catch(() => false);
-      const attempts = await this.redisService.incrementLoginAttempts(normalizedInput);
-      if (attempts >= this.configService.get<number>('MAX_LOGIN_ATTEMPTS', 5)) {
-        throw new UnauthorizedException('Account is temporarily locked. Please try again in 15 minutes.');
-      }
+      const attempts = await this.redisService.incrementLoginAttempts(normalizedInput, windowSeconds);
+      if (attempts === policy.maxAttempts) await this.redisService.restartLoginAttemptsWindow(normalizedInput, windowSeconds); // lock for the full duration from now
+      if (attempts >= policy.maxAttempts) throw this.lockedMessage(policy.durationMinutes);
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const lockoutKey = user.username;
 
-    // Check account lockout
-    const isLocked = await this.redisService.isAccountLocked(lockoutKey);
-    if (isLocked) {
+    // An existing lock decides first, on the server clock. A lock past its expiry is removed here (and audited) and sign-in proceeds.
+    if (await this.accountLocks.getActive(user.id)) {
       this.logger.warn(`Login attempt on locked account: ${lockoutKey} from ${ipAddress}`);
       await argon2.verify(await this.getDummyHash(), password).catch(() => false); // same cost as every other rejection
-      throw new UnauthorizedException('Account is temporarily locked. Please try again in 15 minutes.');
+      throw this.lockedMessage(policy.durationMinutes);
+    }
+
+    // Reserve this attempt BEFORE the slow password check. The count is atomic, so parallel requests each get their own number and at
+    // most `maxAttempts` of them are ever verified: counting after the check would let a burst of guesses all pass the lock test first.
+    const attempt = await this.redisService.incrementLoginAttempts(lockoutKey, windowSeconds);
+    if (attempt > policy.maxAttempts) {
+      await this.accountLocks.lock(user, policy.maxAttempts, policy.durationMinutes, ipAddress, userAgent); // normally already locked: no-op
+      await argon2.verify(await this.getDummyHash(), password).catch(() => false);
+      throw this.lockedMessage(policy.durationMinutes);
     }
 
     const isPasswordValid = await argon2.verify(user.passwordHash, password);
 
     if (!isPasswordValid) {
-      const attempts = await this.redisService.incrementLoginAttempts(lockoutKey);
-      this.logger.warn(`Failed login attempt ${attempts} for ${lockoutKey} from ${ipAddress}`);
-      
-      const maxAttempts = this.configService.get<number>('MAX_LOGIN_ATTEMPTS', 5);
-      if (attempts >= maxAttempts) {
-        throw new UnauthorizedException('Account is temporarily locked. Please try again in 15 minutes.');
+      this.logger.warn(`Failed login attempt ${attempt} for ${lockoutKey} from ${ipAddress}`);
+      if (attempt >= policy.maxAttempts) {
+        await this.accountLocks.lock(user, attempt, policy.durationMinutes, ipAddress, userAgent);
+        await this.redisService.resetLoginAttempts(lockoutKey); // the lock record now carries the state
+        throw this.lockedMessage(policy.durationMinutes);
       }
-      
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    // A correct password does not get through if a parallel request locked the account while this one was being checked.
+    if (await this.accountLocks.getActive(user.id)) throw this.lockedMessage(policy.durationMinutes);
 
     // Reset login attempts on successful login
     await this.redisService.resetLoginAttempts(lockoutKey);

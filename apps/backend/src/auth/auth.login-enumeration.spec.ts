@@ -20,9 +20,10 @@ describe('AuthService.validateUser: no account enumeration', () => {
   beforeEach(() => {
     attempts = 0;
     prisma = { user: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn().mockResolvedValue(null) } };
-    const redis: any = { incrementLoginAttempts: jest.fn(async () => ++attempts) };
+    const redis: any = { incrementLoginAttempts: jest.fn(async () => ++attempts), restartLoginAttemptsWindow: jest.fn() };
     const config: any = { get: jest.fn((_k: string, d: number) => d) };
-    service = new AuthService(prisma, {} as any, redis, config, {} as any, {} as any);
+    const settings: any = { getLockoutPolicy: jest.fn().mockResolvedValue({ maxAttempts: 5, durationMinutes: 15 }) };
+    service = new AuthService(prisma, {} as any, redis, config, {} as any, settings, { getActive: jest.fn().mockResolvedValue(null), lock: jest.fn() } as any);
     verifySpy.mockClear();
   });
 
@@ -48,7 +49,9 @@ describe('AuthService.validateUser: no account enumeration', () => {
 
   it('does the password-hash work for a locked real account too', async () => {
     prisma.user.findUnique.mockResolvedValue({ id: 'u', username: 'real', isActive: true, passwordHash: 'h' });
-    const svc = new AuthService(prisma, {} as any, { isAccountLocked: jest.fn().mockResolvedValue(true) } as any, { get: jest.fn() } as any, {} as any, {} as any);
+    const settings: any = { getLockoutPolicy: jest.fn().mockResolvedValue({ maxAttempts: 5, durationMinutes: 15 }) };
+    const locks: any = { getActive: jest.fn().mockResolvedValue({ userId: 'u' }) };
+    const svc = new AuthService(prisma, {} as any, {} as any, { get: jest.fn() } as any, {} as any, settings, locks);
     await expect(svc.validateUser('real', 'x', 'ip', 'ua')).rejects.toThrow(/temporarily locked/);
     expect(verifySpy).toHaveBeenCalledTimes(1);
   });

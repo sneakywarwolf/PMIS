@@ -3,6 +3,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Response } from 'express';
 import { UsersService } from './users.service';
+import { AccountLockService } from '../auth/account-lock.service';
+import { AdminOnlyGuard } from '../auth/guards/admin-only.guard';
 import { parseUploadedFileToCsv } from '../common/bulk-upload-file.util';
 import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
 import { attachmentLimits } from '../common/attachment-formats';
@@ -15,7 +17,10 @@ import { Permission } from '../common/permissions';
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly accountLocks: AccountLockService,
+  ) {}
 
   @Get()
   @Permission('users.list')
@@ -61,6 +66,22 @@ export class UsersController {
     @Body() dto: { fullName?: string; phone?: string; designation?: string },
   ) {
     return this.usersService.updateProfile(userId, dto);
+  }
+
+  // Temporarily locked accounts (too many failed sign-ins). Admin only, decided by the role itself (AdminOnlyGuard, not the RBAC matrix, so it cannot be
+  // delegated). The backend owns the lock and its expiry; the page only displays them. Declared before ':id'.
+  @Get('locked')
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({ summary: 'List temporarily locked accounts with their server-side expiry (Admin only)' })
+  async listLocked() {
+    return this.accountLocks.listActive();
+  }
+
+  @Post(':id/unlock')
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({ summary: 'Remove the temporary lock on an account (Admin only). The next sign-in still needs the password and every other control.' })
+  async unlock(@Param('id') id: string, @CurrentUser('id') adminId: string, @Req() request: any) {
+    return this.accountLocks.unlock(id, adminId, request.ip || 'unknown', request.headers['user-agent'] || 'unknown');
   }
 
   // Open to every role (scoped to the caller's own team in the service). Declared before ':id'.

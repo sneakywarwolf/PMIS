@@ -3,7 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
 import { StorageService } from '../reports/storage.service';
-import { DEFAULT_SETTINGS } from './settings.defaults';
+import { DEFAULT_SETTINGS, LOCKOUT_LIMITS } from './settings.defaults';
+import { LockoutPolicy, SAFE_LOCKOUT_POLICY, resolveLockoutPolicy } from './lockout-policy';
 import { validateIssueLogColumns } from '../reports/issue-log';
 import { REPORT_DATE_FORMAT_OPTIONS, PLACEHOLDER_DATE_FORMAT_OPTIONS, DEFAULT_PLACEHOLDER_DATE_FORMATS, placeholderDateFormats } from '../common/report-date-format';
 import { ATTACHMENT_FORMATS, ATTACHMENT_FORMAT_BY_KEY, ATTACHMENT_PURPOSES, attachmentLimits } from '../common/attachment-formats';
@@ -105,6 +106,13 @@ function validatePatch(patch: any) {
   if (security?.passwordMinLength !== undefined) {
     const v = security.passwordMinLength;
     if (typeof v !== 'number' || v < 8 || v > 64) errors.push('security.passwordMinLength must be a number between 8 and 64');
+  }
+
+  for (const [key, lim] of [['lockoutMaxAttempts', LOCKOUT_LIMITS.maxAttempts], ['lockoutDurationMinutes', LOCKOUT_LIMITS.durationMinutes]] as const) {
+    const v = security?.[key];
+    if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < lim.min || v > lim.max)) {
+      errors.push(`security.${key} must be a whole number between ${lim.min} and ${lim.max}`);
+    }
   }
 
   const sizes = patch.attachments?.maxSizeMb;
@@ -299,6 +307,16 @@ export class SettingsService implements OnModuleInit {
     const seconds = settings.security.sessionTimeoutMinutes * 60;
     this.timeoutCache = { seconds, at: now };
     return seconds;
+  }
+
+  /** The lock policy in force for the next lock; always usable (see resolveLockoutPolicy). */
+  async getLockoutPolicy(): Promise<LockoutPolicy> {
+    try {
+      const { settings } = await this.get();
+      return resolveLockoutPolicy(settings);
+    } catch {
+      return SAFE_LOCKOUT_POLICY;
+    }
   }
 
   /** Validates a user-supplied password against the admin-configured security policy. */
