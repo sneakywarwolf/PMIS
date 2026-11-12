@@ -38,6 +38,7 @@ test('other protective headers stay on', async () => {
   assert.equal(h['Referrer-Policy'], 'no-referrer');
   assert.equal(h['Cross-Origin-Opener-Policy'], 'same-origin');
   assert.equal(h['Cross-Origin-Resource-Policy'], 'same-origin');
+  assert.equal(h['Cross-Origin-Embedder-Policy'], 'credentialless');
 });
 
 // The per-request policy from src/middleware.ts: scripts need this request's nonce, so injected inline scripts and event
@@ -48,6 +49,8 @@ test('per-request CSP: nonce-only scripts, no unsafe-inline or unsafe-eval in pr
   const csp = Object.fromEntries(buildCsp('abc123', false).split('; ').map((d) => [d.split(' ')[0], d.split(' ').slice(1)]));
   assert.ok(csp['script-src'].includes("'nonce-abc123'"));
   assert.ok(!csp['script-src'].includes("'unsafe-inline'"));
+  assert.ok(!csp['style-src'].includes("'unsafe-inline'") && csp['style-src'].includes("'nonce-abc123'")); // no injected <style> blocks
+  assert.deepEqual(csp['style-src-attr'], ["'unsafe-inline'"]);
   assert.ok(!csp['script-src'].includes("'unsafe-eval'"));
   assert.ok(!csp['script-src'].some((s) => /^https?:/.test(s)));
   assert.deepEqual(csp['img-src'], ["'self'", 'data:', 'blob:']);

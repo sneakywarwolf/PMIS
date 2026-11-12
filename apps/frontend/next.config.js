@@ -24,12 +24,13 @@ const nextConfig = {
   },
   async headers() {
     const dev = process.env.NODE_ENV !== 'production';
-    // 'unsafe-inline' is needed for Next's inline bootstrap and the static theme script in layout.tsx;
-    // 'unsafe-eval' and ws:/wss: only for the dev server. HSTS is left to the HTTPS terminator.
+    // Fallback policy for everything the per-request nonce policy in src/middleware.ts does not cover (static files, images, the favicon):
+    // no inline scripts. 'unsafe-inline' and 'unsafe-eval' scripts only for the dev server. HSTS is left to the HTTPS terminator.
     const csp = [
       "default-src 'self'",
-      `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''}`,
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // globals.css @imports Google Fonts
+      `script-src 'self'${dev ? " 'unsafe-inline' 'unsafe-eval'" : ''}`, // pages get the stricter per-request nonce policy from middleware.ts; this covers everything else
+      "style-src 'self' https://fonts.googleapis.com", // globals.css @imports Google Fonts
+      "style-src-attr 'unsafe-inline'",
       "img-src 'self' data: blob:", // no remote images: Cyberdigest and article content never load third-party pictures or tracking pixels
       "font-src 'self' data: https://fonts.gstatic.com",
       `connect-src 'self'${dev ? ' ws: wss:' : ''}`, // the only socket (/easter-egg) is same-origin long-polling; ws: only for the dev hot-reload socket
@@ -47,10 +48,11 @@ const nextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'no-referrer' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-          // Not shared with other origins' windows or embedders (no cross-origin popups or embeds are used). COEP is left off:
-          // require-corp would block the Google Fonts stylesheet.
+          // Not shared with other origins' windows or embedders (no cross-origin popups or embeds are used).
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
+          // credentialless (not require-corp): cross-origin no-cors loads such as the Google Fonts stylesheet still work, without credentials.
+          { key: 'Cross-Origin-Embedder-Policy', value: 'credentialless' },
         ],
       },
     ];

@@ -259,13 +259,12 @@ export class AuthService {
     // security.sessionTimeoutMinutes setting.
     const { settings } = await this.settingsService.get();
     const accessExpirySeconds = settings.security.sessionTimeoutMinutes * 60;
-    const accessExpiry = `${accessExpirySeconds}s`;
     const refreshExpiryDays = 7;
     const refreshExpirySeconds = refreshExpiryDays * 24 * 60 * 60;
 
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get('JWT_ACCESS_SECRET'),
-      expiresIn: accessExpiry,
+      expiresIn: accessExpirySeconds, // a number is read as seconds
     });
 
     const jti = uuidv4();
@@ -273,7 +272,7 @@ export class AuthService {
       { ...payload, jti },
       {
         secret: this.configService.get('JWT_REFRESH_SECRET'),
-        expiresIn: `${refreshExpiryDays}d`,
+        expiresIn: refreshExpirySeconds,
       },
     );
 

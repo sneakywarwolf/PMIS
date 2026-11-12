@@ -37,6 +37,14 @@ describe('docker-compose.yml hardening', () => {
     for (const name of ['postgres', 'rustfs']) expect(service(compose, name)).toMatch(/cap_drop:\n\s+- ALL/);
   });
 
+  it('every service runs with a read-only root filesystem', () => {
+    for (const name of ['frontend', 'backend', 'postgres', 'redis', 'rustfs']) expect(service(compose, name)).toMatch(/read_only: true/);
+  });
+
+  it('rustfs keeps its log directory writable in memory, as its own user', () => {
+    expect(service(compose, 'rustfs')).toMatch(/- \/logs:uid=10001,gid=10001/);
+  });
+
   it('app containers have a memory ceiling', () => {
     for (const name of ['frontend', 'backend']) expect(service(compose, name)).toMatch(/mem_limit:/);
   });

@@ -10,6 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { Namespace, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
+import { hardenEngineHeaders } from '../common/engine-headers';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { authenticateSocket } from '../auth/verify-access-token';
@@ -62,6 +63,7 @@ export class EasterEggGateway implements OnGatewayInit, OnGatewayConnection, OnG
 
   // Auth runs as namespace middleware so no event is handled before client.data.user exists.
   afterInit(server: Namespace) {
+    hardenEngineHeaders(server);
     server.use((client, next) => {
       this.authenticate(client).then((ok) => next(ok ? undefined : new Error('unauthorized')), () => next(new Error('unauthorized')));
     });

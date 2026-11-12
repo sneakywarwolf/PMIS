@@ -98,6 +98,11 @@ services:
       - SETGID
       - DAC_OVERRIDE
       - FOWNER
+    # Read-only root filesystem: the server writes only to its data volume and these in-memory scratch areas.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
     environment:
       POSTGRES_USER: pmis
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -128,6 +133,9 @@ services:
       - SETUID
       - SETGID
     mem_limit: 512m
+    read_only: true # it writes only to its data volume (and /tmp)
+    tmpfs:
+      - /tmp
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env (openssl rand -hex 32)}
     # Password required for every connection (the stack's network is internal, but any container on it could otherwise
@@ -148,6 +156,12 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Read-only root filesystem: it writes only to its data volume and its log directory, which is in memory (uid/gid 10001 = the
+    # image's rustfs user).
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /logs:uid=10001,gid=10001,mode=0750
     environment:
       RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER:-pmisminio}
       RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
