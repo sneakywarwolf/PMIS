@@ -1,6 +1,7 @@
 # Changelog
 
 ## 1.1.4 (Unreleased)
+- New: **Delete All PT Findings** button on the project's Findings tab, beside Delete All VA Findings. It deletes every PT finding of the project (picked from the Vulnerability DB, added manually or imported from a file) with its POC steps and screenshots, after a confirmation; VA findings, the Vulnerability DB, other projects and reports are untouched, and a Tester only deletes their own. New permission *Delete all PT findings of a project* (Settings > RBAC; on by default for every role, like Delete All VA Findings).
 - New: **Settings > Attachments > Maximum Rows Per Import File** (Admin only; 100 to 50,000, default 10,000). Source rows are counted per file before rows with the same Name are merged; a file over the limit is refused whole, with the limit and the row count found, and nothing is saved. The files of one import together are also limited to 50,000 rows. Other roles no longer receive this setting from `GET /settings`.
 - Improved: **imports of many rows are about 20x faster** (bulk inserts: 10,000 rows in ~4 s instead of ~79 s; 50,000 in ~21 s, measured). A 20,000-row import used to run past the 120 s transaction limit and fail.
 - Fix: the Import Project Findings preview now shows the parsed **POC/Results** as its last column (the real value, with *Show full* for long text) instead of a fixed label.

@@ -66,6 +66,7 @@ export const PERMISSIONS: PermissionDef[] = [
   { key: 'findings.fortify_import', group: 'Findings', label: 'Import Fortify results', description: 'Preview and import a Fortify .fpr or FVDL .xml file into an SCR project.', defaults: ALL },
   { key: 'findings.fortify_delete_all', group: 'Findings', label: 'Delete all Fortify findings of a project', description: 'Delete every Fortify-imported finding of an SCR project at once.', defaults: ALL },
   { key: 'findings.nessus_delete_all', group: 'Findings', label: 'Delete all Nessus findings of a project', description: 'Delete every Nessus-imported VA finding of a project at once.', defaults: ALL },
+  { key: 'findings.pt_delete_all', group: 'Findings', label: 'Delete all PT findings of a project', description: 'Delete every PT finding of a project at once (picked from the Vulnerability DB, added manually or imported from a file).', defaults: ALL },
   { key: 'findings.file_import', group: 'Findings', label: 'Import Project Findings from a file', description: 'Import findings from a .csv or .xlsx file into a project.', defaults: ALL },
 
   // Vulnerability DB

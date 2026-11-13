@@ -96,6 +96,38 @@ d('project-only findings (real database)', () => {
     await prisma.$disconnect();
   });
 
+  describe('Delete all PT findings', () => {
+    it('deletes PT findings (manual, imported, from the Vulnerability DB) and nothing else', async () => {
+      const proj = await prisma.project.create({ data: { name: `${run}-ptdel`, clientName: 'c', startDate: new Date(), testerId: tester.id, tlId: tl.id, subType: 'NETWORK' } });
+      created.projectIds.push(proj.id);
+      const other = await prisma.project.create({ data: { name: `${run}-ptdel-other`, clientName: 'c', startDate: new Date(), testerId: tester.id, tlId: tl.id, subType: 'NETWORK' } });
+      created.projectIds.push(other.id);
+      await svc.createManual({ projectId: proj.id, ...goodFields(n('pd-manual')), syncVulnDb: false }, tester, 'ip', 'ua');
+      await svc.importFindings(proj.id, csvFile([csvRow(1, n('pd-imp1')), csvRow(2, n('pd-imp2'))]), tester, 'ip', 'ua');
+      await svc.importFindings(other.id, csvFile([csvRow(1, n('pd-other'))]), tester, 'ip', 'ua');
+      const gv = await prisma.vulnerability.create({ data: { name: `zz-${run}-pd-db`, severity: 'High', description: 'd', impact: 'i', remediation: 'r', references: 'ref', category: 'NETWORK', status: VulnerabilityStatus.APPROVED, isActive: true } as any });
+      const dbf = await prisma.finding.create({ data: { projectId: proj.id, vulnId: gv.id, testerNotes: '', evidencePaths: [], createdById: tester.id } });
+      const nessusRec = await prisma.projectVulnerability.create({ data: { projectId: proj.id, source: 'nessus', sourceKey: n('pd-nessus'), name: n('pd-nessus'), severity: 'High', description: 'd', impact: 'i', remediation: 'r', references: 'ref' } });
+      const va = await prisma.finding.create({ data: { projectId: proj.id, projectVulnId: nessusRec.id, testerNotes: '', evidencePaths: [], createdById: tester.id } });
+
+      expect((await findings.countNessusFindings(proj.id, tester, 'pt')).count).toBe(4);
+      // A tester who did not create them (and so cannot see them) deletes nothing.
+      await expect(findings.removeAllNessusFindings(proj.id, otherTester, 'ip', 'ua', 'pt')).rejects.toBeDefined();
+      const out = await findings.removeAllNessusFindings(proj.id, tester, 'ip', 'ua', 'pt');
+      expect(out.deleted).toBe(4);
+      expect(await prisma.finding.findUnique({ where: { id: va.id } })).not.toBeNull(); // the VA finding stays
+      expect(await prisma.finding.findUnique({ where: { id: dbf.id } })).toBeNull();
+      expect(await prisma.vulnerability.findUnique({ where: { id: gv.id } })).not.toBeNull(); // the library entry stays
+      expect(await prisma.projectVulnerability.count({ where: { projectId: proj.id, source: { in: ['manual', 'import'] } } })).toBe(0);
+      expect(await prisma.projectVulnerability.count({ where: { projectId: proj.id, source: 'nessus' } })).toBe(1);
+      expect(await findingCount(other.id)).toBe(1); // another project is untouched
+      expect((await findings.removeAllNessusFindings(proj.id, tester, 'ip', 'ua', 'pt')).deleted).toBe(0); // repeating deletes nothing
+      const logs = await prisma.auditLog.findMany({ where: { actorId: tester.id, targetId: proj.id } });
+      expect(logs.some((l) => JSON.stringify(l.details).includes('bulkDeletePtFindings'))).toBe(true);
+      await prisma.vulnerability.delete({ where: { id: gv.id } });
+    });
+  });
+
   describe('Add Manually', () => {
     it('Sync Vuln DB OFF: creates the finding in this project only, with no database entry or request', async () => {
       const name = n('off');

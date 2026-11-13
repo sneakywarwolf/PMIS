@@ -222,6 +222,20 @@ export class FindingsController {
     return this.findingsService.removeAllNessusFindings(projectId, user, request.ip || 'unknown', request.headers['user-agent'] || 'unknown', 'fortify');
   }
 
+  @Get('project/:projectId/pt-count')
+  @Permission('findings.view')
+  @ApiOperation({ summary: 'How many PT findings the caller may delete in bulk' })
+  async countPt(@Param('projectId') projectId: string, @CurrentUser() user: User) {
+    return this.findingsService.countNessusFindings(projectId, user, 'pt');
+  }
+
+  @Delete('project/:projectId/pt')
+  @Permission('findings.pt_delete_all')
+  @ApiOperation({ summary: 'Delete all PT findings of a project (from the Vulnerability DB, added manually or imported from a file)' })
+  async removeAllPt(@Param('projectId') projectId: string, @CurrentUser() user: User, @Req() request: any) {
+    return this.findingsService.removeAllNessusFindings(projectId, user, request.ip || 'unknown', request.headers['user-agent'] || 'unknown', 'pt');
+  }
+
   @Delete('project/:projectId/nessus')
   @Permission('findings.nessus_delete_all')
   @ApiOperation({ summary: 'Delete all Nessus-imported VA findings of a project' })

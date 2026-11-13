@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { VULN_INCLUDE, withVulnerability, bySeverityScore } from '../common/finding-vulnerability.util';
+import { VULN_INCLUDE, withVulnerability, bySeverityScore, PROJECT_ONLY_SOURCES } from '../common/finding-vulnerability.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { User, UserRole, FindingStatus, ProjectStatus } from '@prisma/client';
+import { User, UserRole, FindingStatus, ProjectStatus, Prisma } from '@prisma/client';
 import { resolveCvssVector } from '../common/cvss-vector.util';
 import { findingPocReadiness } from '../common/poc-validation.util';
 import { NESSUS_POC_MAX, parseNessusFile } from '../common/nessus-parser.util';
@@ -273,7 +273,15 @@ export class FindingsService {
    * The Nessus-imported VA findings of one project, identified by the project-scoped record's source
    * (never by name or severity). A tester can only touch findings they created, as with single delete.
    */
-  private nessusFindingsWhere(projectId: string, user: User, source = 'nessus') {
+  private nessusFindingsWhere(projectId: string, user: User, source = 'nessus'): Prisma.FindingWhereInput {
+    // 'pt': every PT finding, i.e. picked from the Vulnerability DB, added manually or imported from a file (never a scan import).
+    if (source === 'pt') {
+      return {
+        projectId,
+        OR: [{ vulnId: { not: null } }, { projectVulnerability: { is: { projectId, source: { in: PROJECT_ONLY_SOURCES } } } }],
+        ...(user.role === UserRole.TESTER && { createdById: user.id }),
+      };
+    }
     return {
       projectId,
       projectVulnerability: { is: { projectId, source } },
@@ -293,7 +301,7 @@ export class FindingsService {
    * scope and reports are never selected. Stored PoC/evidence files are removed after the commit, and only
    * those no remaining finding still points at. Repeating the call deletes nothing and returns 0.
    */
-  // `source` is 'nessus' (default) or 'fortify': the same bulk delete, for the other scan import.
+  // `source` is 'nessus' (default), 'fortify' (the same bulk delete for the other scan import) or 'pt' (all PT findings).
   async removeAllNessusFindings(projectId: string, user: User, ipAddress: string, userAgent: string, source = 'nessus') {
     await this.checkProjectAccess(projectId, user);
 
@@ -310,7 +318,7 @@ export class FindingsService {
 
       const result = await tx.finding.deleteMany({ where: { id: { in: ids } } });
       // Records left without any finding (this delete, or an interrupted earlier import) go too; ones still in use stay.
-      await tx.projectVulnerability.deleteMany({ where: { projectId, source, findings: { none: {} } } });
+      await tx.projectVulnerability.deleteMany({ where: { projectId, source: source === 'pt' ? { in: PROJECT_ONLY_SOURCES } : source, findings: { none: {} } } });
 
       // Only files nothing else references are safe to remove.
       const stillUsed = new Set<string>();
@@ -330,7 +338,7 @@ export class FindingsService {
         targetId: projectId,
         ipAddress,
         userAgent,
-        details: { [source === 'fortify' ? 'bulkDeleteFortifyFindings' : 'bulkDeleteNessusFindings']: true, deletedCount: result.count },
+        details: { [source === 'fortify' ? 'bulkDeleteFortifyFindings' : source === 'pt' ? 'bulkDeletePtFindings' : 'bulkDeleteNessusFindings']: true, deletedCount: result.count },
       });
       return { deleted: result.count, files: candidates.filter((p) => !stillUsed.has(p)) };
     });

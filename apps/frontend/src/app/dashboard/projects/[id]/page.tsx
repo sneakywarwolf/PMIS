@@ -218,6 +218,8 @@ export default function ProjectDetailPage() {
   const [deletingNessus, setDeletingNessus] = useState(false);
   const [fortifyCount, setFortifyCount] = useState(0);
   const [deletingFortify, setDeletingFortify] = useState(false);
+  const [ptCount, setPtCount] = useState(0);
+  const [deletingPt, setDeletingPt] = useState(false);
   const [findingFilter, setFindingFilter] = useState<'ALL' | 'VA' | 'PT'>('ALL');
 
   const fetchProject = useCallback(async () => {
@@ -228,6 +230,7 @@ export default function ProjectDetailPage() {
       if (response.data.subType === 'NETWORK') {
         api.get(`/findings/project/${id}/nessus-count`).then((r) => setNessusCount(r.data.count)).catch(() => setNessusCount(0));
       }
+      api.get(`/findings/project/${id}/pt-count`).then((r) => setPtCount(r.data.count)).catch(() => setPtCount(0));
       if (response.data.subType === 'SCR') {
         api.get(`/findings/project/${id}/fortify-count`).then((r) => setFortifyCount(r.data.count)).catch(() => setFortifyCount(0));
       }
@@ -261,6 +264,28 @@ export default function ProjectDetailPage() {
       showToast(error.response?.data?.message || 'Failed to delete VA findings — nothing was changed.', 'error');
     } finally {
       setDeletingNessus(false);
+      await fetchProject();
+    }
+  };
+
+  // Deletes ALL of this project's PT findings (from the Vulnerability DB, added manually or imported from a file), after an explicit confirm.
+  const handleDeleteAllPt = async () => {
+    if (!project) return;
+    const ok = await confirmDialog({
+      title: 'Delete all PT findings?',
+      message: `This will permanently delete all ${ptCount} PT finding${ptCount === 1 ? '' : 's'} in this project (those picked from the Vulnerability Database, added manually or imported from a file), with their POC steps and screenshots. VA findings, the Vulnerability Database and reports are not affected. This cannot be undone through the UI.`,
+      confirmLabel: `Delete ${ptCount} PT finding${ptCount === 1 ? '' : 's'}`,
+      danger: true,
+    });
+    if (!ok) return;
+    setDeletingPt(true);
+    try {
+      const res = await api.delete(`/findings/project/${project.id}/pt`);
+      showToast(res.data.deleted === 0 ? 'No PT findings were left to delete.' : `Deleted ${res.data.deleted} PT finding${res.data.deleted === 1 ? '' : 's'}.`, 'success');
+    } catch (error: any) {
+      showToast(error.response?.data?.message || 'Failed to delete PT findings — nothing was changed.', 'error');
+    } finally {
+      setDeletingPt(false);
       await fetchProject();
     }
   };
@@ -924,17 +949,44 @@ export default function ProjectDetailPage() {
                 </button>
               );
             })}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
             {canEditFindings && can('findings.nessus_delete_all') && nessusCount > 0 && (
               <button
                 onClick={handleDeleteAllNessus}
                 disabled={deletingNessus}
                 title="Permanently delete every Nessus-imported VA finding in this project"
-                className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
               >
                 {deletingNessus ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                 Delete All VA Findings ({nessusCount})
               </button>
             )}
+              {canEditFindings && can('findings.pt_delete_all') && ptCount > 0 && (
+              <button
+                onClick={handleDeleteAllPt}
+                disabled={deletingPt}
+                title="Permanently delete every PT finding in this project (from the Vulnerability Database, added manually or imported from a file)"
+                className="flex items-center gap-2 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+              >
+                {deletingPt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Delete All PT Findings ({ptCount})
+              </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {project.subType !== 'NETWORK' && canEditFindings && can('findings.pt_delete_all') && ptCount > 0 && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              onClick={handleDeleteAllPt}
+              disabled={deletingPt}
+              title="Permanently delete every PT finding in this project (from the Vulnerability Database, added manually or imported from a file)"
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 border border-red-500/20 rounded-lg transition-all text-sm disabled:opacity-50"
+            >
+              {deletingPt ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete All PT Findings ({ptCount})
+            </button>
           </div>
         )}
 
