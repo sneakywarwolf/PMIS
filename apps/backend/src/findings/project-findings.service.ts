@@ -318,7 +318,7 @@ export class ProjectFindingsService {
     const rows: ParsedRow[] = [];
     for (const [index, file] of files.entries()) {
       try {
-        rows.push(...(await this.parseFile(file, index, files.length > 1, allowed)));
+        for (const r of await this.parseFile(file, index, files.length > 1, allowed)) rows.push(r);
       } catch (e: any) {
         // With several files, say which one is wrong.
         if (files.length > 1 && e instanceof BadRequestException) {
@@ -383,7 +383,9 @@ export class ProjectFindingsService {
     const byKey = new Map<string, ParsedRow[]>();
     for (const r of rows) {
       const key = normalizeVulnName(r.rawName) || `#${r.row}`;
-      byKey.set(key, [...(byKey.get(key) ?? []), r]);
+      const list = byKey.get(key);
+      if (list) list.push(r);
+      else byKey.set(key, [r]);
     }
     return [...byKey.values()].map((src): ImportGroup => {
       if (src.length === 1) return { ...src[0], sourceRows: src };
@@ -404,7 +406,12 @@ export class ProjectFindingsService {
       const affectedInstances = [...new Set(src.flatMap((r) => r.affectedInstances))];
       // POC/Results: identical text once; different texts each kept, headed by the instances of the rows that carry it.
       const pocs = new Map<string, string[]>();
-      for (const r of src) if (r.poc) pocs.set(r.poc, [...(pocs.get(r.poc) ?? []), ...(r.affectedInstances.length ? r.affectedInstances : [r.label])]);
+      for (const r of src) {
+        if (!r.poc) continue;
+        const who = pocs.get(r.poc) ?? [];
+        who.push(...(r.affectedInstances.length ? r.affectedInstances : [r.label]));
+        pocs.set(r.poc, who);
+      }
       const poc = pocs.size <= 1 ? [...pocs.keys()][0] ?? '' : [...pocs].map(([text, who]) => `${[...new Set(who)].join(', ')}\n${text}`).join('\n\n');
       if (poc.length > POC_MAX) errors.push(`The combined POC/Results is longer than ${POC_MAX} characters.`);
       return { row: src[0].row, label: src[0].label, fields, affectedInstances, poc, errors, rawName: src[0].rawName, sourceRows: src };
@@ -467,7 +474,8 @@ export class ProjectFindingsService {
       });
     }
     const skip = new Set(exclude);
-    const fresh = parsed.filter((r) => report.find((x) => x.row === r.row)!.status === 'new' && !skip.has(r.row));
+    const statusOf = new Map(report.map((x) => [x.row, x.status]));
+    const fresh = parsed.filter((r) => statusOf.get(r.row) === 'new' && !skip.has(r.row));
     if (fresh.length === 0) {
       const waiting = report.filter((r) => r.status === 'new').length;
       throw new BadRequestException(waiting > 0 ? 'Nothing selected to import.' : `Nothing to import: all ${report.length} row(s) already exist in this project.`);

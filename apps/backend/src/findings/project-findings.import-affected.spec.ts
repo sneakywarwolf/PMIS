@@ -114,4 +114,13 @@ describe('Import Project Findings: Affected Instances and POC/Results columns', 
       await expect(svc.parseImport(many)).rejects.toThrow(/At most 10 files/);
     });
   });
+
+  it('groups many rows with one name in linear time', async () => {
+    const rows = Array.from({ length: 10_000 }, (_, i) => `1,Same,High,h${i},${tail.join(',')},p${i % 50}`);
+    const t0 = Date.now();
+    const [g] = await svc.parseImport(f([NEW, ...rows].join(NL)));
+    expect(g.sourceRows).toHaveLength(10_000);
+    expect(g.affectedInstances).toHaveLength(10_000);
+    expect(Date.now() - t0).toBeLessThan(5000);
+  });
 });

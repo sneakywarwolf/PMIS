@@ -10,6 +10,9 @@ const FORM_OVERHEAD_BYTES = 4 * 1024 * 1024;
  * restart. The limit actually in force is checked by `AttachmentSizeGuard` (declared size, before the body is
  * read) and `assertAttachmentSize` (the file, by its own format).
  */
+/** Most bytes one multi-file request may carry in total (never less than one file's own limit). */
+const TOTAL_UPLOAD_BUDGET_BYTES = 200 * 1024 * 1024;
+
 export const attachmentMulterLimits = (purpose: string, files = 1) => ({
   limits: {
     fileSize: Math.max(...ATTACHMENT_FORMATS.filter((f) => f.purpose === purpose).map((f) => f.maxMb), 1) * 1024 * 1024,
@@ -26,7 +29,9 @@ export function AttachmentSizeGuard(purpose: string, files = 1): Type<CanActivat
   class Guard implements CanActivate {
     canActivate(context: ExecutionContext): boolean {
       const declared = Number(context.switchToHttp().getRequest().headers['content-length']);
-      const largest = attachmentLimits.largestBytes(purpose) * files;
+      const one = attachmentLimits.largestBytes(purpose);
+      // Several files share one fixed budget instead of each getting the single-file maximum.
+      const largest = Math.max(one, Math.min(one * files, TOTAL_UPLOAD_BUDGET_BYTES));
       if (Number.isFinite(declared) && declared > largest + FORM_OVERHEAD_BYTES) {
         throw new PayloadTooLargeException(tooLargeMessage(undefined, largest));
       }
