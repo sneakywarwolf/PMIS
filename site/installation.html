@@ -76,13 +76,13 @@ cd PMIS</code></pre>
 <pre><code>copy .env.example .env</code></pre>
 
     <p><strong>3a. Fill in the four required secrets.</strong> Each one must be its own long random value. Linux, macOS and Git Bash:</p>
-<pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
+<pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD REDIS_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
   sed -i.bak "s|^$k=CHANGE_ME|$k=$(openssl rand -hex 32)|" .env
 done
 rm -f .env.bak
 grep '=CHANGE_ME' .env || echo "All secrets set"</code></pre>
     <p>Windows PowerShell, run inside the PMIS folder:</p>
-<pre><code>$names = 'POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'
+<pre><code>$names = 'POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD', 'REDIS_PASSWORD', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'
 $lines = Get-Content .env
 foreach ($name in $names) {
   $bytes = New-Object byte[] 32
@@ -144,13 +144,13 @@ curl.exe -fsSL https://raw.githubusercontent.com/sneakywarwolf/PMIS/master/.env.
 
     <h3>3. Set the secrets in <code>.env</code></h3>
     <p><strong>3a. Fill in the four required secrets.</strong> Linux, macOS and Git Bash:</p>
-<pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
+<pre><code>for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD REDIS_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
   sed -i.bak "s|^$k=CHANGE_ME|$k=$(openssl rand -hex 32)|" .env
 done
 rm -f .env.bak
 grep '=CHANGE_ME' .env || echo "All secrets set"</code></pre>
     <p>Windows PowerShell, run inside the <code>pmis</code> folder:</p>
-<pre><code>$names = 'POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'
+<pre><code>$names = 'POSTGRES_PASSWORD', 'MINIO_ROOT_PASSWORD', 'REDIS_PASSWORD', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'
 $lines = Get-Content .env
 foreach ($name in $names) {
   $bytes = New-Object byte[] 32
@@ -224,7 +224,7 @@ docker compose pull</code></pre>
         <tr><td>Port 3000 already in use</td><td>Set <code>FRONTEND_PORT</code> (for example <code>3001</code>) and the matching <code>FRONTEND_URL</code>, then run <code>docker compose up -d</code> (Option 1) or <code>docker compose up -d --no-build</code> (Option 2).</td></tr>
         <tr><td>No <code>First login</code> line in the log</td><td>The admin account already existed, or <code>ADMIN_PASSWORD</code> was set. Use that password.</td></tr>
         <tr><td>Sign-in works on HTTPS but not on <code>http://</code></td><td><code>COOKIE_SECURE=true</code> requires HTTPS. Set it to <code>false</code> for plain HTTP on localhost.</td></tr>
-        <tr><td>"Account is temporarily locked"</td><td>Too many failed sign-ins. Wait 15 minutes and try again.</td></tr>
+        <tr><td>"Account is temporarily locked"</td><td>Too many failed sign-ins. Wait for the lock period (15 minutes by default) or ask an Admin to unlock the account under User Management.</td></tr>
         <tr><td>A user forgot their password</td><td>An Admin resets it under <em>Users</em>. The user then sets a new one at next sign-in.</td></tr>
         <tr><td>HTTP 429 or "Too Many Requests" when pulling images (Option 2)</td><td>Docker Hub limits anonymous pulls. Run <code>docker login</code> with a free Docker Hub account, then retry the pull.</td></tr>
         <tr><td><code>no matching manifest for linux/...</code> (Option 2)</td><td>The PMIS images are published for <code>linux/amd64</code> and <code>linux/arm64</code> only. On another CPU type, use Option 1.</td></tr>

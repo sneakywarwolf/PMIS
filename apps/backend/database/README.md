@@ -13,7 +13,7 @@ apps/backend/
 │   │   ├── 20261107000000_baseline/migration.sql   # the single baseline (first production release)
 │   │   └── <timestamp>_<name>/migration.sql        # every later change, one folder each
 │   ├── baseline-guard.js                     # runs before migrate deploy: stamps pre-baseline databases safely
-│   └── seed.ts                               # reference data (admin user, vulnerability library); idempotent
+│   └── seed.ts                               # reference data (admin user, default vulnerability library); idempotent. The library is loaded only while it is empty (first install): later starts leave it exactly as the Admins made it
 └── database/README.md                        # this file
 ```
 Prisma requires the `prisma/migrations/<timestamp>_<name>/migration.sql` layout; the numbering is the timestamp

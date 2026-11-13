@@ -408,7 +408,9 @@ export class ProjectsService {
    * docx/pdf, finding evidence, PoC images) and the DB row; Prisma cascade
    * takes care of Finding/PocStep/ReportGeneration rows so nothing orphans.
    */
-  async remove(id: string, adminId: string, ipAddress: string, userAgent: string) {
+  async remove(id: string, actor: User, ipAddress: string, userAgent: string) {
+    // "Delete projects" can be handed to other roles in Settings > RBAC; team scoping still applies on top of it.
+    await this.checkProjectAccess(id, actor);
     const project = await this.projectPurge.loadPurgeableProject(id);
     if (!project) {
       throw new NotFoundException('Project not found');
@@ -417,7 +419,7 @@ export class ProjectsService {
     const { filesDeleted } = await this.projectPurge.purgeProject(project);
 
     await this.auditService.log({
-      actorId: adminId,
+      actorId: actor.id,
       action: 'PROJECT_DELETED',
       targetType: 'PROJECT',
       targetId: id,

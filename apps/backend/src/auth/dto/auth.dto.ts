@@ -9,6 +9,7 @@ export class LoginDto {
 
   @IsString()
   @MinLength(8)
+  @MaxLength(128) // same cap as a new password; stops a multi-megabyte value being fed to argon2
   password: string;
 }
 

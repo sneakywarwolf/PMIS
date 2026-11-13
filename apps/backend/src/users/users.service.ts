@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -12,6 +12,23 @@ import { CreateUserDto, UpdateUserDto } from '../auth/dto/auth.dto';
 
 // Roles that can lead a team (be assigned testers). Admins can act as team leads too.
 const TL_ROLES: UserRole[] = [UserRole.TEAM_LEAD, UserRole.AVP, UserRole.ADMIN];
+
+/**
+ * Settings > RBAC lets an Admin hand user-management features to other roles. That must never become a route to
+ * higher privilege or to other teams: a non-Admin (or an unknown caller) may only create users as Testers of their own
+ * team, and may only edit, reset or deactivate Testers assigned to them: the same scope findOne/findAll apply.
+ */
+function assertMayAssignRole(actorRole: string | undefined, role: string | undefined) {
+  if (actorRole !== UserRole.ADMIN && role !== undefined && role !== UserRole.TESTER) {
+    throw new ForbiddenException('You can only manage Tester accounts.');
+  }
+}
+function assertMayManageTarget(actorRole: string | undefined, actorId: string, target: { role: string; assignedTlId?: string | null }) {
+  if (actorRole === UserRole.ADMIN) return;
+  if (target.role !== UserRole.TESTER || target.assignedTlId !== actorId) {
+    throw new ForbiddenException('You can only manage Tester accounts assigned to you.');
+  }
+}
 
 /** Phone numbers saved without a country code get +91. Blank stays blank. */
 export const withDefaultPrefix = (phone?: string | null) => {
@@ -97,10 +114,16 @@ export class UsersService {
     return user;
   }
 
-  async create(dto: CreateUserDto, adminId: string, ipAddress: string, userAgent: string) {
+  async create(dto: CreateUserDto, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
+    assertMayAssignRole(actorRole, dto.role);
+    if (actorRole !== UserRole.ADMIN) {
+      if (dto.assignedTlId && dto.assignedTlId !== adminId) throw new ForbiddenException('You can only add Testers to your own team.');
+      dto = { ...dto, assignedTlId: adminId };
+    }
     const existing = await this.prisma.user.findFirst({
+      // Case-insensitive: login also matches emails ignoring case, so two accounts differing only by case would be ambiguous.
       where: {
-        OR: [{ username: dto.username }, { email: dto.email }],
+        OR: [{ username: { equals: dto.username, mode: 'insensitive' } }, { email: { equals: dto.email, mode: 'insensitive' } }],
       },
     });
 
@@ -177,10 +200,15 @@ export class UsersService {
     return { ...user, tempPassword };
   }
 
-  async update(id: string, dto: UpdateUserDto, adminId: string, ipAddress: string, userAgent: string) {
+  async update(id: string, dto: UpdateUserDto, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+    assertMayManageTarget(actorRole, adminId, user);
+    assertMayAssignRole(actorRole, dto.role);
+    if (actorRole !== UserRole.ADMIN && dto.assignedTlId !== undefined && dto.assignedTlId !== adminId) {
+      throw new ForbiddenException('You can only keep Testers in your own team.');
     }
 
     // Check for duplicate username/email on other users
@@ -188,8 +216,8 @@ export class UsersService {
       const duplicate = await this.prisma.user.findFirst({
         where: {
           OR: [
-            ...(dto.username ? [{ username: dto.username }] : []),
-            ...(dto.email ? [{ email: dto.email }] : []),
+            ...(dto.username ? [{ username: { equals: dto.username, mode: 'insensitive' as const } }] : []),
+            ...(dto.email ? [{ email: { equals: dto.email, mode: 'insensitive' as const } }] : []),
           ],
           id: { not: id },
         },
@@ -256,11 +284,12 @@ export class UsersService {
     return updated;
   }
 
-  async forcePasswordReset(userId: string, adminId: string, ipAddress: string, userAgent: string) {
+  async forcePasswordReset(userId: string, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
+    assertMayManageTarget(actorRole, adminId, user);
 
     const { settings } = await this.settingsService.get();
     const tempPassword = this.generateSecurePassword(
@@ -346,11 +375,12 @@ export class UsersService {
     });
   }
 
-  async softDelete(id: string, adminId: string, ipAddress: string, userAgent: string) {
+  async softDelete(id: string, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
+    assertMayManageTarget(actorRole, adminId, user);
 
     // Data is purged by the retention cron after the 24h grace period expires
     // (see RetentionService.deleteExpiredUsers), not here — reactivating
@@ -511,7 +541,7 @@ export class UsersService {
     return `${headers}\n${sampleRow}\n`;
   }
 
-  async bulkUpload(csvContent: string, adminId: string, ipAddress: string, userAgent: string) {
+  async bulkUpload(csvContent: string, adminId: string, ipAddress: string, userAgent: string, actorRole?: string) {
     const allRows = parseCsv(csvContent.trim());
     if (allRows.length < 2) {
       throw new BadRequestException('CSV file is empty or missing data rows.');
@@ -579,6 +609,10 @@ export class UsersService {
         results.errors.push(`Row ${i + 1}: Invalid role "${roleStr}". Valid: Admin, AVP, Team Lead, Tester.`);
         continue;
       }
+      if (role !== UserRole.TESTER && actorRole !== UserRole.ADMIN) {
+        results.errors.push(`Row ${i + 1}: You can only add Tester accounts.`);
+        continue;
+      }
 
       // Generate username from email prefix
       let username = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -599,6 +633,7 @@ export class UsersService {
         );
         if (tl) assignedTlId = tl.id;
       }
+      if (actorRole !== UserRole.ADMIN) assignedTlId = adminId; // non-Admins add Testers to their own team only
 
       // Look up Manager by full name (case-insensitive, active, role AVP)
       let managerId: string | null = null;

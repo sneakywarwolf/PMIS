@@ -3,6 +3,19 @@ import { DEFAULT_ATTACHMENT_SIZES_MB } from '../common/attachment-formats';
 import { DEFAULT_NOTIFICATION_RULES } from '../notifications/notification-types';
 import { DEFAULT_PERMISSION_MATRIX } from '../common/permission-catalog';
 
+/** Allowed range of the lockout settings. Out-of-range or missing values can never switch the protection off. */
+export const LOCKOUT_LIMITS = {
+  maxAttempts: { min: 3, max: 20, fallback: 5 },
+  durationMinutes: { min: 1, max: 240, fallback: 15 },
+} as const;
+
+/** Installs that set MAX_LOGIN_ATTEMPTS keep that value until an Admin saves the setting; anything unusable becomes 5. */
+function defaultLockoutMaxAttempts(): number {
+  const n = Number.parseInt(process.env.MAX_LOGIN_ATTEMPTS ?? '', 10);
+  const { min, max, fallback } = LOCKOUT_LIMITS.maxAttempts;
+  return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
+}
+
 export const DEFAULT_SETTINGS = {
   general: {
     appName: 'PMIS - Project Management for Information Security',
@@ -39,6 +52,9 @@ export const DEFAULT_SETTINGS = {
     inactivityAction: 'logout', // 'logout' | 'warn'
     passwordMinLength: 14,
     passwordRequireComplexity: true,
+    // Temporary account lock after repeated failed sign-ins. Bounds are enforced in settings.service.ts (LOCKOUT_LIMITS).
+    lockoutMaxAttempts: defaultLockoutMaxAttempts(),
+    lockoutDurationMinutes: 15,
   },
   // Size limit in MB for every file format PMIS accepts, keyed "<purpose>.<extension>" (see common/attachment-formats.ts).
   attachments: {

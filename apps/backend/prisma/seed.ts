@@ -35,36 +35,43 @@ async function main() {
   const adminCreated = !adminExisted;
   console.log('✅ Admin user ready:', admin.username);
 
-  // Import vulnerabilities from JSON
-  console.log('📊 Importing vulnerabilities from vulnerabilities.json...');
-  const jsonPath = path.resolve(__dirname, 'vulnerabilities.json');
-  const raw = fs.readFileSync(jsonPath, 'utf-8');
-  const vulnerabilities = JSON.parse(raw);
+  // The default vulnerability library is a FIRST-INSTALL default. The container runs this seed on every start, so seeding "whatever
+  // is missing by name" would quietly bring back entries an Admin deleted or replaced with a bulk upload. Once the library has any
+  // entry at all it belongs to the Admins and is left exactly as it is.
+  const existingLibrary = await prisma.vulnerability.count();
+  if (existingLibrary > 0) {
+    console.log(`📊 Vulnerability library already has ${existingLibrary} entries: left as it is`);
+  } else {
+    console.log('📊 Importing vulnerabilities from vulnerabilities.json...');
+    const jsonPath = path.resolve(__dirname, 'vulnerabilities.json');
+    const raw = fs.readFileSync(jsonPath, 'utf-8');
+    const vulnerabilities = JSON.parse(raw);
 
-  let imported = 0;
-  for (const vuln of vulnerabilities) {
-    const existing = await prisma.vulnerability.findFirst({
-      where: { name: vuln.name },
-    });
-
-    if (!existing) {
-      await prisma.vulnerability.create({
-        data: {
-          name: vuln.name,
-          severity: vuln.severity,
-          cvssScore: vuln.cvssScore,
-          cvssVector: vuln.cvssVector,
-          description: vuln.description,
-          impact: vuln.impact,
-          remediation: vuln.remediation,
-          references: vuln.references,
-          source: 'imported',
-        },
+    let imported = 0;
+    for (const vuln of vulnerabilities) {
+      const existing = await prisma.vulnerability.findFirst({
+        where: { name: vuln.name },
       });
-      imported++;
+
+      if (!existing) {
+        await prisma.vulnerability.create({
+          data: {
+            name: vuln.name,
+            severity: vuln.severity,
+            cvssScore: vuln.cvssScore,
+            cvssVector: vuln.cvssVector,
+            description: vuln.description,
+            impact: vuln.impact,
+            remediation: vuln.remediation,
+            references: vuln.references,
+            source: 'imported',
+          },
+        });
+        imported++;
+      }
     }
+    console.log(`✅ ${imported} vulnerabilities imported`);
   }
-  console.log(`✅ ${imported} vulnerabilities imported`);
 
   // Demo data (extra users with KNOWN passwords + sample projects/findings) is opt-in: SEED_DEMO=true
   if (process.env.SEED_DEMO === 'true') {

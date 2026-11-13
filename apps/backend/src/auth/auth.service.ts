@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { SettingsService } from '../settings/settings.service';
 import { LoginDto, ChangePasswordDto } from './dto/auth.dto';
 import { v4 as uuidv4 } from 'uuid';
+import { AccountLockService } from './account-lock.service';
 import { User } from '@prisma/client';
 
 @Injectable()
@@ -21,7 +22,19 @@ export class AuthService {
     private configService: ConfigService,
     private auditService: AuditService,
     private settingsService: SettingsService,
+    private accountLocks: AccountLockService,
   ) {}
+
+  private dummyHash?: Promise<string>;
+  /** A real argon2id hash (same parameters as user hashes) to verify against when no such user exists. */
+  private getDummyHash(): Promise<string> {
+    return (this.dummyHash ??= argon2.hash(uuidv4(), { type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 4 }));
+  }
+
+  private lockedMessage(durationMinutes: number) {
+    // The same wording for every account, existing or not, and no per-account remaining time: that would tell the two apart.
+    return new UnauthorizedException(`Account is temporarily locked. Please try again in up to ${durationMinutes} minutes.`);
+  }
 
   async validateUser(username: string, password: string, ipAddress: string, userAgent: string) {
     const normalizedInput = username.trim();
@@ -38,42 +51,56 @@ export class AuthService {
       });
     }
 
-    // 3. Try case-insensitive email match (manual fallback)
+    // 3. Try case-insensitive email match (in the database: no user-list scan, no 500-user cap, no hashes loaded for every account)
     if (!user && normalizedInput.includes('@')) {
-      const allUsers = await this.prisma.user.findMany({
-        select: { id: true, username: true, email: true, passwordHash: true, role: true, fullName: true, isActive: true, assignedTlId: true, isForcePasswordChange: true, lastLoginAt: true },
-        take: 500,
-      });
-      user = (allUsers.find(u => u.email && u.email.toLowerCase() === normalizedInput.toLowerCase()) as any) || null;
+      user = await this.prisma.user.findFirst({ where: { email: { equals: normalizedInput, mode: 'insensitive' } } });
     }
 
+    const policy = await this.settingsService.getLockoutPolicy();
+    const windowSeconds = policy.durationMinutes * 60;
+
     if (!user || !user.isActive) {
-      await this.redisService.incrementLoginAttempts(normalizedInput);
+      // Unknown and disabled accounts must look exactly like a wrong password: same hashing work (no timing tell)
+      // and the same lock-out message after the same number of attempts (no "locked" tell that proves a name exists).
+      await argon2.verify(await this.getDummyHash(), password).catch(() => false);
+      const attempts = await this.redisService.incrementLoginAttempts(normalizedInput, windowSeconds);
+      if (attempts === policy.maxAttempts) await this.redisService.restartLoginAttemptsWindow(normalizedInput, windowSeconds); // lock for the full duration from now
+      if (attempts >= policy.maxAttempts) throw this.lockedMessage(policy.durationMinutes);
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const lockoutKey = user.username;
 
-    // Check account lockout
-    const isLocked = await this.redisService.isAccountLocked(lockoutKey);
-    if (isLocked) {
+    // An existing lock decides first, on the server clock. A lock past its expiry is removed here (and audited) and sign-in proceeds.
+    if (await this.accountLocks.getActive(user.id)) {
       this.logger.warn(`Login attempt on locked account: ${lockoutKey} from ${ipAddress}`);
-      throw new UnauthorizedException('Account is temporarily locked. Please try again in 15 minutes.');
+      await argon2.verify(await this.getDummyHash(), password).catch(() => false); // same cost as every other rejection
+      throw this.lockedMessage(policy.durationMinutes);
+    }
+
+    // Reserve this attempt BEFORE the slow password check. The count is atomic, so parallel requests each get their own number and at
+    // most `maxAttempts` of them are ever verified: counting after the check would let a burst of guesses all pass the lock test first.
+    const attempt = await this.redisService.incrementLoginAttempts(lockoutKey, windowSeconds);
+    if (attempt > policy.maxAttempts) {
+      await this.accountLocks.lock(user, policy.maxAttempts, policy.durationMinutes, ipAddress, userAgent); // normally already locked: no-op
+      await argon2.verify(await this.getDummyHash(), password).catch(() => false);
+      throw this.lockedMessage(policy.durationMinutes);
     }
 
     const isPasswordValid = await argon2.verify(user.passwordHash, password);
 
     if (!isPasswordValid) {
-      const attempts = await this.redisService.incrementLoginAttempts(lockoutKey);
-      this.logger.warn(`Failed login attempt ${attempts} for ${lockoutKey} from ${ipAddress}`);
-      
-      const maxAttempts = this.configService.get<number>('MAX_LOGIN_ATTEMPTS', 5);
-      if (attempts >= maxAttempts) {
-        throw new UnauthorizedException('Account is temporarily locked. Please try again in 15 minutes.');
+      this.logger.warn(`Failed login attempt ${attempt} for ${lockoutKey} from ${ipAddress}`);
+      if (attempt >= policy.maxAttempts) {
+        await this.accountLocks.lock(user, attempt, policy.durationMinutes, ipAddress, userAgent);
+        await this.redisService.resetLoginAttempts(lockoutKey); // the lock record now carries the state
+        throw this.lockedMessage(policy.durationMinutes);
       }
-      
       throw new UnauthorizedException('Invalid credentials');
     }
+
+    // A correct password does not get through if a parallel request locked the account while this one was being checked.
+    if (await this.accountLocks.getActive(user.id)) throw this.lockedMessage(policy.durationMinutes);
 
     // Reset login attempts on successful login
     await this.redisService.resetLoginAttempts(lockoutKey);
@@ -100,6 +127,7 @@ export class AuthService {
     try {
       const payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get('JWT_REFRESH_SECRET'),
+        algorithms: ['HS256'],
       });
 
       const storedUserId = await this.redisService.getRefreshTokenUserId(payload.jti);
@@ -134,8 +162,11 @@ export class AuthService {
         }
       }
 
-      // Revoke old refresh token
-      await this.redisService.revokeRefreshToken(payload.jti);
+      // Rotate: exactly one request may redeem a refresh token. Two simultaneous refreshes with the same token both
+      // pass the checks above, so the one whose DEL does not actually remove the key is refused.
+      if (!(await this.redisService.revokeRefreshToken(payload.jti))) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
 
       // Renewing an access token is still the same logical session — reuse
       // its sessionId rather than minting a new one (which would look like
@@ -150,6 +181,7 @@ export class AuthService {
     try {
       const payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get('JWT_REFRESH_SECRET'),
+        algorithms: ['HS256'],
       });
       await this.redisService.revokeRefreshToken(payload.jti);
     } catch (error) {
@@ -196,6 +228,11 @@ export class AuthService {
       throw new BadRequestException(policyErrors.join('; '));
     }
 
+    // An admin-issued temporary password is known to the admin, and a voluntary change that keeps the old password changes nothing.
+    if (await argon2.verify(user.passwordHash, dto.newPassword).catch(() => false)) {
+      throw new BadRequestException('The new password must be different from the current one');
+    }
+
     const newHash = await argon2.hash(dto.newPassword, {
       type: argon2.argon2id,
       memoryCost: 65536,
@@ -211,8 +248,11 @@ export class AuthService {
       },
     });
 
-    // Revoke all refresh tokens
+    // Revoke all refresh tokens and end the current session, so an access token stolen before the change stops working.
     await this.redisService.revokeAllUserTokens(userId);
+    const oldSessionId = await this.redisService.getActiveSession(userId);
+    if (oldSessionId) await this.redisService.clearSessionActivity(oldSessionId);
+    await this.redisService.clearActiveSession(userId);
 
     await this.auditService.log({
       actorId: userId,
@@ -220,6 +260,9 @@ export class AuthService {
       ipAddress,
       userAgent,
     });
+
+    // The person who just changed their password stays signed in: they get a fresh session of their own.
+    return this.generateTokens({ ...user, passwordHash: newHash, isForcePasswordChange: false });
   }
 
   private async generateTokens(user: User, existingSessionId?: string) {
@@ -241,13 +284,12 @@ export class AuthService {
     // security.sessionTimeoutMinutes setting.
     const { settings } = await this.settingsService.get();
     const accessExpirySeconds = settings.security.sessionTimeoutMinutes * 60;
-    const accessExpiry = `${accessExpirySeconds}s`;
     const refreshExpiryDays = 7;
     const refreshExpirySeconds = refreshExpiryDays * 24 * 60 * 60;
 
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get('JWT_ACCESS_SECRET'),
-      expiresIn: accessExpiry,
+      expiresIn: accessExpirySeconds, // a number is read as seconds
     });
 
     const jti = uuidv4();
@@ -255,7 +297,7 @@ export class AuthService {
       { ...payload, jti },
       {
         secret: this.configService.get('JWT_REFRESH_SECRET'),
-        expiresIn: `${refreshExpiryDays}d`,
+        expiresIn: refreshExpirySeconds,
       },
     );
 

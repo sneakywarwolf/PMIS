@@ -3,6 +3,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Response } from 'express';
 import { UsersService } from './users.service';
+import { AccountLockService } from '../auth/account-lock.service';
+import { AdminOnlyGuard } from '../auth/guards/admin-only.guard';
 import { parseUploadedFileToCsv } from '../common/bulk-upload-file.util';
 import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
 import { attachmentLimits } from '../common/attachment-formats';
@@ -15,7 +17,10 @@ import { Permission } from '../common/permissions';
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly accountLocks: AccountLockService,
+  ) {}
 
   @Get()
   @Permission('users.list')
@@ -63,6 +68,22 @@ export class UsersController {
     return this.usersService.updateProfile(userId, dto);
   }
 
+  // Temporarily locked accounts (too many failed sign-ins). Admin only, decided by the role itself (AdminOnlyGuard, not the RBAC matrix, so it cannot be
+  // delegated). The backend owns the lock and its expiry; the page only displays them. Declared before ':id'.
+  @Get('locked')
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({ summary: 'List temporarily locked accounts with their server-side expiry (Admin only)' })
+  async listLocked() {
+    return this.accountLocks.listActive();
+  }
+
+  @Post(':id/unlock')
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({ summary: 'Remove the temporary lock on an account (Admin only). The next sign-in still needs the password and every other control.' })
+  async unlock(@Param('id') id: string, @CurrentUser('id') adminId: string, @Req() request: any) {
+    return this.accountLocks.unlock(id, adminId, request.ip || 'unknown', request.headers['user-agent'] || 'unknown');
+  }
+
   // Open to every role (scoped to the caller's own team in the service). Declared before ':id'.
   @Get('my-team')
   @ApiOperation({ summary: "The caller's own team: lead, manager and members (names only)" })
@@ -89,12 +110,12 @@ export class UsersController {
   @ApiOperation({ summary: 'Create new user' })
   async create(
     @Body() dto: CreateUserDto,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() actor: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.usersService.create(dto, adminId, ipAddress, userAgent);
+    return this.usersService.create(dto, actor.id, ipAddress, userAgent, actor.role);
   }
 
   @Post('bulk-upload')
@@ -112,7 +133,7 @@ export class UsersController {
     const csv = await parseUploadedFileToCsv(file, attachmentLimits.maxBytes('userBulk', file?.originalname));
     const ipAddress = req.ip || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
-    return this.usersService.bulkUpload(csv, user.id, ipAddress, userAgent);
+    return this.usersService.bulkUpload(csv, user.id, ipAddress, userAgent, user.role);
   }
 
   @Put(':id')
@@ -121,12 +142,12 @@ export class UsersController {
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() actor: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.usersService.update(id, dto, adminId, ipAddress, userAgent);
+    return this.usersService.update(id, dto, actor.id, ipAddress, userAgent, actor.role);
   }
 
   @Put(':id/activate')
@@ -134,12 +155,12 @@ export class UsersController {
   @ApiOperation({ summary: 'Activate deactivated user' })
   async activate(
     @Param('id') id: string,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() actor: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.usersService.update(id, { isActive: true }, adminId, ipAddress, userAgent);
+    return this.usersService.update(id, { isActive: true }, actor.id, ipAddress, userAgent, actor.role);
   }
 
   @Post(':id/reset-password')
@@ -147,12 +168,12 @@ export class UsersController {
   @ApiOperation({ summary: 'Force password reset' })
   async forcePasswordReset(
     @Param('id') id: string,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() actor: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.usersService.forcePasswordReset(id, adminId, ipAddress, userAgent);
+    return this.usersService.forcePasswordReset(id, actor.id, ipAddress, userAgent, actor.role);
   }
 
   @Delete(':id')
@@ -160,11 +181,11 @@ export class UsersController {
   @ApiOperation({ summary: 'Deactivate user with a 24h grace period; reactivating within the window restores the user with data intact, otherwise owned project data/files are purged' })
   async softDelete(
     @Param('id') id: string,
-    @CurrentUser('id') adminId: string,
+    @CurrentUser() actor: User,
     @Req() request: any,
   ) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.usersService.softDelete(id, adminId, ipAddress, userAgent);
+    return this.usersService.softDelete(id, actor.id, ipAddress, userAgent, actor.role);
   }
 }

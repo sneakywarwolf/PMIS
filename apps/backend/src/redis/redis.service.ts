@@ -25,13 +25,45 @@ export class RedisService extends Redis implements OnModuleDestroy {
   }
 
   // Account lockout methods
-  async incrementLoginAttempts(username: string): Promise<number> {
+  /** Counts one more failed-or-pending sign-in; the window starts at the first attempt. Atomic, so parallel requests each get a distinct count. */
+  async incrementLoginAttempts(username: string, windowSeconds = 900): Promise<number> {
     const key = `login_attempts:${username}`;
     const attempts = await this.incr(key);
     if (attempts === 1) {
-      await this.expire(key, 900); // 15 minutes
+      await this.expire(key, windowSeconds);
     }
     return attempts;
+  }
+
+  /** Restarts the window (used when a name that has no account reaches the limit, so it is locked for the full duration like a real one). */
+  async restartLoginAttemptsWindow(username: string, windowSeconds: number): Promise<void> {
+    await this.expire(`login_attempts:${username}`, windowSeconds);
+  }
+
+  // ---- Temporary account locks. The record carries the server-generated start and expiry; the key outlives the expiry a little
+  // so the expiry can be recorded in the audit log by whoever removes it first (see AccountLockService).
+  async createAccountLock(userId: string, record: string, ttlMs: number): Promise<boolean> {
+    return (await this.set(`account_lock:${userId}`, record, 'PX', ttlMs, 'NX')) === 'OK'; // NX: exactly one creator wins
+  }
+
+  async getAccountLock(userId: string): Promise<string | null> {
+    return this.get(`account_lock:${userId}`);
+  }
+
+  /** True only for the call that actually removed the lock (DEL is atomic), so a removal is audited exactly once. */
+  async deleteAccountLock(userId: string): Promise<boolean> {
+    return (await this.del(`account_lock:${userId}`)) === 1;
+  }
+
+  async listAccountLocks(): Promise<string[]> {
+    const out: string[] = [];
+    let cursor = '0';
+    do {
+      const [next, keys] = await this.scan(cursor, 'MATCH', 'account_lock:*', 'COUNT', 200);
+      cursor = next;
+      if (keys.length) for (const v of await this.mget(...keys)) if (v) out.push(v);
+    } while (cursor !== '0');
+    return out;
   }
 
   async getLoginAttempts(username: string): Promise<number> {
@@ -58,18 +90,21 @@ export class RedisService extends Redis implements OnModuleDestroy {
     return this.get(`refresh_token:${tokenId}`);
   }
 
-  async revokeRefreshToken(tokenId: string): Promise<void> {
-    await this.del(`refresh_token:${tokenId}`);
+  /** Deletes the token and says whether this call was the one that removed it (DEL is atomic: one winner). */
+  async revokeRefreshToken(tokenId: string): Promise<boolean> {
+    return (await this.del(`refresh_token:${tokenId}`)) === 1;
   }
 
   async revokeAllUserTokens(userId: string): Promise<void> {
-    const keys = await this.keys(`refresh_token:*`);
-    for (const key of keys) {
-      const uid = await this.get(key);
-      if (uid === userId) {
-        await this.del(key);
+    // SCAN, not KEYS: KEYS walks the whole keyspace in one blocking call, stalling every login and request on this Redis.
+    let cursor = '0';
+    do {
+      const [next, keys] = await this.scan(cursor, 'MATCH', 'refresh_token:*', 'COUNT', 500);
+      cursor = next;
+      for (const key of keys) {
+        if ((await this.get(key)) === userId) await this.del(key);
       }
-    }
+    } while (cursor !== '0');
   }
 
   // Rate limiting methods

@@ -3,6 +3,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
+import { AccountLockService } from './account-lock.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AuditService } from '../audit/audit.service';
@@ -27,7 +28,7 @@ describe('AuthService.refreshTokens — single-session enforcement', () => {
     redisService = {
       getRefreshTokenUserId: jest.fn().mockResolvedValue('u1'),
       getActiveSession: jest.fn(),
-      revokeRefreshToken: jest.fn(),
+      revokeRefreshToken: jest.fn().mockResolvedValue(true),
       storeRefreshToken: jest.fn(),
       setActiveSession: jest.fn(),
       touchSessionActivity: jest.fn(),
@@ -45,6 +46,7 @@ describe('AuthService.refreshTokens — single-session enforcement', () => {
         { provide: RedisService, useValue: redisService },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: AuditService, useValue: { log: jest.fn() } },
+        { provide: AccountLockService, useValue: { getActive: jest.fn().mockResolvedValue(null), lock: jest.fn() } },
         {
           provide: SettingsService,
           useValue: { get: jest.fn().mockResolvedValue({ settings: { security: { sessionTimeoutMinutes: 15 } } }) },
@@ -80,6 +82,19 @@ describe('AuthService.refreshTokens — single-session enforcement', () => {
     await service.refreshTokens('rt', '1.2.3.4', 'jest');
 
     expect(redisService.touchSessionActivity).toHaveBeenCalledWith('session-A', 900);
+  });
+
+  it('refuses the second of two simultaneous refreshes with the same token (only one DEL wins)', async () => {
+    jwtService.verify.mockReturnValue({ sub: 'u1', jti: 'jti-1', sessionId: 'session-A' });
+    redisService.getActiveSession.mockResolvedValue('session-A');
+    redisService.revokeRefreshToken.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+    const results = await Promise.allSettled([
+      service.refreshTokens('rt', '1.2.3.4', 'jest'),
+      service.refreshTokens('rt', '1.2.3.4', 'jest'),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect(redisService.storeRefreshToken).toHaveBeenCalledTimes(1);
   });
 
   it('rejects refreshing a token whose session has been superseded by a newer login', async () => {

@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import JSZip from 'jszip';
+import { assertZipInflatesWithin } from './zip-limits.util';
 
 const MAX_ENTRIES = 2000;
 const MAX_UNCOMPRESSED_BYTES = 200 * 1024 * 1024;
@@ -33,6 +34,8 @@ export async function assertSafeDocx(buffer: Buffer): Promise<void> {
     total += (zip.files[n] as any)._data?.uncompressedSize ?? 0;
   }
   if (total > MAX_UNCOMPRESSED_BYTES) throw new BadRequestException('Template package is too large when decompressed.');
+  // The declared sizes above are sender-controlled; count what the entries really inflate to before any are read whole.
+  await assertZipInflatesWithin(zip, MAX_UNCOMPRESSED_BYTES, 'Template package is too large when decompressed.');
 
   const contentTypes = await zip.files['[Content_Types].xml'].async('string');
   if (/macroEnabled|vbaProject/i.test(contentTypes)) throw new BadRequestException('Macro-enabled documents are not allowed.');

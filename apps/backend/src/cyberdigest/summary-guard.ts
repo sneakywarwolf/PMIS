@@ -1,3 +1,4 @@
+import { trimTrailingPunctuation } from '../common/linear-regex.util';
 /**
  * Post-generation check for any summary before it is stored or shown. Whatever produced the summary (today: a trim of
  * the publisher's own text; tomorrow possibly something else), it may only contain security-critical facts that appear
@@ -29,7 +30,7 @@ export function validateSummary(summary: string, evidence: string): GuardResult 
   const tokens = new Set<string>();
   for (const m of summary.matchAll(/CVE-\d{4}-\d{4,19}/gi)) tokens.add(m[0]);
   const withoutCves = summary.replace(/CVE-\d{4}-\d{4,19}/gi, ' '); // CVE ids are checked whole above, not as number fragments
-  for (const m of withoutCves.matchAll(/\d[\d.,:/-]*\d|\d/g)) tokens.add(m[0].replace(/[.,:/-]+$/, '')); // scores, versions, years, counts, ISO dates
+  for (const m of withoutCves.matchAll(/\d[\d.,:/-]*\d|\d/g)) tokens.add(trimTrailingPunctuation(m[0])); // scores, versions, years, counts, ISO dates
   for (const m of summary.matchAll(new RegExp(`\\b(?:${MONTHS})\\b\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?`, 'gi'))) tokens.add(m[0]);
   for (const t of tokens) if (t && !ev.includes(norm(t))) unsupported.push(t);
   for (const [label, re] of CLAIMS) if (re.test(summary) && !re.test(evidence)) unsupported.push(label);

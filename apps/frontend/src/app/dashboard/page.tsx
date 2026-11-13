@@ -547,6 +547,9 @@ const ACTION_TEXT: Record<string, string> = {
   VULNERABILITY_UPDATED: 'updated a vulnerability',
   VULNERABILITY_DELETED: 'deleted a vulnerability',
   SETTINGS_UPDATED: 'changed the settings',
+  ACCOUNT_LOCKED: 'was temporarily locked',
+  ACCOUNT_LOCK_EXPIRED: 'was unlocked automatically',
+  ACCOUNT_UNLOCKED: 'unlocked an account',
 };
 
 /** Admin-only activity log: who (name and role), what they did, and exactly when. */

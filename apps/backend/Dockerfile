@@ -32,9 +32,9 @@ FROM node:22-alpine AS production
 
 WORKDIR /app
 
-# Pull patched Alpine packages (musl, zlib, openssl) and a current npm (the base image's bundled copy
+# Pull patched Alpine packages (musl, zlib, openssl) and a pinned, current npm (the base image's bundled copy
 # carries vulnerable tar/minimatch/etc.); Prisma's query engine needs OpenSSL on Alpine
-RUN apk upgrade --no-cache && apk add --no-cache openssl && npm install -g npm@latest
+RUN apk upgrade --no-cache && apk add --no-cache openssl && npm install -g npm@12.2.2
 
 # npm@latest still bundles undici 6.29.0 (three HIGH advisories, fixed in 6.29.1; same major, so npm is unaffected).
 # Swap the bundled copy until npm ships a fixed one; drop this block then.

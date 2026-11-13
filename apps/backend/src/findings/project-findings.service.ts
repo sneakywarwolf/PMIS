@@ -274,7 +274,7 @@ export class ProjectFindingsService {
     const all = parseCsv(csv.trim());
     if (all.length < 2) throw new BadRequestException('The file has no data rows. Use the sample template: it has a header row followed by one row per finding.');
     const headers = all[0].map((h) => h.replace(/^﻿/, '').trim());
-    validateExactCsvHeaders(headers, this.vulnerabilities.EXPECTED_HEADERS);
+    validateExactCsvHeaders(this.vulnerabilities.normalizeImportHeaders(headers), this.vulnerabilities.EXPECTED_HEADERS);
 
     const allowed = await this.severities();
     const rows: ParsedRow[] = [];

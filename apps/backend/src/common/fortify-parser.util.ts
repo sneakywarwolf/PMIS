@@ -1,3 +1,4 @@
+import { replaceTags } from './linear-regex.util';
 import { BadRequestException, HttpException } from '@nestjs/common';
 import * as sax from 'sax';
 import JSZip from 'jszip';
@@ -134,9 +135,10 @@ function unescapeHtml(s: string): string {
 export function cleanRichText(raw: string, replacements: Record<string, string> = {}): string {
   if (!raw) return '';
   let s = unescapeHtml(raw);
-  s = s.replace(/<Replace\s+key=["']([^"']+)["'][^>]*\/?>/gi, (_m, k: string) => replacements[k] ?? '');
-  s = s.replace(/<\/?(?:Paragraph|AltParagraph|Content|pre|code|b|i|ul|ol|li|br|p|div|table|tr|td|th)\b[^>]*>/gi, '\n');
-  s = s.replace(/<[^>]+>/g, ' ');
+  // replaceTags: linear even on text with many "<" and no closing ">" (the plain patterns are quadratic; see linear-regex.util.ts).
+  s = replaceTags(s, /<Replace\s+key=["']([^"']+)["'][^>]*\/?>/gi, (_m, k: string) => replacements[k] ?? '');
+  s = replaceTags(s, /<\/?(?:Paragraph|AltParagraph|Content|pre|code|b|i|ul|ol|li|br|p|div|table|tr|td|th)\b[^>]*>/gi, '\n');
+  s = replaceTags(s, /<[^>]+>/g, ' ');
   s = unescapeHtml(s);
   s = s.replace(/[ \t ]+/g, ' ').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n');
   return s.trim();

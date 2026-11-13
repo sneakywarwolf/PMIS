@@ -11,6 +11,7 @@ import { useConfirm } from '@/components/confirm-provider';
 import { useToast } from '@/components/toast-provider';
 import { usePagination } from '@/lib/pagination';
 import { Pager } from '@/components/pager';
+import { LockedUsersPanel } from '@/components/locked-users';
 import { downloadBlob } from '@/lib/download';
 
 interface TeamLead {
@@ -323,6 +324,8 @@ export default function UsersPage() {
           {message}
         </motion.div>
       )}
+
+      {user?.role === 'ADMIN' && <LockedUsersPanel />}
 
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />

@@ -2,6 +2,9 @@ import { DEFAULT_SETTINGS } from './settings.defaults';
 
 export const SETTINGS_ID = 'singleton';
 
+/** Own property only: `key in obj` is also true for inherited names such as toString, constructor and __proto__. */
+export const hasOwn = (obj: any, key: string) => Object.prototype.hasOwnProperty.call(obj, key);
+
 export function isPlainObject(v: any) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -16,7 +19,7 @@ export function pruneUnknown(base: any, data: any): any {
   if (!isPlainObject(data)) return data;
   const result: any = {};
   for (const key of Object.keys(data)) {
-    if (!(key in base)) continue;
+    if (!hasOwn(base, key)) continue;
     result[key] = isPlainObject(base[key]) ? pruneUnknown(base[key], data[key]) : data[key];
   }
   return result;
@@ -26,6 +29,7 @@ export function deepMerge(base: any, patch: any): any {
   if (!isPlainObject(patch)) return base;
   const result = { ...base };
   for (const key of Object.keys(patch)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue; // never write these onto a merged object
     if (isPlainObject(patch[key]) && isPlainObject(base[key])) {
       result[key] = deepMerge(base[key], patch[key]);
     } else {

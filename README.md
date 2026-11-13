@@ -15,8 +15,8 @@ git clone https://github.com/sneakywarwolf/PMIS.git
 cd PMIS
 cp .env.example .env
 
-# 1. Fill the four required secrets with random values
-for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
+# 1. Fill the five required secrets with random values
+for k in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD REDIS_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
   sed -i.bak "s|^$k=CHANGE_ME|$k=$(openssl rand -hex 32)|" .env
 done; rm -f .env.bak
 

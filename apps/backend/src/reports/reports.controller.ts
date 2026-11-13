@@ -159,8 +159,11 @@ export class ReportsController {
     @CurrentUser() user: User,
     @Req() request: any,
   ) {
-    if (!body.projectId) {
+    if (!body.projectId || typeof body.projectId !== 'string') {
       throw new BadRequestException('projectId is required');
+    }
+    if (body.reportFormat !== undefined && !(Object.values(ReportFormat) as unknown[]).includes(body.reportFormat)) {
+      throw new BadRequestException(`Unknown report format. Use one of: ${Object.values(ReportFormat).join(', ')}`);
     }
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';

@@ -390,15 +390,18 @@ export class DashboardService {
       const team = await this.prisma.user.findMany({ where: { assignedTlId: user.id }, select: { id: true } });
       where = { actorId: { in: [user.id, ...team.map((t) => t.id)] } };
     }
+    const actor = { select: { id: true, username: true, fullName: true, role: true } };
+    // Admins get the full audit row. Everyone else gets what the feed shows (who, what, when): an entry's `details` holds the
+    // request body that was saved (finding notes, proof of concept ...), and the IP address and browser belong to the people
+    // behind it. An AVP's feed spans teams although an AVP's project access does not, so none of that may travel with it.
+    if (!user || user.role === UserRole.ADMIN) {
+      return this.prisma.auditLog.findMany({ where, take: limit, orderBy: { timestamp: 'desc' }, include: { actor } });
+    }
     return this.prisma.auditLog.findMany({
       where,
       take: limit,
       orderBy: { timestamp: 'desc' },
-      include: {
-        actor: {
-          select: { id: true, username: true, fullName: true, role: true },
-        },
-      },
+      select: { id: true, action: true, targetType: true, timestamp: true, actor },
     });
   }
 }

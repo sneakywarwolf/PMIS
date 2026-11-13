@@ -11,6 +11,19 @@ services:
     build:
       context: ./apps/frontend
     restart: unless-stopped
+    # Hardening: no privilege gain, no Linux capabilities (the app only listens on an unprivileged port), bounded process count.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
+    # Memory ceiling so one runaway request cannot starve the host; raise it in .env if you import very large files.
+    mem_limit: ${FRONTEND_MEM_LIMIT:-1536m}
+    # Read-only root filesystem: the app writes only to these in-memory scratch areas (Next's image cache, temp files).
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+      - /app/.next/cache:size=256m
     depends_on:
       - backend
     ports:
@@ -25,18 +38,32 @@ services:
         # "latest" is not a version and is ignored (package.json is used instead).
         APP_VERSION: ${PMIS_VERSION:-}
     restart: unless-stopped
+    # Hardening: no privilege gain, no Linux capabilities (the app only listens on an unprivileged port), bounded process count.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
+    # Memory ceiling so one runaway request cannot starve the host; raise it in .env if you import very large files.
+    mem_limit: ${BACKEND_MEM_LIMIT:-3g}
+    # Read-only root filesystem: the app writes only to this in-memory scratch area (uploads are streamed or held in memory).
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       rustfs:
         condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: "4000"
-      DATABASE_URL: postgresql://pmis:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/pmis?schema=public
-      REDIS_URL: redis://redis:6379
+      # PMIS_DB_USER / PMIS_DB_PASSWORD are optional: leave them unset to connect as the database's built-in admin user (the
+      # default); see "Run PMIS as a restricted database user" in the Deployment guide to switch to a least-privilege owner.
+      DATABASE_URL: postgresql://${PMIS_DB_USER:-pmis}:${PMIS_DB_PASSWORD:-${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}}@postgres:5432/pmis?schema=public
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env (openssl rand -hex 32)}@redis:6379
       MINIO_ENDPOINT: rustfs
       MINIO_PORT: "9000"
       MINIO_USE_SSL: "false"
@@ -46,6 +73,8 @@ services:
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      # 1 = users reach the frontend directly. Use 2 behind one reverse proxy / tunnel that appends X-Forwarded-For.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # Cyberdigest (all optional; see the User Guide). TIME/MODE only seed the first run: afterwards the Administration tab owns them.
@@ -58,6 +87,22 @@ services:
   postgres:
     image: postgres:16.4-alpine
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    # Root only to fix ownership of the data volume, then the server runs as the postgres user.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+    # Read-only root filesystem: the server writes only to its data volume and these in-memory scratch areas.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
     environment:
       POSTGRES_USER: pmis
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -75,13 +120,48 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
+    security_opt:
+      - no-new-privileges:true
+    # The image's start-up script runs as root only to fix ownership of the data volume, then drops to the redis user. That is
+    # why the command below must start with redis-server (no shell wrapper) and why these capabilities are kept (DAC_OVERRIDE
+    # lets it repair a data directory whose files ended up with another owner).
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    mem_limit: 512m
+    read_only: true # it writes only to its data volume (and /tmp)
+    tmpfs:
+      - /tmp
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env (openssl rand -hex 32)}
+    # Password required for every connection (the stack's network is internal, but any container on it could otherwise
+    # read or tamper with sessions, rate limits and job queues). Use a hex value so it is safe inside the REDIS_URL.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction", "--requirepass", "${REDIS_PASSWORD}"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # S3-compatible object storage (reports, templates, PoC images). The backend's MINIO_* settings and the
   # MINIO_ROOT_* variables keep their names so existing .env files work; they are the S3 access and secret key.
   rustfs:
     image: ${RUSTFS_IMAGE:-rustfs/rustfs:1.0.3}
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Read-only root filesystem: it writes only to its data volume and its log directory, which is in memory (uid/gid 10001 = the
+    # image's rustfs user).
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /logs:uid=10001,gid=10001,mode=0750
     environment:
       RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER:-pmisminio}
       RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}

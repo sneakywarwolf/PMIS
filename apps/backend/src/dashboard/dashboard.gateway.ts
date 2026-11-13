@@ -1,9 +1,10 @@
-import { WebSocketGateway, WebSocketServer, SubscribeMessage, OnGatewayConnection, OnGatewayDisconnect, ConnectedSocket, MessageBody } from '@nestjs/websockets';
+import { WebSocketGateway, WebSocketServer, SubscribeMessage, OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, ConnectedSocket, MessageBody } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { authenticateSocket } from '../auth/verify-access-token';
+import { hardenEngineHeaders } from '../common/engine-headers';
 
 @WebSocketGateway({
   cors: {
@@ -12,7 +13,7 @@ import { authenticateSocket } from '../auth/verify-access-token';
   },
   namespace: '/dashboard',
 })
-export class DashboardGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class DashboardGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
@@ -21,6 +22,10 @@ export class DashboardGateway implements OnGatewayConnection, OnGatewayDisconnec
     private redisService: RedisService,
     private prismaService: PrismaService,
   ) {}
+
+  afterInit(server: Server) {
+    hardenEngineHeaders(server);
+  }
 
   async handleConnection(client: Socket) {
     const user = await authenticateSocket(client.handshake.headers.cookie, this.jwtService, this.redisService, this.prismaService);

@@ -87,10 +87,10 @@ export class ProjectsController {
   @Delete(':id')
   @Permission('projects.delete')
   @ApiOperation({ summary: 'Permanently delete a project and all related data (Admin only)' })
-  async remove(@Param('id') id: string, @CurrentUser('id') adminId: string, @Req() request: any) {
+  async remove(@Param('id') id: string, @CurrentUser() actor: User, @Req() request: any) {
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.projectsService.remove(id, adminId, ipAddress, userAgent);
+    return this.projectsService.remove(id, actor, ipAddress, userAgent);
   }
 
   // Stateless: validates and returns rows; the caller adds them to its scope table and saves with the project as usual.

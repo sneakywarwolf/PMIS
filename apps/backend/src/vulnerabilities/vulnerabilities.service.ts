@@ -3,7 +3,7 @@ import { stripCvssPrefix } from '../common/cvss-vector.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AuditService } from '../audit/audit.service';
-import { UserRole, VulnerabilityStatus, NotificationType } from '@prisma/client';
+import { UserRole, VulnerabilityStatus, VulnerabilityCategory, NotificationType } from '@prisma/client';
 import { validateExactCsvHeaders, parseCsv } from '../common/csv-validation.util';
 import { permissionRules } from '../common/permissions';
 
@@ -87,6 +87,30 @@ export class VulnerabilitiesService {
     return this.visibleVuln(id, viewer);
   }
 
+  /**
+   * Only the library's own content fields ever reach the database. The controllers take the body as `any` (the global
+   * validation pipe only filters typed DTOs), so without this a caller could also set status, isActive, requestedById,
+   * reviewedById, id and the like: approving their own entry or forging who requested or reviewed it.
+   */
+  private pickContent(data: any) {
+    const out: any = {};
+    for (const field of this.EDITABLE_FIELDS) if (data?.[field] !== undefined) out[field] = data[field];
+    // Types and sizes: a wrong type would reach Prisma as an unhandled 500, and an absurd score or length would be stored and printed.
+    for (const [field, value] of Object.entries(out)) {
+      if (field === 'cvssScore') {
+        if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 10)) throw new BadRequestException('cvssScore must be a number from 0 to 10');
+      } else if (value !== null && typeof value !== 'string') {
+        throw new BadRequestException(`${field} must be text`);
+      } else if (typeof value === 'string' && value.length > (field === 'name' || field === 'severity' ? 500 : 200_000)) {
+        throw new BadRequestException(`${field} is too long`);
+      }
+    }
+    if (out.category !== undefined && !(Object.values(VulnerabilityCategory) as unknown[]).includes(out.category)) {
+      throw new BadRequestException(`category must be one of: ${Object.values(VulnerabilityCategory).join(', ')}`);
+    }
+    return out;
+  }
+
   async create(data: {
     name: string;
     severity: string;
@@ -100,7 +124,7 @@ export class VulnerabilitiesService {
     cweId?: string;
     category?: string;
   }, actorId?: string) {
-    const created = await this.prisma.vulnerability.create({ data: data as any });
+    const created = await this.prisma.vulnerability.create({ data: this.pickContent(data) });
     if (actorId) {
       await this.auditService.log({
         actorId,
@@ -141,10 +165,8 @@ export class VulnerabilitiesService {
       select: { assignedTlId: true },
     });
 
-    const afterData: any = {};
-    for (const field of this.EDITABLE_FIELDS) {
-      if (data[field] !== undefined) afterData[field] = data[field];
-    }
+    // Validated now, because this is applied to the library as is when a reviewer approves it.
+    const afterData: any = this.pickContent(data);
 
     const changeRequest = await this.prisma.vulnerabilityChangeRequest.create({
       data: {
@@ -275,7 +297,7 @@ export class VulnerabilitiesService {
 
     const updated = await this.prisma.vulnerability.update({
       where: { id },
-      data,
+      data: this.pickContent(data),
     });
 
     // Notify requester if this was a requested vulnerability
@@ -386,7 +408,7 @@ export class VulnerabilitiesService {
   createRequest(db: Pick<PrismaService, 'vulnerability'>, data: any, requestedById: string) {
     return db.vulnerability.create({
       data: {
-        ...data,
+        ...this.pickContent(data),
         status: VulnerabilityStatus.PENDING,
         requestedById,
       } as any,
@@ -513,14 +535,14 @@ export class VulnerabilitiesService {
       orderBy: [{ cvssScore: 'desc' }, { name: 'asc' }],
     });
 
-    const headers = ['S.No', 'Name', 'Severity', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'References', 'CVE ID', 'CWE ID'];
-    let csv = headers.join(',') + '\n';
+    // The same header row as the sample file and the importer, so an exported file can be uploaded again as it is.
+    let csv = this.EXPECTED_HEADERS.join(',') + '\n';
 
     vulns.forEach((v, i) => {
       const row = [
         i + 1,
         this.escapeCsv(v.name),
-        v.severity,
+        this.escapeCsv(v.severity), // free text in the database: a stored =HYPERLINK(...) must not become a live formula
         v.cvssScore ?? '',
         this.escapeCsv(stripCvssPrefix(v.cvssVector)),
         this.escapeCsv(v.description),
@@ -537,6 +559,14 @@ export class VulnerabilitiesService {
   }
 
   // ─── Bulk Upload ───
+
+  /**
+   * Files exported by earlier versions have "References" where the importer (and the sample file) say "Reference". Accept that one
+   * old spelling, so those files still upload; the exact-header rule is otherwise unchanged.
+   */
+  normalizeImportHeaders(headers: string[]): string[] {
+    return headers.map((h) => (h.trim() === 'References' ? 'Reference' : h.trim()));
+  }
 
   readonly EXPECTED_HEADERS = ['S.No', 'Name', 'Severity', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
 
@@ -578,7 +608,7 @@ export class VulnerabilitiesService {
       throw new BadRequestException('CSV file is empty or missing data rows.');
     }
 
-    const headers = allRows[0].map(h => h.trim());
+    const headers = this.normalizeImportHeaders(allRows[0]);
 
     // Validate headers by name before reading any data row — order doesn't
     // matter since `get()` below looks columns up by header name.
