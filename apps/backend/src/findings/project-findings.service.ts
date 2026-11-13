@@ -52,6 +52,8 @@ export interface ImportRowReport {
   /** The original rows of a merged entry, for the preview's "inspect" view. */
   /** Severity conflict inside a merged entry: the user must choose one of these before the entry can be imported. */
   severityOptions?: string[];
+  /** The highest of severityOptions: used unless the user picks another one. */
+  defaultSeverity?: string;
   sources?: { row: number; label: string; severity: string; cvssScore: number | null; affectedInstances: string[]; poc: string }[];
 }
 
@@ -375,7 +377,7 @@ export class ProjectFindingsService {
         throw e;
       }
     }
-    return this.groupRows(rows);
+    return this.groupRows(rows, allowed);
   }
 
   private async parseFile(file: Express.Multer.File | undefined, index: number, multi: boolean, allowed: string[], limit: number): Promise<ParsedRow[]> {
@@ -431,7 +433,7 @@ export class ProjectFindingsService {
    * is kept. A value that differs between the rows is a conflict, reported on the entry; nothing is picked for the user.
    * Only this file's rows are grouped; existing findings are never touched.
    */
-  private groupRows(rows: ParsedRow[]): ImportGroup[] {
+  private groupRows(rows: ParsedRow[], severityOrder: string[] = []): ImportGroup[] {
     const byKey = new Map<string, ParsedRow[]>();
     for (const r of rows) {
       const key = normalizeVulnName(r.rawName) || `#${r.row}`;
@@ -449,7 +451,9 @@ export class ProjectFindingsService {
           if (key === 'severity') {
             // Severity (already matched to the configured names, so case and spacing never make two levels) is resolved by the user in the preview, not an error.
             const distinct = [...new Set(src.map((r) => r.fields!.severity))];
-            if (distinct.length > 1) severityOptions = distinct;
+            // Highest first, in the order of Settings > Workflow (Critical, High, Medium, Low, Info by default): the first one is the default.
+            const rank = (v: string) => { const i = severityOrder.indexOf(v); return i < 0 ? severityOrder.length : i; };
+            if (distinct.length > 1) severityOptions = distinct.sort((a, b) => rank(a) - rank(b));
             continue;
           }
           const seen = new Map<string, string>(); // value -> first row holding it
@@ -486,8 +490,8 @@ export class ProjectFindingsService {
         row: g.row,
         label: g.label,
         name: g.fields?.name ?? g.rawName,
-        severity: g.severityOptions ? '' : g.fields?.severity ?? '',
-        ...(g.severityOptions && { severityOptions: g.severityOptions }),
+        severity: g.severityOptions ? g.severityOptions[0] : g.fields?.severity ?? '',
+        ...(g.severityOptions && { severityOptions: g.severityOptions, defaultSeverity: g.severityOptions[0] }),
         cvssScore: g.fields?.cvssScore ?? null,
         status: invalid ? 'invalid' : existing.has(normalizeVulnName(g.fields!.name)) ? 'duplicate' : 'new',
         ...(invalid && { errors: g.errors }),
@@ -540,8 +544,10 @@ export class ProjectFindingsService {
     const missing: string[] = [];
     for (const g of parsed) {
       if (!g.severityOptions || skip.has(g.row) || report.find((x) => x.row === g.row)?.status !== 'new') continue;
-      const pick = typeof severities[g.row] === 'string' ? severities[g.row].trim().toLowerCase() : '';
-      const chosen = g.severityOptions.find((o) => o.toLowerCase() === pick);
+      // No choice sent: the highest severity found in the group's rows. A choice that is not one of them is refused.
+      const sent = severities[g.row];
+      const pick = typeof sent === 'string' ? sent.trim().toLowerCase() : '';
+      const chosen = sent === undefined ? g.severityOptions[0] : g.severityOptions.find((o) => o.toLowerCase() === pick);
       if (!chosen) {
         missing.push(`"${g.fields!.name}" (${g.label}): choose one of ${g.severityOptions.join(', ')}`);
         continue;
@@ -550,7 +556,7 @@ export class ProjectFindingsService {
       resolved.push({ name: g.fields!.name.slice(0, 120), chosen, options: g.severityOptions });
     }
     if (missing.length > 0) {
-      throw new BadRequestException({ message: `Nothing was imported: select the final severity for ${missing.length} finding(s) whose rows disagree. ${missing.slice(0, 20).join('; ')}`, statusCode: 400 });
+      throw new BadRequestException({ message: `Nothing was imported: the chosen severity is not valid for ${missing.length} finding(s) whose rows disagree. ${missing.slice(0, 20).join('; ')}`, statusCode: 400 });
     }
     const statusOf = new Map(report.map((x) => [x.row, x.status]));
     const fresh = parsed.filter((r) => statusOf.get(r.row) === 'new' && !skip.has(r.row));

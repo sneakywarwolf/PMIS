@@ -77,7 +77,7 @@ describe('Import Project Findings: Affected Instances and POC/Results columns', 
     expect(sql.fields.name).toBe('SQL Injection');
     expect(sql2.sourceRows).toHaveLength(1);
     expect(xss.errors).toEqual([]); // a severity conflict is chosen in the preview, it is not an error
-    expect(xss.severityOptions).toEqual(['Low', 'Medium']);
+    expect(xss.severityOptions).toEqual(['Medium', 'Low']); // highest first: Medium is the default
     expect(sql.severityOptions).toBeUndefined();
     expect(sql2.severityOptions).toBeUndefined();
   });

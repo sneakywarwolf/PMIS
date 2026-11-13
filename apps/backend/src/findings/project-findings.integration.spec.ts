@@ -300,7 +300,7 @@ d('project-only findings (real database)', () => {
     });
 
     it('rejects duplicate rows inside the file, wrong or missing headers, empty and extra-column files', async () => {
-      const dup = csvFile([csvRow(1, n('d1')), csvRow(2, n('D1'), { 2: 'Low' })]); // same name, conflicting severity: refused, not merged
+      const dup = csvFile([csvRow(1, n('d1')), csvRow(2, n('D1'), { 3: '9.0' })]); // same name, conflicting CVSS: refused, not merged
       await expect(svc.importFindings(projA.id, dup, tester, 'ip', 'ua')).rejects.toBeInstanceOf(BadRequestException);
       await expect(svc.previewImport(projA.id, csvFile([csvRow(1, n('h'))], HEAD.replace('Impact', 'Effect')), tester)).rejects.toThrow(/Invalid CSV format/);
       await expect(svc.previewImport(projA.id, csvFile([csvRow(1, n('h'))], HEAD.replace(',CWE ID', '')), tester)).rejects.toThrow(/missing header/);
@@ -410,25 +410,25 @@ d('project-only findings (real database)', () => {
       ], head);
       const pv = await svc.previewImport(projA.id, file, tester);
       const row = (name: string) => pv.rows.find((x) => x.name === n(name))!;
-      expect(row('sv-a')).toMatchObject({ severity: '', status: 'new', severityOptions: ['High', 'Critical', 'Medium'], sourceRowCount: 4 });
-      expect(row('sv-b').severityOptions).toEqual(['Low', 'Info']);
+      expect(row('sv-a')).toMatchObject({ severity: 'Critical', defaultSeverity: 'Critical', status: 'new', severityOptions: ['Critical', 'High', 'Medium'], sourceRowCount: 4 });
+      expect(row('sv-b')).toMatchObject({ severityOptions: ['Low', 'Info'], defaultSeverity: 'Low' }); // the higher one is the default
       expect(row('sv-same')).toMatchObject({ severity: 'High' });
       expect(row('sv-same').severityOptions).toBeUndefined();
       expect(row('sv-solo')).toMatchObject({ severity: 'Low' });
       expect(row('sv-solo').severityOptions).toBeUndefined();
       expect(pv).toMatchObject({ invalidCount: 0, canImport: true });
       const before = await findingCount(projA.id);
-      // no choice, one choice missing, a severity that is not among the rows' severities, an unknown level: all refused, nothing saved
-      const pick = (o: Record<string, string>) => svc.importFindings(projA.id, file, tester, 'ip', 'ua', [], o);
-      await expect(pick({})).rejects.toThrow(/select the final severity for 2 finding/);
-      await expect(pick({ [row('sv-a').row]: 'Critical' })).rejects.toThrow(/sv-b/);
+      // a severity that is not among the group's own severities, or an unknown level: refused, nothing saved
+      const pick = (o: Record<string, string>, ex: number[] = []) => svc.importFindings(projA.id, file, tester, 'ip', 'ua', ex, o);
       await expect(pick({ [row('sv-a').row]: 'Low', [row('sv-b').row]: 'Info' })).rejects.toThrow(/sv-a/);
+      await expect(pick({ [row('sv-b').row]: 'Medium' })).rejects.toThrow(/sv-b/);
       await expect(pick({ [row('sv-a').row]: 'Bogus', [row('sv-b').row]: 'Info' })).rejects.toBeInstanceOf(BadRequestException);
       expect(await findingCount(projA.id)).toBe(before);
-      const out = await pick({ [row('sv-a').row]: 'critical', [row('sv-b').row]: 'Low' });
+      // sv-a: no choice sent -> the highest (Critical). sv-b: the user picked the lower one (Info) over the default.
+      const out = await pick({ [row('sv-b').row]: 'info' });
       expect(out).toMatchObject({ created: 4, sourceRows: 9 });
       const sev = async (name: string) => (await prisma.projectVulnerability.findFirstOrThrow({ where: { projectId: projA.id, name: n(name) } })).severity;
-      expect([await sev('sv-a'), await sev('sv-b'), await sev('sv-same'), await sev('sv-solo')]).toEqual(['Critical', 'Low', 'High', 'Low']);
+      expect([await sev('sv-a'), await sev('sv-b'), await sev('sv-same'), await sev('sv-solo')]).toEqual(['Critical', 'Info', 'High', 'Low']);
       const a = await prisma.finding.findFirstOrThrow({ where: { projectId: projA.id, projectVulnerability: { name: n('sv-a') } } });
       expect(a.affectedInstances).toEqual(['h1', 'h2', 'h3', 'h4']);
       // an unticked conflicting entry needs no choice; the audit trail keeps what was chosen from what

@@ -29,6 +29,7 @@ interface Row {
   poc: string;
   /** Rows of this entry disagree on Severity: the user picks the final one from these. */
   severityOptions?: string[];
+  defaultSeverity?: string;
   merged: boolean;
   sourceRowCount: number;
   sources?: { row: number; label: string; severity: string; cvssScore: number | null; affectedInstances: string[]; poc: string }[];
@@ -191,8 +192,6 @@ export function ProjectFindingsImportDialog({
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  // Selected entries that still wait for a severity choice.
-  const needSeverity = preview ? preview.rows.filter((r) => r.status === 'new' && !excluded.has(r.row) && r.severityOptions && !chosen[r.row]).length : 0;
   const selectedCount = preview ? preview.rows.filter((r) => r.status === 'new' && !excluded.has(r.row)).length : 0;
 
   const runImport = async () => {
@@ -293,15 +292,13 @@ export function ProjectFindingsImportDialog({
                               <label className="block">
                                 <span className="sr-only">Final severity for {r.name}</span>
                                 <select
-                                  value={chosen[r.row] ?? ''}
+                                  value={chosen[r.row] ?? r.defaultSeverity ?? ''}
                                   onChange={(e) => setChosen((p) => ({ ...p, [r.row]: e.target.value }))}
-                                  aria-invalid={r.status === 'new' && !excluded.has(r.row) && !chosen[r.row]}
-                                  className={`rounded border bg-gray-800 px-2 py-1 text-xs text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60 ${chosen[r.row] ? 'border-gray-600' : 'border-amber-500/60'}`}
+                                  className="rounded border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60"
                                 >
-                                  <option value="" disabled>Select severity…</option>
                                   {r.severityOptions.map((o) => <option key={o} value={o}>{o}</option>)}
                                 </select>
-                                {!chosen[r.row] && <span className="mt-1 block text-[11px] text-amber-400">Rows disagree: choose one</span>}
+                                <span className="mt-1 block text-[11px] text-amber-400">Rows disagree{chosen[r.row] ? '' : ': highest used'}, change if needed</span>
                               </label>
                             ) : (r.severity || '—')}
                           </td>
@@ -383,11 +380,11 @@ export function ProjectFindingsImportDialog({
             {!done && (
               <button
                 onClick={runImport}
-                disabled={!preview?.canImport || importing || selectedCount === 0 || needSeverity > 0}
+                disabled={!preview?.canImport || importing || selectedCount === 0}
                 className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50 flex items-center gap-2"
               >
                 {importing && <Loader2 className="w-4 h-4 animate-spin" />}
-                {importing ? 'Importing…' : needSeverity > 0 ? `Select severity (${needSeverity} left)` : preview?.canImport ? `Import ${selectedCount} finding${selectedCount === 1 ? '' : 's'}` : 'Import'}
+                {importing ? 'Importing…' : preview?.canImport ? `Import ${selectedCount} finding${selectedCount === 1 ? '' : 's'}` : 'Import'}
               </button>
             )}
           </div>
