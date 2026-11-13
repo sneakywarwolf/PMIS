@@ -1718,6 +1718,12 @@ function FindingCard({ finding, index, canEdit, canDelete, network, typeIndicato
                 <p className="text-gray-500 text-xs">Remediation</p>
                 <p className="text-gray-300 text-sm mt-1 whitespace-pre-wrap">{finding.vulnerability.remediation}</p>
               </div>
+              {finding.proofOfConcept?.trim() && (
+                <div>
+                  <p className="text-gray-500 text-xs">POC/Results</p>
+                  <pre className="mt-1 max-h-96 overflow-auto rounded bg-gray-900/60 p-3 text-xs text-gray-300 whitespace-pre-wrap break-words font-mono">{finding.proofOfConcept}</pre>
+                </div>
+              )}
               {finding.testerNotes && (
                 <div>
                   <p className="text-gray-500 text-xs">Tester Notes</p>

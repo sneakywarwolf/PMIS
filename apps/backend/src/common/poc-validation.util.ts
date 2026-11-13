@@ -47,7 +47,7 @@ export function isFindingReportReady(pocSteps: PocStepLike[]): boolean {
  * be report-ready. PT findings and every other project type keep the full requirement.
  */
 export function findingPocReadiness(
-  finding: { projectScoped?: boolean; findingType?: 'VA' | 'PT'; pocSteps: PocStepLike[] },
+  finding: { projectScoped?: boolean; findingType?: 'VA' | 'PT'; proofOfConcept?: string | null; pocSteps: PocStepLike[] },
   projectSubType: string,
 ): PocReadiness {
   // Only scan-imported VA findings are exempt. A project-only PT finding (entered by hand or imported from a file)
@@ -55,5 +55,9 @@ export function findingPocReadiness(
   const isVa = finding.findingType !== undefined ? finding.findingType === 'VA' : !!finding.projectScoped;
   // SCR: a Fortify import is evidence in itself (locations + data-flow trace), so it needs no screenshots either.
   if ((projectSubType === 'NETWORK' || projectSubType === 'SCR') && isVa) return 'ready';
+  // A project-only PT finding (Import Project Findings) that came with POC/Results already has its evidence: the report prints
+  // that text in the PoC snapshot cell, so it can be generated without Steps and screenshots. Findings picked from the
+  // Vulnerability DB never qualify, and nothing changes for a finding without POC/Results.
+  if (finding.projectScoped && !isVa && finding.proofOfConcept?.trim()) return 'ready';
   return getPocReadiness(finding.pocSteps);
 }
