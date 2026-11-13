@@ -13,6 +13,8 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VulnerabilitiesService } from '../vulnerabilities/vulnerabilities.service';
 import { FindingsService } from './findings.service';
+import { ReportsService } from '../reports/reports.service';
+import { withVulnerability } from '../common/finding-vulnerability.util';
 import { ProjectFindingsService, PROJECT_IMPORT_HEADERS } from './project-findings.service';
 
 const URL = process.env.PMIS_TEST_DATABASE_URL;
@@ -303,7 +305,7 @@ d('project-only findings (real database)', () => {
     it('enforces the size and row limits', async () => {
       await expect(svc.previewImport(projA.id, { originalname: 'big.csv', buffer: Buffer.alloc(100 * 1024 * 1024 + 1, 97) } as any, tester)).rejects.toThrow(/too large.*100MB/);
       const rows = Array.from({ length: 10001 }, (_, i) => `${i},${n('r' + i)},High,,,d,i,r,ref,,`);
-      await expect(svc.previewImport(projA.id, { originalname: 'rows.csv', buffer: Buffer.from([HEAD, ...rows].join('\n')) } as any, tester)).rejects.toThrow(/more than 10,000 rows/);
+      await expect(svc.previewImport(projA.id, { originalname: 'rows.csv', buffer: Buffer.from([HEAD, ...rows].join('\n')) } as any, tester)).rejects.toThrow(/more than the limit of 10,000 rows/);
     });
 
     it('keeps project authorization for imports', async () => {
@@ -377,6 +379,41 @@ d('project-only findings (real database)', () => {
       const f = await prisma.finding.findFirstOrThrow({ where: { projectId: projA.id, projectVulnerability: { name: n('mf-a') } } });
       expect(f.affectedInstances).toEqual(['h1', 'h2']);
     });
+
+    it('preview shows the parsed POC/Results; the saved value is the same one and reaches the report data; a big import is complete', async () => {
+      const head = PROJECT_IMPORT_HEADERS.join(',');
+      const r = (name: string, inst: string, poc: string) => `1,${name},High,${inst},7.5,,d,i,r,ref,,,"${poc}"`;
+      const rows = [r(n('e-sql'), '10.0.0.1', 'proof A'), r(n('E-SQL'), '10.0.0.2', 'proof B'), r(n('e-solo'), 'h', 'only one'), r(n('e-none'), 'h', '')];
+      for (let i = 0; i < 1500; i++) rows.push(r(n(`e-bulk${i}`), `b${i}`, `poc ${i}`)); // goes through the bulk insert path
+      const file = csvFile(rows, head);
+      const pv = await svc.previewImport(projA.id, file, tester);
+      const byName = (name: string) => pv.rows.find((x) => x.name.toLowerCase() === n(name).toLowerCase())!;
+      expect(byName('e-sql').poc).toBe(['10.0.0.1', 'proof A', '', '10.0.0.2', 'proof B'].join(String.fromCharCode(10)));
+      expect(byName('e-solo').poc).toBe('only one');
+      expect(byName('e-none').poc).toBe('');
+      expect(pv.maxRowsPerFile).toBe(10000);
+      const before = await findingCount(projA.id);
+      await svc.importFindings(projA.id, file, tester, 'ip', 'ua');
+      expect(await findingCount(projA.id)).toBe(before + 1503);
+      const saved = await prisma.finding.findFirstOrThrow({ where: { projectId: projA.id, projectVulnerability: { name: n('e-sql') } }, include: { vulnerability: true, projectVulnerability: true, pocSteps: true } });
+      expect(saved.proofOfConcept).toBe(byName('e-sql').poc); // what the preview showed is what was saved
+      expect(saved.affectedInstances).toEqual(['10.0.0.1', '10.0.0.2']);
+      const bulk = await prisma.finding.findFirstOrThrow({ where: { projectId: projA.id, projectVulnerability: { name: n('e-bulk1499') } } });
+      expect(bulk).toMatchObject({ proofOfConcept: 'poc 1499', affectedInstances: ['b1499'], status: 'DRAFT', createdById: tester.id });
+      // The report reads it through the existing finding data: {Fix POC Snapshot} text and {Affected Instances}.
+      const data = (ReportsService.prototype as any).toFindingData(withVulnerability(saved), 1, []);
+      expect(data.pocText).toContain('proof B');
+      expect(data.affectedInstances).toBe('10.0.0.1' + String.fromCharCode(10) + '10.0.0.2');
+    }, 120000);
+
+    it('a file over the limit writes nothing at all', async () => {
+      const before = await findingCount(projA.id);
+      const vbefore = await prisma.projectVulnerability.count({ where: { projectId: projA.id } });
+      const rows = Array.from({ length: 10001 }, (_, i) => `${i},${n('over' + i)},High,,,d,i,r,ref,,`);
+      await expect(svc.importFindings(projA.id, csvFile(rows), tester, 'ip', 'ua')).rejects.toThrow(/10,001 data rows/);
+      expect(await findingCount(projA.id)).toBe(before);
+      expect(await prisma.projectVulnerability.count({ where: { projectId: projA.id } })).toBe(vbefore);
+    }, 60000);
 
     it('imported findings are PT findings and show up only in this project', async () => {
       const list = await findings.findByProject(projA.id, tester);

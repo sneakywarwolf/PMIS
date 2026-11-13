@@ -3,7 +3,8 @@ import { VulnerabilitiesService } from '../vulnerabilities/vulnerabilities.servi
 import { parseCsv } from '../common/csv-validation.util';
 import * as XLSX from 'xlsx';
 
-const settings: any = { get: async () => ({ settings: { workflow: { severityColors: { Critical: '', High: '', Medium: '', Low: '', Info: '' } } } }) };
+let rowLimit: number | undefined;
+const settings: any = { get: async () => ({ settings: { workflow: { severityColors: { Critical: '', High: '', Medium: '', Low: '', Info: '' } }, imports: { maxRowsPerFile: rowLimit } } }) };
 const svc: any = new ProjectFindingsService({} as any, {} as any, settings, new VulnerabilitiesService({} as any, {} as any, {} as any), {} as any);
 const f = (csv: string, name = 'f.csv') => ({ originalname: name, buffer: Buffer.from(csv) }) as any;
 const NEW = PROJECT_IMPORT_HEADERS.join(',');
@@ -109,7 +110,7 @@ describe('Import Project Findings: Affected Instances and POC/Results columns', 
       await expect(svc.parseImport([f([NEW, row('A', 'h')].join(NL), 'ok.csv'), bad])).rejects.toThrow(/^bad\.csv: /);
       const big = Array.from({ length: 10_000 }, (_, i) => row(`N${i}`, 'h'));
       expect(await svc.parseImport(f([NEW, ...big].join(NL), 'ten-k.csv'))).toHaveLength(10_000);
-      await expect(svc.parseImport(f([NEW, ...big, row('extra', 'h')].join(NL)))).rejects.toThrow(/more than 10,000 rows/);
+      await expect(svc.parseImport(f([NEW, ...big, row('extra', 'h')].join(NL)))).rejects.toThrow(/more than the limit of 10,000 rows/);
       const many = Array.from({ length: 11 }, (_, i) => f([NEW, row(`M${i}`, 'h')].join(NL), `m${i}.csv`));
       await expect(svc.parseImport(many)).rejects.toThrow(/At most 10 files/);
     });
@@ -129,5 +130,59 @@ describe('Import Project Findings: Affected Instances and POC/Results columns', 
     expect(ok).toMatchObject({ errors: [], poc: 'poc' });
     const [bad] = await svc.parseImport(f([`${NEW},`, `1,A,High,h,${tail.join(',')},poc,stray`].join(NL)));
     expect(bad.errors.join()).toMatch(/columns/);
+  });
+
+  describe('Maximum Rows Per Import File', () => {
+    const row = (n: string, inst = 'h') => `1,${n},High,${inst},${tail.join(',')},`;
+    const make = (count: number, same = false, tag = 'N') => [NEW, ...Array.from({ length: count }, (_, i) => row(same ? 'Same' : `${tag}${i}`, `h${i}`))].join(NL);
+    afterEach(() => { rowLimit = undefined; });
+
+    it('accepts a file exactly at the limit and refuses one row over, saying the limit and the count found', async () => {
+      rowLimit = 150;
+      expect(await svc.parseImport(f(make(150)))).toHaveLength(150);
+      await expect(svc.parseImport(f(make(151)))).rejects.toThrow(/151 data rows, more than the limit of 150 rows per file/);
+    });
+
+    it('counts source rows, so grouping same-name rows cannot get past the limit', async () => {
+      rowLimit = 100;
+      expect(await svc.parseImport(f(make(100, true)))).toHaveLength(1);
+      await expect(svc.parseImport(f(make(101, true)))).rejects.toThrow(/101 data rows/);
+    });
+
+    it('does not count the header or blank lines', async () => {
+      rowLimit = 100;
+      const csv = [NEW, ...Array.from({ length: 100 }, (_, i) => row(`N${i}`)), '', ',,,,,,,,,,,,,'].join(NL);
+      expect(await svc.parseImport(f(csv))).toHaveLength(100);
+    });
+
+    it('applies to .xlsx the same way', async () => {
+      rowLimit = 100;
+      const book = (n: number) => {
+        const ws = XLSX.utils.aoa_to_sheet([PROJECT_IMPORT_HEADERS, ...Array.from({ length: n }, (_, i) => [1, `X${i}`, 'High', 'h', 5, '', 'd', 'i', 'r', 'ref', '', '', ''])]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'S');
+        return { originalname: 'f.xlsx', buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) } as any;
+      };
+      expect(await svc.parseImport(book(100))).toHaveLength(100);
+      await expect(svc.parseImport(book(101))).rejects.toThrow(/101 data rows.*limit of 100/);
+    });
+
+    it('is applied to every file of a multi-file upload, naming the file', async () => {
+      rowLimit = 100;
+      await expect(svc.parseImport([f(make(100), 'a.csv'), f(make(101), 'b.csv')])).rejects.toThrow(/^b\.csv: .*101 data rows/);
+    });
+
+    it('a limit changed while an import runs does not affect that import (read once at the start)', async () => {
+      rowLimit = 200;
+      const run = svc.parseImport([f(make(150, false, 'A'), 'a.csv'), f(make(150, false, 'B'), 'b.csv')]);
+      rowLimit = 100; // an Admin lowers it mid-way
+      await expect(run).resolves.toHaveLength(300);
+      await expect(svc.parseImport(f(make(150)))).rejects.toThrow(/limit of 100/); // the next import uses the new value
+    });
+
+    it('the default limit is 10,000 when nothing is configured', async () => {
+      expect(await svc.parseImport(f(make(10_000)))).toHaveLength(10_000);
+      await expect(svc.parseImport(f(make(10_001)))).rejects.toThrow(/10,001 data rows.*limit of 10,000/);
+    });
   });
 });

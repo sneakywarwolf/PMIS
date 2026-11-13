@@ -20,9 +20,13 @@ export class SettingsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get effective application settings (any authenticated user)' })
-  async get() {
-    return this.settingsService.get();
+  @ApiOperation({ summary: 'Get effective application settings (any authenticated user; import limits are returned to Admins only)' })
+  async get(@CurrentUser('role') role: UserRole) {
+    const result = await this.settingsService.get();
+    if (role === UserRole.ADMIN) return result;
+    // Import limits are administrative: other roles see the limit only in an import's own messages.
+    const { imports: _admin, ...settings } = result.settings;
+    return { ...result, settings };
   }
 
   @Get('my-permissions')

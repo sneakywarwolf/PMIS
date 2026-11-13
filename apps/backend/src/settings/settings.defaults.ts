@@ -16,6 +16,14 @@ function defaultLockoutMaxAttempts(): number {
   return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
 }
 
+/**
+ * Allowed range of Maximum Rows Per Import File (Import Project Findings). The whole import is one database transaction with a
+ * 120 s budget and a file is parsed in memory (the file-size limit still applies on top of this). Measured with bulk inserts:
+ * 10,000 rows import in ~4 s, 50,000 in ~21 s, 100,000 in ~44 s (+~120 MB RSS), so 50,000 keeps about 5x headroom on slower disks.
+ * The same maximum bounds all files of one import together.
+ */
+export const IMPORT_ROW_LIMITS = { min: 100, max: 50_000, fallback: 10_000 } as const;
+
 export const DEFAULT_SETTINGS = {
   general: {
     appName: 'PMIS - Project Management for Information Security',
@@ -55,6 +63,10 @@ export const DEFAULT_SETTINGS = {
     // Temporary account lock after repeated failed sign-ins. Bounds are enforced in settings.service.ts (LOCKOUT_LIMITS).
     lockoutMaxAttempts: defaultLockoutMaxAttempts(),
     lockoutDurationMinutes: 15,
+  },
+  // Admin-set limits for file imports (Settings > System).
+  imports: {
+    maxRowsPerFile: IMPORT_ROW_LIMITS.fallback,
   },
   // Size limit in MB for every file format PMIS accepts, keyed "<purpose>.<extension>" (see common/attachment-formats.ts).
   attachments: {

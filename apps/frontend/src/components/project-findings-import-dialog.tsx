@@ -146,6 +146,7 @@ export function ProjectFindingsImportDialog({
   const [importing, setImporting] = useState(false);
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [open, setOpen] = useState<Set<number>>(new Set());
+  const [pocOpen, setPocOpen] = useState<Set<number>>(new Set());
   const [done, setDone] = useState<{ created: number; sourceRows?: number; skipped: { row: number; name: string }[] } | null>(null);
   const upload = useUploadStatus();
   const totalSize = files.reduce((n, f) => n + f.size, 0);
@@ -258,9 +259,9 @@ export function ProjectFindingsImportDialog({
                       <th className="p-3">Severity</th>
                       <th className="p-3">CVSS</th>
                       <th className="p-3">Affected Instances</th>
-                      <th className="p-3">POC/Results</th>
                       <th className="p-3">Group</th>
                       <th className="p-3">Result</th>
+                      <th className="p-3">POC/Results</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -282,7 +283,6 @@ export function ProjectFindingsImportDialog({
                           <td className="p-3 text-gray-300">{r.severity || '—'}</td>
                           <td className="p-3 font-mono tabular-nums text-gray-300">{r.cvssScore ?? '—'}</td>
                           <td className="p-3 text-gray-300 break-words max-w-[14rem]">{r.affectedInstances.length > 0 ? r.affectedInstances.join(', ') : '—'}</td>
-                          <td className="p-3 text-gray-300 break-words max-w-[14rem]"><span className="line-clamp-3 whitespace-pre-line">{r.poc ? (r.merged ? 'All associated results' : r.poc) : '—'}</span></td>
                           <td className="p-3 whitespace-nowrap">
                             {r.merged ? (
                               <button
@@ -298,6 +298,24 @@ export function ProjectFindingsImportDialog({
                           <td className={`p-3 ${STATUS[r.status].cls}`}>
                             {STATUS[r.status].label}
                             {r.errors?.map((m, i) => <p key={i} className="text-xs text-red-300 mt-1">{m}</p>)}
+                          </td>
+                          <td className="p-3 text-gray-300 max-w-[18rem] align-top">
+                            {r.poc ? (
+                              <>
+                                {/* The parsed value itself, as it will be saved. Long text is clamped here and shown in full on request. */}
+                                <span className={`block break-words whitespace-pre-wrap ${pocOpen.has(r.row) ? '' : 'line-clamp-3'}`}>{r.poc}</span>
+                                {(r.poc.length > 120 || r.poc.split('\n').length > 3) && (
+                                  <button
+                                    type="button"
+                                    aria-expanded={pocOpen.has(r.row)}
+                                    onClick={() => setPocOpen((p) => { const n = new Set(p); n.has(r.row) ? n.delete(r.row) : n.add(r.row); return n; })}
+                                    className="mt-1 text-xs text-violet-300 hover:text-violet-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60 rounded"
+                                  >
+                                    {pocOpen.has(r.row) ? 'Show less' : `Show full (${r.poc.length.toLocaleString('en-US')} characters)`}
+                                  </button>
+                                )}
+                              </>
+                            ) : <span className="text-xs italic text-gray-500">None in file</span>}
                           </td>
                         </tr>
                         {r.merged && open.has(r.row) && (

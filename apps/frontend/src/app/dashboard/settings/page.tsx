@@ -88,9 +88,12 @@ function SettingsContent() {
       // The Workflow tab also displays Retention & Deletion fields, which are
       // stored under the "system" category — save both together so those
       // edits aren't silently dropped.
+      // Likewise the Attachments tab carries the import row limit (stored under "imports").
       const patch = category === 'workflow'
         ? { workflow: settings.workflow, system: settings.system }
-        : { [category]: settings[category] };
+        : category === 'attachments'
+          ? { attachments: settings.attachments, imports: settings.imports }
+          : { [category]: settings[category] };
       await api.put('/settings', patch);
       toast(`${TABS.find((t) => t.id === category)?.label} settings saved`);
       fetchSettings();
@@ -446,11 +449,37 @@ function SecurityTab({ settings, setCategory }: any) {
   );
 }
 
+// Same range the backend enforces (settings.defaults.ts IMPORT_ROW_LIMITS); the backend validates again on save.
+const IMPORT_ROWS_MIN = 100;
+const IMPORT_ROWS_MAX = 50000;
+
 function AttachmentsTab({ settings, setCategory, catalog }: any) {
   const sizes: Record<string, number> = settings.attachments.maxSizeMb ?? {};
   const setSize = (key: string, value: number) => setCategory('attachments', { maxSizeMb: { ...sizes, [key]: value } });
+  const rows = settings.imports?.maxRowsPerFile;
+  const rowsInvalid = !Number.isInteger(rows) || rows < IMPORT_ROWS_MIN || rows > IMPORT_ROWS_MAX;
   return (
     <div className="space-y-6">
+      <div className="rounded-lg border border-gray-800 p-4">
+        <h3 className="text-sm font-semibold text-white">Import Project Findings</h3>
+        <label className={`${labelCls} mt-3`} htmlFor="maxRowsPerFile">Maximum Rows Per Import File</label>
+        <input
+          id="maxRowsPerFile"
+          type="number"
+          min={IMPORT_ROWS_MIN}
+          max={IMPORT_ROWS_MAX}
+          step={1}
+          value={rows ?? ''}
+          aria-invalid={rowsInvalid}
+          aria-describedby="maxRowsPerFile-hint"
+          onChange={(e) => setCategory('imports', { maxRowsPerFile: e.target.value === '' ? NaN : parseInt(e.target.value) })}
+          className={`${inputCls} !w-40`}
+        />
+        {rowsInvalid && <p role="alert" className="mt-1 text-xs text-red-400">Enter a whole number between {IMPORT_ROWS_MIN.toLocaleString('en-US')} and {IMPORT_ROWS_MAX.toLocaleString('en-US')}.</p>}
+        <p id="maxRowsPerFile-hint" className={hintCls}>
+          Data rows allowed in each uploaded file (the header and blank lines are not counted; rows are counted before rows with the same Name are merged). Allowed range: {IMPORT_ROWS_MIN.toLocaleString('en-US')}–{IMPORT_ROWS_MAX.toLocaleString('en-US')}; the files of one import together are also limited to {IMPORT_ROWS_MAX.toLocaleString('en-US')} rows. The file size limits below still apply. A change applies to the next import.
+        </p>
+      </div>
       <p className={hintCls}>
         Every file format PMIS accepts, with the largest file allowed for it. A change applies to the next upload.
         Each format has its own highest value; files are also checked by their real content, not only their name.

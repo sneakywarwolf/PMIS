@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RedisService } from '../redis/redis.service';
 import { StorageService } from '../reports/storage.service';
-import { DEFAULT_SETTINGS, LOCKOUT_LIMITS } from './settings.defaults';
+import { DEFAULT_SETTINGS, LOCKOUT_LIMITS, IMPORT_ROW_LIMITS } from './settings.defaults';
 import { LockoutPolicy, SAFE_LOCKOUT_POLICY, resolveLockoutPolicy } from './lockout-policy';
 import { validateIssueLogColumns } from '../reports/issue-log';
 import { REPORT_DATE_FORMAT_OPTIONS, PLACEHOLDER_DATE_FORMAT_OPTIONS, DEFAULT_PLACEHOLDER_DATE_FORMATS, placeholderDateFormats } from '../common/report-date-format';
@@ -112,6 +112,18 @@ function validatePatch(patch: any) {
     const v = security?.[key];
     if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < lim.min || v > lim.max)) {
       errors.push(`security.${key} must be a whole number between ${lim.min} and ${lim.max}`);
+    }
+  }
+
+  const imports = patch.imports;
+  if (imports !== undefined) {
+    if (!isPlainObject(imports)) errors.push('imports must be an object');
+    else if (imports.maxRowsPerFile !== undefined) {
+      const v = imports.maxRowsPerFile;
+      const { min, max } = IMPORT_ROW_LIMITS;
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max) {
+        errors.push(`Maximum Rows Per Import File must be a whole number between ${min.toLocaleString('en-US')} and ${max.toLocaleString('en-US')}`);
+      }
     }
   }
 
