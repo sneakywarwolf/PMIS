@@ -76,7 +76,10 @@ describe('Import Project Findings: Affected Instances and POC/Results columns', 
     expect(sql.poc).toBe(`10.0.0.1${NL}r1${NL}${NL}10.0.0.2${NL}r2`);
     expect(sql.fields.name).toBe('SQL Injection');
     expect(sql2.sourceRows).toHaveLength(1);
-    expect(xss.errors.join()).toMatch(/Conflicting Severity/);
+    expect(xss.errors).toEqual([]); // a severity conflict is chosen in the preview, it is not an error
+    expect(xss.severityOptions).toEqual(['Low', 'Medium']);
+    expect(sql.severityOptions).toBeUndefined();
+    expect(sql2.severityOptions).toBeUndefined();
   });
 
   it('a single-row file behaves as before: no merge flag, one source row', async () => {
@@ -184,5 +187,15 @@ describe('Import Project Findings: Affected Instances and POC/Results columns', 
       expect(await svc.parseImport(f(make(10_000)))).toHaveLength(10_000);
       await expect(svc.parseImport(f(make(10_001)))).rejects.toThrow(/10,001 data rows.*limit of 10,000/);
     });
+  });
+
+  it('only Severity is resolved by choice: a CVSS conflict stays an error, and an invalid severity stays invalid', async () => {
+    const row = (sev: string, cvss: string) => `1,A,${sev},h,${cvss},,d,i,r,ref,,,`;
+    const [cv] = await svc.parseImport(f([NEW, row('High', '5.0'), row('High', '9.0')].join(NL)));
+    expect(cv.errors.join()).toMatch(/Conflicting CVSS/);
+    const [bad] = await svc.parseImport(f([NEW, row('High', '5'), row('Severe', '5')].join(NL)));
+    expect(bad.errors.join()).toMatch(/Severity "Severe" is not supported/);
+    const [empty] = await svc.parseImport(f([NEW, row('High', '5'), row('', '5')].join(NL)));
+    expect(empty.errors.length).toBeGreaterThan(0); // a missing severity is never filled in
   });
 });

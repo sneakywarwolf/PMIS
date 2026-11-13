@@ -50,6 +50,8 @@ export interface ImportRowReport {
   merged: boolean;
   sourceRowCount: number;
   /** The original rows of a merged entry, for the preview's "inspect" view. */
+  /** Severity conflict inside a merged entry: the user must choose one of these before the entry can be imported. */
+  severityOptions?: string[];
   sources?: { row: number; label: string; severity: string; cvssScore: number | null; affectedInstances: string[]; poc: string }[];
 }
 
@@ -73,6 +75,8 @@ interface ParsedRow {
 /** One finding to create: all the file rows that share a (normalised) name. */
 interface ImportGroup extends ParsedRow {
   sourceRows: ParsedRow[];
+  /** Set when the rows of the group disagree on Severity: the distinct values, for the user to pick from. */
+  severityOptions?: string[];
 }
 
 const CONFLICT_FIELDS: [keyof ProjectFindingFields, string][] = [
@@ -439,8 +443,15 @@ export class ProjectFindingsService {
       if (src.length === 1) return { ...src[0], sourceRows: src };
       const errors = src.flatMap((r) => r.errors.map((m) => `${r.label}: ${m}`));
       let fields: ProjectFindingFields | undefined = src.every((r) => r.fields) ? { ...src[0].fields! } : undefined;
+      let severityOptions: string[] | undefined;
       if (fields) {
         for (const [key, label] of CONFLICT_FIELDS) {
+          if (key === 'severity') {
+            // Severity (already matched to the configured names, so case and spacing never make two levels) is resolved by the user in the preview, not an error.
+            const distinct = [...new Set(src.map((r) => r.fields!.severity))];
+            if (distinct.length > 1) severityOptions = distinct;
+            continue;
+          }
           const seen = new Map<string, string>(); // value -> first row holding it
           for (const r of src) {
             const v = r.fields![key];
@@ -462,7 +473,7 @@ export class ProjectFindingsService {
       }
       const poc = pocs.size <= 1 ? [...pocs.keys()][0] ?? '' : [...pocs].map(([text, who]) => `${[...new Set(who)].join(', ')}\n${text}`).join('\n\n');
       if (poc.length > POC_MAX) errors.push(`The combined POC/Results is longer than ${POC_MAX} characters.`);
-      return { row: src[0].row, label: src[0].label, fields, affectedInstances, poc, errors, rawName: src[0].rawName, sourceRows: src };
+      return { row: src[0].row, label: src[0].label, fields, affectedInstances, poc, errors, rawName: src[0].rawName, sourceRows: src, ...(severityOptions && { severityOptions }) };
     });
   }
 
@@ -475,7 +486,8 @@ export class ProjectFindingsService {
         row: g.row,
         label: g.label,
         name: g.fields?.name ?? g.rawName,
-        severity: g.fields?.severity ?? '',
+        severity: g.severityOptions ? '' : g.fields?.severity ?? '',
+        ...(g.severityOptions && { severityOptions: g.severityOptions }),
         cvssScore: g.fields?.cvssScore ?? null,
         status: invalid ? 'invalid' : existing.has(normalizeVulnName(g.fields!.name)) ? 'duplicate' : 'new',
         ...(invalid && { errors: g.errors }),
@@ -507,7 +519,7 @@ export class ProjectFindingsService {
   }
 
   /** `exclude`: first row numbers of the preview entries the user unticked. An entry is imported whole or not at all. */
-  async importFindings(projectId: string, file: Express.Multer.File | Express.Multer.File[] | undefined, user: User, ipAddress: string, userAgent: string, exclude: number[] = []) {
+  async importFindings(projectId: string, file: Express.Multer.File | Express.Multer.File[] | undefined, user: User, ipAddress: string, userAgent: string, exclude: number[] = [], severities: Record<string, string> = {}) {
     const project = await this.projectFor(projectId, user);
     // The file is read and checked again here: the preview is a convenience, never trusted.
     const parsed = await this.parseImport(file);
@@ -523,6 +535,23 @@ export class ProjectFindingsService {
       });
     }
     const skip = new Set(exclude);
+    // Groups whose rows disagree on Severity need the user's choice; it must be one of the severities found in that group's rows.
+    const resolved: { name: string; chosen: string; options: string[] }[] = [];
+    const missing: string[] = [];
+    for (const g of parsed) {
+      if (!g.severityOptions || skip.has(g.row) || report.find((x) => x.row === g.row)?.status !== 'new') continue;
+      const pick = typeof severities[g.row] === 'string' ? severities[g.row].trim().toLowerCase() : '';
+      const chosen = g.severityOptions.find((o) => o.toLowerCase() === pick);
+      if (!chosen) {
+        missing.push(`"${g.fields!.name}" (${g.label}): choose one of ${g.severityOptions.join(', ')}`);
+        continue;
+      }
+      g.fields!.severity = chosen;
+      resolved.push({ name: g.fields!.name.slice(0, 120), chosen, options: g.severityOptions });
+    }
+    if (missing.length > 0) {
+      throw new BadRequestException({ message: `Nothing was imported: select the final severity for ${missing.length} finding(s) whose rows disagree. ${missing.slice(0, 20).join('; ')}`, statusCode: 400 });
+    }
     const statusOf = new Map(report.map((x) => [x.row, x.status]));
     const fresh = parsed.filter((r) => statusOf.get(r.row) === 'new' && !skip.has(r.row));
     if (fresh.length === 0) {
@@ -543,7 +572,7 @@ export class ProjectFindingsService {
       targetId: project.id,
       ipAddress,
       userAgent,
-      details: { findingsImport: { source: 'import', fileName: asList(file).map((f) => f.originalname).join(', ').slice(0, 200), files: asList(file).length, created: created.length, sourceRows: fresh.reduce((n, g) => n + g.sourceRows.length, 0), skipped: skipped.length } },
+      details: { findingsImport: { source: 'import', fileName: asList(file).map((f) => f.originalname).join(', ').slice(0, 200), files: asList(file).length, created: created.length, sourceRows: fresh.reduce((n, g) => n + g.sourceRows.length, 0), skipped: skipped.length, ...(resolved.length > 0 && { severityChoices: resolved.slice(0, 200) }) } },
     });
     return { created: created.length, sourceRows: fresh.reduce((n, g) => n + g.sourceRows.length, 0), skipped };
   }

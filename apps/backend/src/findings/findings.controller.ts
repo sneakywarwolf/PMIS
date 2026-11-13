@@ -174,6 +174,7 @@ export class FindingsController {
     @UploadedFiles() files: Express.Multer.File[],
     @Body('projectId') projectId: string,
     @Body('exclude') excludeRaw: string,
+    @Body('severities') severitiesRaw: string,
     @CurrentUser() user: User,
     @Req() request: any,
   ) {
@@ -185,9 +186,17 @@ export class FindingsController {
       throw new BadRequestException('exclude must be a JSON list of row numbers');
     }
     if (!Array.isArray(exclude) || exclude.length > 5000 || exclude.some((n) => !Number.isInteger(n))) throw new BadRequestException('exclude must be a JSON list of row numbers');
+    // { "<first row of the entry>": "<chosen severity>" } for entries whose rows disagree on Severity; validated in the service.
+    let severities: Record<string, string> = {};
+    try {
+      if (severitiesRaw) severities = JSON.parse(severitiesRaw);
+    } catch {
+      throw new BadRequestException('severities must be a JSON object');
+    }
+    if (!severities || typeof severities !== 'object' || Array.isArray(severities) || Object.keys(severities).length > 5000) throw new BadRequestException('severities must be a JSON object');
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.projectFindings.importFindings(projectId, files, user, ipAddress, userAgent, exclude as number[]);
+    return this.projectFindings.importFindings(projectId, files, user, ipAddress, userAgent, exclude as number[], severities);
   }
 
   @Get('project/:projectId')

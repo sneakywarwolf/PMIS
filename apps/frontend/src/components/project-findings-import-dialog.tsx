@@ -27,6 +27,8 @@ interface Row {
   errors?: string[];
   affectedInstances: string[];
   poc: string;
+  /** Rows of this entry disagree on Severity: the user picks the final one from these. */
+  severityOptions?: string[];
   merged: boolean;
   sourceRowCount: number;
   sources?: { row: number; label: string; severity: string; cvssScore: number | null; affectedInstances: string[]; poc: string }[];
@@ -115,7 +117,7 @@ export function ImportFormatInfo() {
           <ul className="mt-2 list-disc space-y-0.5 pl-4">
             <li><b className="text-white">Required:</b> Name, Severity ({severities.join(', ')}), Description, Impact, Remediation, Reference.</li>
             <li><b className="text-white">Optional:</b> Affected Instances (hosts / URLs, one per line inside the cell; an older file without this column is still accepted), CVSS (0.0 to 10.0), CVSS-VEC (e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N), CVE ID (CVE-2024-12345), CWE ID (CWE-79), POC/Results (last column; free text, kept as written). S.No is ignored.</li>
-            <li>Rows with the same Name are merged into one finding: their Affected Instances are combined and every POC/Results is kept. If their other values differ, the preview flags it and nothing is imported until the file is fixed. A name must not already exist in the project.</li>
+            <li>Rows with the same Name are merged into one finding: their Affected Instances are combined and every POC/Results is kept. If their Severity differs, you choose the final severity in the preview; if other values differ, the preview flags it and nothing is imported until the file is fixed. A name must not already exist in the project.</li>
             <li>If any row is invalid nothing is imported. Findings are added to this project only.</li>
           </ul>
           <p className="mt-2 text-gray-400">The sample template at the bottom of the import window has these headers.</p>
@@ -145,6 +147,8 @@ export function ProjectFindingsImportDialog({
   const [error, setError] = useState('');
   const [importing, setImporting] = useState(false);
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
+  // Final severity picked for each entry whose rows disagree, keyed by the entry's first row. Entries are independent.
+  const [chosen, setChosen] = useState<Record<number, string>>({});
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [pocOpen, setPocOpen] = useState<Set<number>>(new Set());
   const [done, setDone] = useState<{ created: number; sourceRows?: number; skipped: { row: number; name: string }[] } | null>(null);
@@ -161,6 +165,8 @@ export function ProjectFindingsImportDialog({
   const importBody = () => {
     const form = body();
     if (excluded.size > 0) form.append('exclude', JSON.stringify([...excluded]));
+    const picks = Object.fromEntries(Object.entries(chosen).filter(([row]) => preview?.rows.some((r) => String(r.row) === row && r.severityOptions)));
+    if (Object.keys(picks).length > 0) form.append('severities', JSON.stringify(picks));
     return form;
   };
 
@@ -185,6 +191,8 @@ export function ProjectFindingsImportDialog({
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  // Selected entries that still wait for a severity choice.
+  const needSeverity = preview ? preview.rows.filter((r) => r.status === 'new' && !excluded.has(r.row) && r.severityOptions && !chosen[r.row]).length : 0;
   const selectedCount = preview ? preview.rows.filter((r) => r.status === 'new' && !excluded.has(r.row)).length : 0;
 
   const runImport = async () => {
@@ -280,7 +288,23 @@ export function ProjectFindingsImportDialog({
                           </td>
                           <td className="p-3 text-gray-500 break-words max-w-[10rem]">{r.label.replace(/^Row /, '')}</td>
                           <td className="p-3 text-white break-words">{r.name || '—'}</td>
-                          <td className="p-3 text-gray-300">{r.severity || '—'}</td>
+                          <td className="p-3 text-gray-300">
+                            {r.severityOptions ? (
+                              <label className="block">
+                                <span className="sr-only">Final severity for {r.name}</span>
+                                <select
+                                  value={chosen[r.row] ?? ''}
+                                  onChange={(e) => setChosen((p) => ({ ...p, [r.row]: e.target.value }))}
+                                  aria-invalid={r.status === 'new' && !excluded.has(r.row) && !chosen[r.row]}
+                                  className={`rounded border bg-gray-800 px-2 py-1 text-xs text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60 ${chosen[r.row] ? 'border-gray-600' : 'border-amber-500/60'}`}
+                                >
+                                  <option value="" disabled>Select severity…</option>
+                                  {r.severityOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+                                </select>
+                                {!chosen[r.row] && <span className="mt-1 block text-[11px] text-amber-400">Rows disagree: choose one</span>}
+                              </label>
+                            ) : (r.severity || '—')}
+                          </td>
                           <td className="p-3 font-mono tabular-nums text-gray-300">{r.cvssScore ?? '—'}</td>
                           <td className="p-3 text-gray-300 break-words max-w-[14rem]">{r.affectedInstances.length > 0 ? r.affectedInstances.join(', ') : '—'}</td>
                           <td className="p-3 whitespace-nowrap">
@@ -359,11 +383,11 @@ export function ProjectFindingsImportDialog({
             {!done && (
               <button
                 onClick={runImport}
-                disabled={!preview?.canImport || importing || selectedCount === 0}
+                disabled={!preview?.canImport || importing || selectedCount === 0 || needSeverity > 0}
                 className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50 flex items-center gap-2"
               >
                 {importing && <Loader2 className="w-4 h-4 animate-spin" />}
-                {importing ? 'Importing…' : preview?.canImport ? `Import ${selectedCount} finding${selectedCount === 1 ? '' : 's'}` : 'Import'}
+                {importing ? 'Importing…' : needSeverity > 0 ? `Select severity (${needSeverity} left)` : preview?.canImport ? `Import ${selectedCount} finding${selectedCount === 1 ? '' : 's'}` : 'Import'}
               </button>
             )}
           </div>

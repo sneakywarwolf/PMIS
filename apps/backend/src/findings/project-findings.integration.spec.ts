@@ -392,11 +392,49 @@ d('project-only findings (real database)', () => {
       const out = await svc.importFindings(projA.id, file, tester, 'ip', 'ua', [a.row]);
       expect(out).toMatchObject({ created: 1, sourceRows: 1 });
       expect(await prisma.finding.count({ where: { projectId: projA.id, projectVulnerability: { name: n('s-a') } } })).toBe(0);
-      const bad = csvFile([r(n('c-a'), 'h1', 'High'), r(n('c-a'), 'h2', 'Low')], head);
+      const bad = csvFile([r(n('c-a'), 'h1'), `1,${n('c-a')},High,h2,9.0,,d,i,r,ref,,,`], head); // same name, different CVSS: still an error
       const cp = await svc.previewImport(projA.id, bad, tester);
       expect(cp.invalidCount).toBe(1);
-      expect(cp.rows[0].errors!.join()).toMatch(/Conflicting Severity/);
+      expect(cp.rows[0].errors!.join()).toMatch(/Conflicting CVSS/);
       await expect(svc.importFindings(projA.id, bad, tester, 'ip', 'ua')).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('severity conflicts: dropdown options in the preview, a choice is required, validated server-side, saved on the one finding', async () => {
+      const head = PROJECT_IMPORT_HEADERS.join(',');
+      const r = (name: string, inst: string, sev: string) => `1,${name},${sev},${inst},7.5,,d,i,r,ref,,,`;
+      const file = csvFile([
+        r(n('sv-a'), 'h1', 'High'), r(n('sv-a'), 'h2', 'critical'), r(n('sv-a'), 'h3', ' Medium '), r(n('sv-a'), 'h4', 'HIGH'), // three distinct levels
+        r(n('sv-b'), 'b1', 'Low'), r(n('sv-b'), 'b2', 'Info'), // an independent conflict
+        r(n('sv-same'), 's1', 'High'), r(n('sv-same'), 's2', 'high'), // same level, different spelling: no conflict
+        r(n('sv-solo'), 'x', 'Low'),
+      ], head);
+      const pv = await svc.previewImport(projA.id, file, tester);
+      const row = (name: string) => pv.rows.find((x) => x.name === n(name))!;
+      expect(row('sv-a')).toMatchObject({ severity: '', status: 'new', severityOptions: ['High', 'Critical', 'Medium'], sourceRowCount: 4 });
+      expect(row('sv-b').severityOptions).toEqual(['Low', 'Info']);
+      expect(row('sv-same')).toMatchObject({ severity: 'High' });
+      expect(row('sv-same').severityOptions).toBeUndefined();
+      expect(row('sv-solo')).toMatchObject({ severity: 'Low' });
+      expect(row('sv-solo').severityOptions).toBeUndefined();
+      expect(pv).toMatchObject({ invalidCount: 0, canImport: true });
+      const before = await findingCount(projA.id);
+      // no choice, one choice missing, a severity that is not among the rows' severities, an unknown level: all refused, nothing saved
+      const pick = (o: Record<string, string>) => svc.importFindings(projA.id, file, tester, 'ip', 'ua', [], o);
+      await expect(pick({})).rejects.toThrow(/select the final severity for 2 finding/);
+      await expect(pick({ [row('sv-a').row]: 'Critical' })).rejects.toThrow(/sv-b/);
+      await expect(pick({ [row('sv-a').row]: 'Low', [row('sv-b').row]: 'Info' })).rejects.toThrow(/sv-a/);
+      await expect(pick({ [row('sv-a').row]: 'Bogus', [row('sv-b').row]: 'Info' })).rejects.toBeInstanceOf(BadRequestException);
+      expect(await findingCount(projA.id)).toBe(before);
+      const out = await pick({ [row('sv-a').row]: 'critical', [row('sv-b').row]: 'Low' });
+      expect(out).toMatchObject({ created: 4, sourceRows: 9 });
+      const sev = async (name: string) => (await prisma.projectVulnerability.findFirstOrThrow({ where: { projectId: projA.id, name: n(name) } })).severity;
+      expect([await sev('sv-a'), await sev('sv-b'), await sev('sv-same'), await sev('sv-solo')]).toEqual(['Critical', 'Low', 'High', 'Low']);
+      const a = await prisma.finding.findFirstOrThrow({ where: { projectId: projA.id, projectVulnerability: { name: n('sv-a') } } });
+      expect(a.affectedInstances).toEqual(['h1', 'h2', 'h3', 'h4']);
+      // an unticked conflicting entry needs no choice; the audit trail keeps what was chosen from what
+      const f2 = csvFile([r(n('sv-c'), 'h1', 'High'), r(n('sv-c'), 'h2', 'Low'), r(n('sv-d'), 'd', 'Low')], head);
+      const c = (await svc.previewImport(projA.id, f2, tester)).rows.find((x) => x.name === n('sv-c'))!;
+      expect((await svc.importFindings(projA.id, f2, tester, 'ip', 'ua', [c.row])).created).toBe(1);
     });
 
     it('imports several files as one import, merging same-name rows across them', async () => {
