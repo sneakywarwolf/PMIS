@@ -339,6 +339,8 @@ export class ProjectFindingsService {
     const base = index * ROW_BASE;
     const where = (line: number) => (multi ? `${(file?.originalname ?? `file ${index + 1}`).slice(0, 80)}, row ${line}` : `Row ${line}`);
     const headers = all[0].map((h) => h.replace(/^﻿/, '').trim());
+    // Spreadsheet exports often end every line with a comma: ignore empty columns after the last header.
+    while (headers.length > 0 && headers[headers.length - 1] === '') headers.pop();
     const normalized = this.vulnerabilities.normalizeImportHeaders(headers);
     const expected = PROJECT_IMPORT_HEADERS.filter((h) => !OPTIONAL_IMPORT_HEADERS.includes(h) || normalized.includes(h));
     validateExactCsvHeaders(normalized, expected);
@@ -351,6 +353,7 @@ export class ProjectFindingsService {
       if (rows.length >= IMPORT_MAX_ROWS) {
         throw new BadRequestException(`The file has more than ${IMPORT_MAX_ROWS.toLocaleString('en-US')} rows. Split it into smaller files.`);
       }
+      while (cols.length > headers.length && cols[cols.length - 1].trim() === '') cols.pop(); // the same trailing comma
       if (cols.length > headers.length) {
         rows.push({ row: base + i + 1, label: where(i + 1), affectedInstances: [], poc: '', errors: [`Row has ${cols.length} columns but the header has ${headers.length}. Check for an unescaped comma or quote.`], rawName: (cols[1] ?? '').trim() });
         continue;

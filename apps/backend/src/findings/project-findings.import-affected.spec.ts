@@ -123,4 +123,11 @@ describe('Import Project Findings: Affected Instances and POC/Results columns', 
     expect(g.affectedInstances).toHaveLength(10_000);
     expect(Date.now() - t0).toBeLessThan(5000);
   });
+
+  it('ignores a trailing comma on every line (spreadsheet export), but not a filled extra cell', async () => {
+    const [ok] = await svc.parseImport(f([`${NEW},`, `1,A,High,h,${tail.join(',')},poc,`].join(NL)));
+    expect(ok).toMatchObject({ errors: [], poc: 'poc' });
+    const [bad] = await svc.parseImport(f([`${NEW},`, `1,A,High,h,${tail.join(',')},poc,stray`].join(NL)));
+    expect(bad.errors.join()).toMatch(/columns/);
+  });
 });
