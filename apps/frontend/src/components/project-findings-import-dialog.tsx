@@ -52,7 +52,7 @@ function errorText(e: any, fallback: string): string {
 }
 
 /** The header row the file must start with, exactly and in this order (same as the sample template). */
-export const IMPORT_HEADERS = ['S.No', 'Name', 'Severity', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
+export const IMPORT_HEADERS = ['S.No', 'Name', 'Severity', 'Affected Instances', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
 
 /**
  * The "i" beside Import Project Findings: which files are accepted, the header row they need, and what each column
@@ -103,7 +103,7 @@ export function ImportFormatInfo() {
           <p className="mt-1 break-words rounded bg-gray-900 p-2 font-mono text-[11px] text-emerald-300">{IMPORT_HEADERS.join(', ')}</p>
           <ul className="mt-2 list-disc space-y-0.5 pl-4">
             <li><b className="text-white">Required:</b> Name, Severity ({severities.join(', ')}), Description, Impact, Remediation, Reference.</li>
-            <li><b className="text-white">Optional:</b> CVSS (0.0 to 10.0), CVSS-VEC (e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N), CVE ID (CVE-2024-12345), CWE ID (CWE-79). S.No is ignored.</li>
+            <li><b className="text-white">Optional:</b> Affected Instances (hosts / URLs, one per line inside the cell; an older file without this column is still accepted), CVSS (0.0 to 10.0), CVSS-VEC (e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N), CVE ID (CVE-2024-12345), CWE ID (CWE-79). S.No is ignored.</li>
             <li>One row per finding; a name must be unique in the file and in the project.</li>
             <li>If any row is invalid nothing is imported. Findings are added to this project only.</li>
           </ul>

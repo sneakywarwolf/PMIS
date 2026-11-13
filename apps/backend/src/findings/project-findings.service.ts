@@ -35,9 +35,14 @@ export interface ImportRowReport {
   errors?: string[];
 }
 
+/** Import header row: "Affected Instances" is the 4th column. Files in the earlier layout (no such column) are still accepted. */
+export const PROJECT_IMPORT_HEADERS = ['S.No', 'Name', 'Severity', 'Affected Instances', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
+const LEGACY_IMPORT_HEADERS = PROJECT_IMPORT_HEADERS.filter((h) => h !== 'Affected Instances');
+
 interface ParsedRow {
   row: number;
   fields?: ProjectFindingFields;
+  affectedInstances?: string[];
   errors: string[];
   rawName: string;
 }
@@ -265,7 +270,12 @@ export class ProjectFindingsService {
   // ─── Import Project Findings (CSV / XLSX) ───
 
   getSampleCsv(): string {
-    return this.vulnerabilities.getSampleCsv();
+    const row = ['1', 'SQL Injection', 'High', 'https://app.example.com/login\nhttps://app.example.com/search', '8.1', 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N',
+      'SQL injection allows an attacker to interfere with the queries that an application makes to its database.',
+      'An attacker can view, modify, or delete data in the database.',
+      'Use parameterized queries (prepared statements). Validate and sanitize all user inputs.',
+      'https://owasp.org/www-community/attacks/SQL_Injection', 'CVE-2023-12345', 'CWE-89'];
+    return `${PROJECT_IMPORT_HEADERS.join(',')}\n${row.map((v) => `"${v.replace(/"/g, '""')}"`).join(',')}\n`;
   }
 
   /** Reads and validates the whole file. Nothing is written. */
@@ -274,7 +284,10 @@ export class ProjectFindingsService {
     const all = parseCsv(csv.trim());
     if (all.length < 2) throw new BadRequestException('The file has no data rows. Use the sample template: it has a header row followed by one row per finding.');
     const headers = all[0].map((h) => h.replace(/^﻿/, '').trim());
-    validateExactCsvHeaders(this.vulnerabilities.normalizeImportHeaders(headers), this.vulnerabilities.EXPECTED_HEADERS);
+    const normalized = this.vulnerabilities.normalizeImportHeaders(headers);
+    const expected = normalized.includes('Affected Instances') ? PROJECT_IMPORT_HEADERS : LEGACY_IMPORT_HEADERS;
+    validateExactCsvHeaders(normalized, expected);
+    const at = (h: string) => expected.indexOf(h);
 
     const allowed = await this.severities();
     const rows: ParsedRow[] = [];
@@ -289,9 +302,16 @@ export class ProjectFindingsService {
         continue;
       }
       while (cols.length < headers.length) cols.push('');
-      const [, name, severity, cvssScore, cvssVector, description, impact, remediation, references, cveId, cweId] = cols;
-      const { value, errors } = validateProjectFindingFields({ name, severity, cvssScore, cvssVector, description, impact, remediation, references, cveId, cweId }, allowed);
-      rows.push({ row: i + 1, fields: value, errors, rawName: name.trim() });
+      const c = (h: string) => cols[at(h)] ?? '';
+      const name = c('Name');
+      const { value, errors } = validateProjectFindingFields({
+        name, severity: c('Severity'), cvssScore: c('CVSS'), cvssVector: c('CVSS-VEC'), description: c('Description'), impact: c('Impact'),
+        remediation: c('Remediation'), references: c('Reference'), cveId: c('CVE ID'), cweId: c('CWE ID'),
+      }, allowed);
+      // One instance per line inside the cell; same limits as the manual form.
+      const affectedInstances = c('Affected Instances').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+      if (affectedInstances.length > 1000 || affectedInstances.some((x) => x.length > 2000)) errors.push('Affected Instances: at most 1000 lines of 2000 characters each.');
+      rows.push({ row: i + 1, fields: value, affectedInstances, errors, rawName: name.trim() });
     }
     if (rows.length === 0) throw new BadRequestException('The file has no data rows.');
 
@@ -355,7 +375,7 @@ export class ProjectFindingsService {
       throw new BadRequestException(`Nothing to import: all ${report.length} row(s) already exist in this project.`);
     }
 
-    const { created } = await this.insertAll(project.id, fresh.map((r) => ({ fields: r.fields! })), 'import', user);
+    const { created } = await this.insertAll(project.id, fresh.map((r) => ({ fields: r.fields!, extra: r.affectedInstances?.length ? { affectedInstances: r.affectedInstances } : undefined })), 'import', user);
     const skipped = report.filter((r) => r.status === 'duplicate').map((r) => ({ row: r.row, name: r.name, reason: 'Already in this project' }));
 
     await this.audit.log({

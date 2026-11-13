@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.1.4 (Unreleased)
+- New: **Import Project Findings has an optional `Affected Instances` column** (the 4th column, before CVSS; one host or URL per line inside the cell). It fills the finding's Affected Instances, so the existing `{Affected Instances}` report placeholders pick it up in Word and Excel. Files in the earlier 11-column layout are still accepted. The sample file and the *i* tooltip show the new header row.
+
 ## 1.1.3 (Unreleased)
 - Fix: **the default vulnerability library no longer comes back on restart.** The backend container runs the seed on every start, and the seed re-created any default entry whose name was missing, so entries an Admin had deleted, renamed, or replaced with a bulk upload reappeared after a restart or an upgrade. The default library is now loaded only while the library is empty (a first install); after that it belongs to the Admins and is left as it is. The admin account is still created only if missing, and demo data is unchanged.
 - Fix: **an exported vulnerability library can be uploaded again.** The CSV export wrote the column header `References` while the upload (and the sample file) use `Reference`, so a file exported from PMIS was refused. The export now writes the same header row as the sample file, and files exported by earlier versions are still accepted. The upload rules are otherwise unchanged: header names and order are exact, and every entry needs a reference (6 of the shipped default entries have none, so an unedited export of a fresh install stops at the first of them with a message naming the row).

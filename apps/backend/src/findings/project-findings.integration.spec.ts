@@ -13,7 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VulnerabilitiesService } from '../vulnerabilities/vulnerabilities.service';
 import { FindingsService } from './findings.service';
-import { ProjectFindingsService } from './project-findings.service';
+import { ProjectFindingsService, PROJECT_IMPORT_HEADERS } from './project-findings.service';
 
 const URL = process.env.PMIS_TEST_DATABASE_URL;
 const d = URL ? describe : describe.skip;
@@ -311,7 +311,20 @@ d('project-only findings (real database)', () => {
     });
 
     it('offers a sample file with the exact expected headers', () => {
-      expect(svc.getSampleCsv().split('\n')[0]).toBe(HEAD);
+      expect(svc.getSampleCsv().split('\n')[0]).toBe(PROJECT_IMPORT_HEADERS.join(','));
+    });
+
+    it('stores Affected Instances from the new 4th column on the finding, one entry per line, and leaves blanks empty', async () => {
+      const head = PROJECT_IMPORT_HEADERS.join(',');
+      const row = (name: string, inst: string) => `1,${name},High,"${inst}",7.5,,d,i,r,ref,,`;
+      const file = csvFile([row(n('ai-1'), ['10.0.0.1', ' https://a.test/x ', '10.0.0.2'].join(String.fromCharCode(10))), row(n('ai-2'), '')], head);
+      const out = await svc.importFindings(projA.id, file, tester, 'ip', 'ua');
+      expect(out.created).toBe(2);
+      const rows = await prisma.finding.findMany({ where: { projectId: projA.id, projectVulnerability: { name: { startsWith: n('ai-') } } }, include: { projectVulnerability: true }, orderBy: { createdAt: 'asc' } });
+      const by = Object.fromEntries(rows.map((f) => [f.projectVulnerability!.name, f]));
+      expect(by[n('ai-1')].affectedInstances).toEqual(['10.0.0.1', 'https://a.test/x', '10.0.0.2']);
+      expect(by[n('ai-1')].projectVulnerability!.cvssScore).toBe(7.5);
+      expect(by[n('ai-2')].affectedInstances).toEqual([]);
     });
 
     it('imported findings are PT findings and show up only in this project', async () => {
