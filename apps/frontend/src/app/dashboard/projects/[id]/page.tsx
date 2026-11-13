@@ -36,7 +36,7 @@ import { NessusImportDialog } from '@/components/nessus-import-dialog';
 import { FortifyImportDialog } from '@/components/fortify-import-dialog';
 import { PillSwitch } from '@/components/pill-switch';
 import { useSeverity } from '@/lib/severity';
-import { ProjectFindingsImportDialog, ImportFormatInfo, IMPORT_MAX_BYTES } from '@/components/project-findings-import-dialog';
+import { ProjectFindingsImportDialog, ImportFormatInfo, IMPORT_MAX_BYTES, IMPORT_MAX_FILES } from '@/components/project-findings-import-dialog';
 import { stripCvssPrefix } from '@/lib/cvss';
 import { toDateInputValue, formatDate, formatDateTime } from '@/lib/datetime';
 import { formatReportDate } from '@/lib/report-date';
@@ -1747,20 +1747,24 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
   const [showManual, setShowManual] = useState(false);
   // "Import Project Findings" (.csv / .xlsx): project-only findings, never added to the Vulnerability DB.
   const importInputRef = useRef<HTMLInputElement>(null);
-  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importFiles, setImportFiles] = useState<File[]>([]);
   const handleImportSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const chosen = Array.from(e.target.files ?? []);
     e.target.value = '';
-    if (!file) return;
-    if (!/\.(csv|xlsx)$/i.test(file.name)) {
-      alert('Choose a .csv or .xlsx file.');
+    if (chosen.length === 0) return;
+    if (chosen.length > IMPORT_MAX_FILES) {
+      alert(`Choose at most ${IMPORT_MAX_FILES} files at once.`);
       return;
     }
-    if (file.size > IMPORT_MAX_BYTES) {
-      alert('This file is larger than 100 MB, the upload limit.');
+    if (chosen.some((f) => !/\.(csv|xlsx)$/i.test(f.name))) {
+      alert('Choose .csv or .xlsx files.');
       return;
     }
-    setImportFile(file);
+    if (chosen.some((f) => f.size > IMPORT_MAX_BYTES)) {
+      alert('A file is larger than 100 MB, the upload limit.');
+      return;
+    }
+    setImportFiles(chosen);
   };
 
   const uploadStepImages = async (index: number, files: File[]) => {
@@ -2114,7 +2118,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
                     </button>
                     {can('findings.file_import') && (
                       <>
-                        <input ref={importInputRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={handleImportSelected} />
+                        <input ref={importInputRef} type="file" multiple accept=".csv,.xlsx" className="hidden" onChange={handleImportSelected} />
                         <button
                           type="button"
                           onClick={() => importInputRef.current?.click()}
@@ -2403,7 +2407,7 @@ function FindingModal({ projectId, finding, onClose, onSaved }: {
           </AnimatePresence>
         </form>
       </motion.div>
-      {importFile && <ProjectFindingsImportDialog projectId={projectId} file={importFile} onClose={() => setImportFile(null)} onImported={onSaved} />}
+      {importFiles.length > 0 && <ProjectFindingsImportDialog projectId={projectId} files={importFiles} onClose={() => setImportFiles([])} onImported={onSaved} />}
       {showManual && <ManualFindingModal projectId={projectId} onClose={() => setShowManual(false)} onSaved={onSaved} />}
     </div>,
     document.body

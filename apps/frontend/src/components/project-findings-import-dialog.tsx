@@ -11,11 +11,15 @@ import { downloadBlob } from '@/lib/download';
 
 /** Matches the server's limit for an Import Project Findings file. */
 export const IMPORT_MAX_BYTES = 100 * 1024 * 1024;
+/** Matches the server's limits: files per import and rows per file. */
+export const IMPORT_MAX_FILES = 10;
+export const IMPORT_MAX_ROWS = 10_000;
 
 type RowStatus = 'new' | 'duplicate' | 'invalid';
 
 interface Row {
   row: number;
+  label: string;
   name: string;
   severity: string;
   cvssScore: number | null;
@@ -25,7 +29,7 @@ interface Row {
   poc: string;
   merged: boolean;
   sourceRowCount: number;
-  sources?: { row: number; severity: string; cvssScore: number | null; affectedInstances: string[]; poc: string }[];
+  sources?: { row: number; label: string; severity: string; cvssScore: number | null; affectedInstances: string[]; poc: string }[];
 }
 
 interface Preview {
@@ -53,7 +57,7 @@ function errorText(e: any, fallback: string): string {
   const msg = data?.message;
   const lines: string[] = Array.isArray(msg) ? msg : msg ? [msg] : [];
   if (Array.isArray(data?.errors)) {
-    for (const r of data.errors.slice(0, 20)) lines.push(`Row ${r.row}${r.name ? ` (${r.name})` : ''}: ${(r.errors || []).join(' ')}`);
+    for (const r of data.errors.slice(0, 20)) lines.push(`${typeof r.row === 'string' ? r.row : `Row ${r.row}`}${r.name ? ` (${r.name})` : ''}: ${(r.errors || []).join(' ')}`);
   }
   return lines.length > 0 ? lines.join('\n') : fallback;
 }
@@ -105,7 +109,7 @@ export function ImportFormatInfo() {
           className="z-[80] w-[26rem] max-w-[85vw] rounded-lg border border-gray-600 bg-gray-950 p-4 text-left text-xs leading-relaxed text-gray-300 shadow-2xl"
         >
           <p className="mb-2 text-sm font-semibold text-white">Import Project Findings</p>
-          <p><span className="text-gray-400">Supported files:</span> <code className="text-violet-300">.csv</code> and <code className="text-violet-300">.xlsx</code> (first sheet), up to {limit} MB and 5,000 rows. Workbooks with formulas, macros or embedded objects are rejected.</p>
+          <p><span className="text-gray-400">Supported files:</span> <code className="text-violet-300">.csv</code> and <code className="text-violet-300">.xlsx</code> (first sheet), up to {limit} MB and {IMPORT_MAX_ROWS.toLocaleString('en-US')} rows each. You can choose up to {IMPORT_MAX_FILES} files at once; they are checked together and rows with the same Name are merged across files. Workbooks with formulas, macros or embedded objects are rejected.</p>
           <p className="mt-2 text-gray-400">First row must be exactly, in this order:</p>
           <p className="mt-1 break-words rounded bg-gray-900 p-2 font-mono text-[11px] text-emerald-300">{IMPORT_HEADERS.join(', ')}</p>
           <ul className="mt-2 list-disc space-y-0.5 pl-4">
@@ -128,12 +132,12 @@ export function downloadImportSample() {
 
 export function ProjectFindingsImportDialog({
   projectId,
-  file,
+  files,
   onClose,
   onImported,
 }: {
   projectId: string;
-  file: File;
+  files: File[];
   onClose: () => void;
   onImported: () => void;
 }) {
@@ -144,11 +148,13 @@ export function ProjectFindingsImportDialog({
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [done, setDone] = useState<{ created: number; sourceRows?: number; skipped: { row: number; name: string }[] } | null>(null);
   const upload = useUploadStatus();
+  const totalSize = files.reduce((n, f) => n + f.size, 0);
+  const fileLabel = files.length === 1 ? files[0].name : `${files.length} files`;
 
   const body = () => {
     const form = new FormData();
     form.append('projectId', projectId);
-    form.append('file', file);
+    for (const f of files) form.append('file', f);
     return form;
   };
   const importBody = () => {
@@ -158,11 +164,11 @@ export function ProjectFindingsImportDialog({
   };
 
   useEffect(() => {
-    upload.begin(file.size);
+    upload.begin(totalSize);
     api
       .post('/findings/import/preview', body(), { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress })
       .then((res) => setPreview(res.data))
-      .catch((e) => setError(e.response?.data?.message ? errorText(e, 'Could not read this file.') : describeUploadError(e, { fileSize: file.size, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Could not read this file.')))
+      .catch((e) => setError(e.response?.data?.message ? errorText(e, 'Could not read this file.') : describeUploadError(e, { fileSize: totalSize, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Could not read this file.')))
       .finally(() => upload.finish());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -183,12 +189,12 @@ export function ProjectFindingsImportDialog({
   const runImport = async () => {
     setImporting(true);
     setError('');
-    upload.begin(file.size);
+    upload.begin(totalSize);
     try {
       const res = await api.post('/findings/import', importBody(), { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress });
       setDone(res.data);
     } catch (e: any) {
-      setError(e.response?.data?.message ? errorText(e, 'Import failed. Nothing was imported.') : describeUploadError(e, { fileSize: file.size, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Import failed. Nothing was imported.'));
+      setError(e.response?.data?.message ? errorText(e, 'Import failed. Nothing was imported.') : describeUploadError(e, { fileSize: totalSize, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Import failed. Nothing was imported.'));
     } finally {
       upload.finish();
       setImporting(false);
@@ -201,7 +207,7 @@ export function ProjectFindingsImportDialog({
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div className="min-w-0">
             <h2 id="pf-import-title" className="text-lg font-semibold text-white">Import Project Findings</h2>
-            <p className="text-xs text-gray-500 truncate">{file.name} · added to this project only, as PT findings. They are not added to the Vulnerability Database and cannot be synced to it.</p>
+            <p className="text-xs text-gray-500 truncate">{fileLabel} · added to this project only, as PT findings. They are not added to the Vulnerability Database and cannot be synced to it.</p>
           </div>
           <button onClick={close} disabled={importing} aria-label="Close" className="text-gray-400 hover:text-white disabled:opacity-50">
             <X className="w-5 h-5" />
@@ -209,8 +215,8 @@ export function ProjectFindingsImportDialog({
         </div>
 
         <div className="p-6 overflow-y-auto space-y-4">
-          {!preview && !error && <UploadStatus snap={upload.snap} fileName={file.name} working="Checking the file" />}
-          {importing && <UploadStatus snap={upload.snap} fileName={file.name} working="Importing the findings" />}
+          {!preview && !error && <UploadStatus snap={upload.snap} fileName={fileLabel} working="Checking the file" />}
+          {importing && <UploadStatus snap={upload.snap} fileName={fileLabel} working="Importing the findings" />}
 
           {error && (
             <div role="alert" className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-300 whitespace-pre-line">
@@ -234,13 +240,13 @@ export function ProjectFindingsImportDialog({
           {preview && !done && (
             <>
               <div className="flex flex-wrap gap-4 text-sm">
-                <span className="text-gray-300">{preview.sourceRowCount} row{preview.sourceRowCount === 1 ? '' : 's'} in file → {preview.total} finding{preview.total === 1 ? '' : 's'}{preview.mergedCount > 0 && ` (${preview.mergedCount} merged)`}</span>
+                <span className="text-gray-300">{preview.sourceRowCount} row{preview.sourceRowCount === 1 ? '' : 's'} in {files.length === 1 ? 'file' : `${files.length} files`} → {preview.total} finding{preview.total === 1 ? '' : 's'}{preview.mergedCount > 0 && ` (${preview.mergedCount} merged)`}</span>
                 <span className="text-emerald-400">{selectedCount} selected of {preview.newCount} new</span>
                 <span className="text-gray-500">{preview.duplicateCount} already in project</span>
                 <span className={preview.invalidCount > 0 ? 'text-red-400' : 'text-gray-500'}>{preview.invalidCount} invalid</span>
               </div>
               {preview.invalidCount > 0 && (
-                <p className="text-xs text-red-300">Fix the rows below in your file and choose it again. Nothing is imported while any row is invalid.</p>
+                <p className="text-xs text-red-300">Fix the rows below in your file(s) and choose them again. Nothing is imported while any row is invalid.</p>
               )}
               <div className="overflow-x-auto rounded-lg border border-gray-800">
                 <table className="w-full text-sm text-left">
@@ -271,7 +277,7 @@ export function ProjectFindingsImportDialog({
                               />
                             )}
                           </td>
-                          <td className="p-3 text-gray-500 tabular-nums">{r.row}</td>
+                          <td className="p-3 text-gray-500 break-words max-w-[10rem]">{r.label.replace(/^Row /, '')}</td>
                           <td className="p-3 text-white break-words">{r.name || '—'}</td>
                           <td className="p-3 text-gray-300">{r.severity || '—'}</td>
                           <td className="p-3 font-mono tabular-nums text-gray-300">{r.cvssScore ?? '—'}</td>
@@ -303,7 +309,7 @@ export function ProjectFindingsImportDialog({
                                 <tbody>
                                   {r.sources!.map((x) => (
                                     <tr key={x.row} className="align-top">
-                                      <td className="pr-3 text-gray-500 tabular-nums">Row {x.row}</td>
+                                      <td className="pr-3 text-gray-500 tabular-nums">{x.label}</td>
                                       <td className="pr-3 text-gray-300">{x.severity || '—'}{x.cvssScore != null && ` · ${x.cvssScore}`}</td>
                                       <td className="pr-3 text-gray-300 break-words">{x.affectedInstances.join(', ') || '—'}</td>
                                       <td className="text-gray-300 break-words whitespace-pre-line">{x.poc || '—'}</td>

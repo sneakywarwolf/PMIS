@@ -302,8 +302,8 @@ d('project-only findings (real database)', () => {
 
     it('enforces the size and row limits', async () => {
       await expect(svc.previewImport(projA.id, { originalname: 'big.csv', buffer: Buffer.alloc(100 * 1024 * 1024 + 1, 97) } as any, tester)).rejects.toThrow(/too large.*100MB/);
-      const rows = Array.from({ length: 5001 }, (_, i) => `${i},${n('r' + i)},High,,,d,i,r,ref,,`);
-      await expect(svc.previewImport(projA.id, { originalname: 'rows.csv', buffer: Buffer.from([HEAD, ...rows].join('\n')) } as any, tester)).rejects.toThrow(/more than 5000 rows/);
+      const rows = Array.from({ length: 10001 }, (_, i) => `${i},${n('r' + i)},High,,,d,i,r,ref,,`);
+      await expect(svc.previewImport(projA.id, { originalname: 'rows.csv', buffer: Buffer.from([HEAD, ...rows].join('\n')) } as any, tester)).rejects.toThrow(/more than 10,000 rows/);
     });
 
     it('keeps project authorization for imports', async () => {
@@ -363,6 +363,19 @@ d('project-only findings (real database)', () => {
       expect(cp.invalidCount).toBe(1);
       expect(cp.rows[0].errors!.join()).toMatch(/Conflicting Severity/);
       await expect(svc.importFindings(projA.id, bad, tester, 'ip', 'ua')).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('imports several files as one import, merging same-name rows across them', async () => {
+      const head = PROJECT_IMPORT_HEADERS.join(',');
+      const r = (name: string, inst: string) => `1,${name},High,${inst},7.5,,d,i,r,ref,,,`;
+      const a = csvFile([r(n('mf-a'), 'h1'), r(n('mf-b'), 'b1')], head, 'a.csv');
+      const b = csvFile([r(n('mf-a'), 'h2'), r(n('mf-c'), 'c1')], head, 'b.csv');
+      const pv = await svc.previewImport(projA.id, [a, b], tester);
+      expect(pv).toMatchObject({ total: 3, sourceRowCount: 4, mergedCount: 1, canImport: true });
+      const out = await svc.importFindings(projA.id, [a, b], tester, 'ip', 'ua');
+      expect(out).toMatchObject({ created: 3, sourceRows: 4 });
+      const f = await prisma.finding.findFirstOrThrow({ where: { projectId: projA.id, projectVulnerability: { name: n('mf-a') } } });
+      expect(f.affectedInstances).toEqual(['h1', 'h2']);
     });
 
     it('imported findings are PT findings and show up only in this project', async () => {

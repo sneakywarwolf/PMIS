@@ -10,10 +10,10 @@ const FORM_OVERHEAD_BYTES = 4 * 1024 * 1024;
  * restart. The limit actually in force is checked by `AttachmentSizeGuard` (declared size, before the body is
  * read) and `assertAttachmentSize` (the file, by its own format).
  */
-export const attachmentMulterLimits = (purpose: string) => ({
+export const attachmentMulterLimits = (purpose: string, files = 1) => ({
   limits: {
     fileSize: Math.max(...ATTACHMENT_FORMATS.filter((f) => f.purpose === purpose).map((f) => f.maxMb), 1) * 1024 * 1024,
-    files: 1,
+    files,
   },
 });
 
@@ -21,12 +21,12 @@ export const attachmentMulterLimits = (purpose: string) => ({
  * Refuses a request whose declared size is above the largest limit of the purpose, before any of the body is
  * read, so an oversized upload is not buffered first.
  */
-export function AttachmentSizeGuard(purpose: string): Type<CanActivate> {
+export function AttachmentSizeGuard(purpose: string, files = 1): Type<CanActivate> {
   @Injectable()
   class Guard implements CanActivate {
     canActivate(context: ExecutionContext): boolean {
       const declared = Number(context.switchToHttp().getRequest().headers['content-length']);
-      const largest = attachmentLimits.largestBytes(purpose);
+      const largest = attachmentLimits.largestBytes(purpose) * files;
       if (Number.isFinite(declared) && declared > largest + FORM_OVERHEAD_BYTES) {
         throw new PayloadTooLargeException(tooLargeMessage(undefined, largest));
       }

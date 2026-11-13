@@ -1,5 +1,5 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Controller, Get, Post, Put, Delete, Body, Param, Req, UseGuards, UseInterceptors, UploadedFile, UploadedFiles, BadRequestException } from '@nestjs/common';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { AttachmentSizeGuard, assertAttachmentSize, attachmentMulterLimits } from '../common/attachment-upload';
 import { NESSUS_UPLOAD, NessusUploadSizeGuard } from '../common/nessus-upload.storage';
@@ -9,7 +9,7 @@ import { ApiTags, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { FindingsService } from './findings.service';
-import { ProjectFindingsService } from './project-findings.service';
+import { ProjectFindingsService, IMPORT_MAX_FILES } from './project-findings.service';
 import { StorageService } from '../reports/storage.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { User } from '@prisma/client';
@@ -155,29 +155,29 @@ export class FindingsController {
 
   @Post('import/preview')
   @Permission('findings.file_import')
-  @UseGuards(AttachmentSizeGuard('findingsImport'))
-  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('findingsImport')))
+  @UseGuards(AttachmentSizeGuard('findingsImport', IMPORT_MAX_FILES))
+  @UseInterceptors(FilesInterceptor('file', IMPORT_MAX_FILES, attachmentMulterLimits('findingsImport', IMPORT_MAX_FILES)))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Validate a .csv/.xlsx findings file and list what an import would do (nothing is written)' })
-  async previewImport(@UploadedFile() file: Express.Multer.File, @Body('projectId') projectId: string, @CurrentUser() user: User) {
-    assertAttachmentSize('findingsImport', file);
-    return this.projectFindings.previewImport(projectId, file, user);
+  async previewImport(@UploadedFiles() files: Express.Multer.File[], @Body('projectId') projectId: string, @CurrentUser() user: User) {
+    for (const f of files ?? []) assertAttachmentSize('findingsImport', f);
+    return this.projectFindings.previewImport(projectId, files, user);
   }
 
   @Post('import')
   @Permission('findings.file_import')
-  @UseGuards(AttachmentSizeGuard('findingsImport'))
-  @UseInterceptors(FileInterceptor('file', attachmentMulterLimits('findingsImport')))
+  @UseGuards(AttachmentSizeGuard('findingsImport', IMPORT_MAX_FILES))
+  @UseInterceptors(FilesInterceptor('file', IMPORT_MAX_FILES, attachmentMulterLimits('findingsImport', IMPORT_MAX_FILES)))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Import project-only findings from a .csv/.xlsx file, all or nothing. Never touches the Vulnerability DB' })
   async importFindings(
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFiles() files: Express.Multer.File[],
     @Body('projectId') projectId: string,
     @Body('exclude') excludeRaw: string,
     @CurrentUser() user: User,
     @Req() request: any,
   ) {
-    assertAttachmentSize('findingsImport', file);
+    for (const f of files ?? []) assertAttachmentSize('findingsImport', f);
     let exclude: unknown = [];
     try {
       if (excludeRaw) exclude = JSON.parse(excludeRaw);
@@ -187,7 +187,7 @@ export class FindingsController {
     if (!Array.isArray(exclude) || exclude.length > 5000 || exclude.some((n) => !Number.isInteger(n))) throw new BadRequestException('exclude must be a JSON list of row numbers');
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.projectFindings.importFindings(projectId, file, user, ipAddress, userAgent, exclude as number[]);
+    return this.projectFindings.importFindings(projectId, files, user, ipAddress, userAgent, exclude as number[]);
   }
 
   @Get('project/:projectId')

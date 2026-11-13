@@ -84,4 +84,34 @@ describe('Import Project Findings: Affected Instances and POC/Results columns', 
     const rep = (await svc.classify('p', [r]).catch(() => null)) as any;
     expect(rep === null || rep[0].merged === false).toBe(true);
   });
+
+  describe('several files in one upload', () => {
+    const row = (n: string, inst: string, poc = '') => `1,${n},High,${inst},${tail.join(',')},${poc}`;
+
+    it('parses every file, merges same-name rows across files and labels rows with the file name', async () => {
+      const a = f([NEW, row('SQLi', 'h1', 'pa'), row('XSS', 'x1')].join(NL), 'a.csv');
+      const b = f([NEW, row('sqli', 'h2', 'pb'), row('CSRF', 'c1')].join(NL), 'b.csv');
+      const g = await svc.parseImport([a, b]);
+      expect(g).toHaveLength(3);
+      const sql = g.find((x: any) => x.rawName === 'SQLi');
+      expect(sql.affectedInstances).toEqual(['h1', 'h2']);
+      expect(sql.sourceRows.map((r: any) => r.label)).toEqual(['a.csv, row 2', 'b.csv, row 2']);
+      expect(new Set(g.flatMap((x: any) => x.sourceRows.map((r: any) => r.row))).size).toBe(4); // row ids never collide
+    });
+
+    it('a single file keeps the plain "Row N" labels', async () => {
+      const [r] = await svc.parseImport(f([NEW, row('A', 'h')].join(NL)));
+      expect(r.label).toBe('Row 2');
+    });
+
+    it('names the bad file, and enforces the per-file row and file-count limits', async () => {
+      const bad = f(NEW.replace('Impact', 'Effect') + NL + row('A', 'h'), 'bad.csv');
+      await expect(svc.parseImport([f([NEW, row('A', 'h')].join(NL), 'ok.csv'), bad])).rejects.toThrow(/^bad\.csv: /);
+      const big = Array.from({ length: 10_000 }, (_, i) => row(`N${i}`, 'h'));
+      expect(await svc.parseImport(f([NEW, ...big].join(NL), 'ten-k.csv'))).toHaveLength(10_000);
+      await expect(svc.parseImport(f([NEW, ...big, row('extra', 'h')].join(NL)))).rejects.toThrow(/more than 10,000 rows/);
+      const many = Array.from({ length: 11 }, (_, i) => f([NEW, row(`M${i}`, 'h')].join(NL), `m${i}.csv`));
+      await expect(svc.parseImport(many)).rejects.toThrow(/At most 10 files/);
+    });
+  });
 });
