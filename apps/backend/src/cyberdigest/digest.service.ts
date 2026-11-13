@@ -188,7 +188,7 @@ export class DigestService {
     if (problems.length && !opts.actor) throw new PublicationGateError(`Not published: ${problems.join('; ')}`);
     const content = buildDigest(input);
     // An administrator may still generate by hand (to look at a held or degraded digest): it is held for review, never auto-published.
-    const status: 'SHADOW' | 'PUBLISHED' = problems.length || opts.actor || conf.publishMode === 'HOLD' ? 'SHADOW' : 'PUBLISHED';
+    const status: 'SHADOW' | 'PUBLISHED' = problems.length || opts.actor ? 'SHADOW' : 'PUBLISHED';
     const data = { status, generatedAt: now, generatedById: opts.actor?.id ?? null, windowStart: new Date(content.windowStart), windowEnd: new Date(content.windowEnd), content: content as any, publishedAt: status === 'PUBLISHED' ? now : null, publishedById: null };
     let row;
     try {

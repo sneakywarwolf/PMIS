@@ -76,8 +76,8 @@ const errMsg = (e: any) => {
 };
 
 const STORY_STATE: Record<string, [string, string]> = {
-  VERIFIED: [GREEN, 'Verified by analyst'],
-  ATTRIBUTED: [AMBER, 'Attributed reporting — not independently confirmed'],
+  VERIFIED: [GREEN, 'Reported by publisher'],
+  ATTRIBUTED: [GREEN, 'Reported by publisher'],
   PENDING: [GREY, 'Pending verification'],
   CONFLICTING: [RED, 'Conflicting evidence'],
   REJECTED: [RED, 'Rejected'],
@@ -137,19 +137,7 @@ function NewsTab({ canReview }: { canReview: boolean }) {
       .then((r) => { setData(r.data); setErr(''); }).catch(() => setErr('Could not load stories.'));
   }, [q, category, state, from, to]);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
-  const act = (id: string, what: 'approve' | 'reject' | 'correct') => async (reason: string) => { await api.post(`/cyberdigest/stories/${id}/${what}`, { reason }); load(); };
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const [bulkMsg, setBulkMsg] = useState('');
-  const toggle = (id: string) => setPicked((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const attributable = (data?.items ?? []).filter((s) => s.verificationState === 'ATTRIBUTED' && s.cves.every((c) => c.recordStatus === 'PUBLISHED'));
-  const bulk = async (reason: string) => {
-    const r = await api.post('/cyberdigest/stories/bulk-approve', { ids: [...picked], reason });
-    const ok = r.data.results.filter((x: any) => x.ok).length;
-    setBulkMsg(`${ok} of ${r.data.results.length} verified.${r.data.results.some((x: any) => !x.ok) ? ' Those refused cite a CVE that is not confirmed yet.' : ''}`);
-    setPicked(new Set());
-    load();
-  };
-
+  const act = (id: string, what: 'reject' | 'correct') => async (reason: string) => { await api.post(`/cyberdigest/stories/${id}/${what}`, { reason }); load(); };
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -164,23 +152,14 @@ function NewsTab({ canReview }: { canReview: boolean }) {
         <label className="text-xs text-gray-400">To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${inputCls} ml-1`} /></label>
         {data && <span className="text-xs text-gray-400">{data.total} stories</span>}
       </div>
-      <p className="text-xs text-amber-300/90">Publisher reporting. Unless a story says "Verified by analyst", its claims have not been independently confirmed. CVE badges show what CVE.org says, not what the article says.</p>
+      <p className="text-xs text-amber-300/90">Stories are synced automatically from publisher RSS feeds. CVE badges show what CVE.org says, not what the article says.</p>
       {err && <div className="text-red-300 text-sm">{err}</div>}
       {data?.items.length === 0 && <div className="glass-card p-6 rounded-xl text-gray-400">No stories match. Sources are polled every 20–30 minutes.</div>}
-      {canReview && attributable.length > 0 && (
-        <div className="glass-card p-3 rounded-xl flex flex-wrap items-center gap-3 text-sm">
-          <span className="text-gray-300">Optional: verify several stories at once.</span>
-          <button className={btnCls} onClick={() => setPicked(new Set(attributable.map((s) => s.id)))}>Select all on this page ({attributable.length})</button>
-          {picked.size > 0 && <ReasonAction label={`Verify selected (${picked.size})`} onSubmit={bulk} />}
-          {bulkMsg && <span className="text-xs text-cyan-300">{bulkMsg}</span>}
-        </div>
-      )}
       {data?.items.map((s) => {
         const [cls, label] = STORY_STATE[s.verificationState] ?? [GREY, s.verificationState];
         return (
           <div key={s.id} className="glass-card p-4 rounded-xl space-y-1.5">
             <div className="flex items-start justify-between gap-3">
-              {canReview && attributable.some((a) => a.id === s.id) && <input type="checkbox" aria-label="Select story" checked={picked.has(s.id)} onChange={() => toggle(s.id)} />}
               <Ext url={s.url} className="text-white font-medium hover:text-cyan-300">{s.title}</Ext>
               {pill(cls, label)}
             </div>
@@ -194,9 +173,8 @@ function NewsTab({ canReview }: { canReview: boolean }) {
             {s.stateNote && <div className="text-xs text-gray-400">{s.stateNote}</div>}
             {canReview && (
               <div className="flex flex-wrap gap-2 pt-1">
-                {s.verificationState === 'ATTRIBUTED' && <ReasonAction label="Verify" onSubmit={act(s.id, 'approve')} />}
                 {s.verificationState !== 'REJECTED' && <ReasonAction label="Reject" danger onSubmit={act(s.id, 'reject')} />}
-                {(s.verificationState === 'VERIFIED' || s.verificationState === 'REJECTED') && <ReasonAction label="Correct" onSubmit={act(s.id, 'correct')} />}
+                {s.verificationState === 'REJECTED' && <ReasonAction label="Restore" onSubmit={act(s.id, 'correct')} />}
               </div>
             )}
           </div>
@@ -509,7 +487,7 @@ function GroupCard({ g, flags }: { g: DGroup; flags: DView['overlay'] }) {
     <div className="glass-card p-4 rounded-xl space-y-1.5">
       <div className="flex items-start justify-between gap-3">
         <div className="text-white font-medium">{g.headline}</div>
-        {pill(g.state === 'VERIFIED' ? GREEN : AMBER, g.state === 'VERIFIED' ? 'Verified by analyst' : 'Attributed reporting — not independently confirmed')}
+        {pill(GREEN, 'Reported by publisher')}
       </div>
       {flagged.map((f, i) => <div key={i} className="text-xs text-red-300">Corrected after publication: {f.state === 'REJECTED' ? 'a source story was rejected' : 'evidence now conflicts'}{f.note ? ` — ${f.note}` : ''}</div>)}
       {g.summary && <p className="text-sm text-gray-300">{g.summary}</p>}
@@ -680,7 +658,6 @@ function AdminTab() {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {field('Publish time (24h)', <input className={inputCls} value={v.publishTime} onChange={(e) => setDraft({ ...draft, publishTime: e.target.value })} placeholder="08:00" />)}
           {field('Time zone', <input className={inputCls} value={v.timezone} onChange={(e) => setDraft({ ...draft, timezone: e.target.value })} placeholder="Asia/Kolkata" />, 'IANA name, e.g. Asia/Kolkata')}
-          {field('When checks pass', <select className={inputCls} value={v.publishMode} onChange={(e) => setDraft({ ...draft, publishMode: e.target.value as Cfg['publishMode'] })}><option value="AUTO">Publish automatically</option><option value="HOLD">Hold for an administrator</option></select>)}
           {field('Minimum healthy news sources (%)', <input type="number" className={inputCls} value={v.minDiscoveryCoveragePct} onChange={(e) => setDraft({ ...draft, minDiscoveryCoveragePct: Number(e.target.value) })} />, 'Below this, the previous digest stays up')}
           {field('Keep digests (days)', <input type="number" className={inputCls} value={v.retentionDays} onChange={(e) => setDraft({ ...draft, retentionDays: Number(e.target.value) })} />)}
           {field('Retry delay after a failure (min)', <input type="number" className={inputCls} value={v.jobRetryBackoffMinutes} onChange={(e) => setDraft({ ...draft, jobRetryBackoffMinutes: Number(e.target.value) })} />, 'Doubles per failure, up to 60')}

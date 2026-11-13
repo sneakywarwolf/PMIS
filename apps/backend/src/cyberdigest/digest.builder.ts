@@ -92,7 +92,6 @@ export const DEFAULT_LIMITS = { news: 30, research: 15, cves: 30, kev: 30 };
 export const RANK_POLICY = [
   { reason: 'cites a confirmed zero-day', weight: 1000 },
   { reason: 'cites a CVE listed in CISA KEV', weight: 500 },
-  { reason: 'verified by an analyst', weight: 200 },
   { reason: 'cites a CVE rated CRITICAL by its provider', weight: 150 },
   { reason: 'cites a CVE rated HIGH by its provider', weight: 100 },
   { reason: 'reported by several publishers', weight: 20 }, // per extra publisher, up to 4
@@ -179,7 +178,6 @@ function toGroupItem(members: StoryRow[], input: BuildInput): { item: StoryGroup
   const zd = cves.filter((c) => input.zeroDayStateByCve.get(c) === 'CONFIRMED').map((c) => ({ cveId: c, state: 'CONFIRMED' }));
   if (zd.length) add('cites a confirmed zero-day');
   if (cves.some((c) => input.cves.get(c)?.kevListed === true)) add('cites a CVE listed in CISA KEV');
-  if (members.some((m) => m.state === 'VERIFIED')) add('verified by an analyst');
   const sev = cves.map((c) => input.cves.get(c)?.maxCvssSeverity).filter(Boolean);
   if (sev.includes('CRITICAL')) add('cites a CVE rated CRITICAL by its provider');
   else if (sev.includes('HIGH')) add('cites a CVE rated HIGH by its provider');
@@ -259,8 +257,7 @@ export function buildDigest(input: BuildInput): DigestContent {
     if (kev.length) lines.push(`${kev.length} new CISA KEV addition${kev.length > 1 ? 's' : ''}.`);
     if (cves.length) lines.push(`${cves.length} CVE record${cves.length > 1 ? 's' : ''} newly verified or updated.`);
     if (shownStories) {
-      const verified = [...news, ...portswigger, ...cloudflare].reduce((n, g) => n + g.sources.filter((s) => s.state === 'VERIFIED').length, 0);
-      lines.push(`${shownStories} stor${shownStories > 1 ? 'ies' : 'y'} in ${news.length + portswigger.length + cloudflare.length} topic group${news.length + portswigger.length + cloudflare.length > 1 ? 's' : ''} (${verified} verified by an analyst; the rest are attributed reporting, not independently confirmed).`);
+      lines.push(`${shownStories} stor${shownStories > 1 ? 'ies' : 'y'} in ${news.length + portswigger.length + cloudflare.length} topic group${news.length + portswigger.length + cloudflare.length > 1 ? 's' : ''}.`);
     }
     if (corrections.length) lines.push(`${corrections.length} correction${corrections.length > 1 ? 's' : ''} to earlier items.`);
     for (const g of news.slice(0, 3)) lines.push(`Top story: “${g.headline}”${g.rankReasons.length ? ` (${g.rankReasons.join('; ')})` : ''}`);

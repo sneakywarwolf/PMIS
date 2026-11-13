@@ -1,7 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { buildDigest, BuildInput, CveRow, groupStories, istDate, istMinutes, parseDigestTime, StoryRow } from './digest.builder';
 import { DigestService } from './digest.service';
-import { HealthWatchService } from './health-watch.service';
 
 // ------------------------------------------------------------------------------------------------ builder
 
@@ -53,18 +52,17 @@ describe('buildDigest', () => {
     expect(groupStories([a, d])).toHaveLength(2);
   });
 
-  it('orders by the published policy: zero-day, KEV, analyst-verified, severity, then recency', () => {
+  it('orders by the published policy: zero-day, KEV, severity, then recency', () => {
     const plain = story({ title: 'Plain late story about some topic alpha', publishedAt: T('2026-11-04T01:00:00Z') });
     const critical = story({ title: 'Critical bug story bravo', cveIds: ['CVE-2026-2'] });
-    const verified = story({ title: 'Verified story charlie delta', state: 'VERIFIED' });
     const kev = story({ title: 'Exploited bug story echo foxtrot', cveIds: ['CVE-2026-3'] });
     const zd = story({ title: 'Zero day story golf hotel', cveIds: ['CVE-2026-4'] });
     const out = buildDigest(base({
-      stories: [plain, critical, verified, kev, zd],
+      stories: [plain, critical, kev, zd],
       cves: new Map([['CVE-2026-2', cve('CVE-2026-2', { maxCvssSeverity: 'CRITICAL' })], ['CVE-2026-3', cve('CVE-2026-3', { kevListed: true })], ['CVE-2026-4', cve('CVE-2026-4')]]),
       zeroDayStateByCve: new Map([['CVE-2026-4', 'CONFIRMED']]),
     }));
-    expect(out.news.map((g) => g.primaryStoryId)).toEqual([zd.id, kev.id, verified.id, critical.id, plain.id]);
+    expect(out.news.map((g) => g.primaryStoryId)).toEqual([zd.id, kev.id, critical.id, plain.id]);
     expect(out.news[0].rankReasons).toEqual(['cites a confirmed zero-day']);
     expect(out.rankPolicy.map((p) => p.reason)).toContain('cites a CVE listed in CISA KEV');
   });
@@ -127,10 +125,10 @@ describe('buildDigest', () => {
     expect(text).toMatch(/3 CVEs are awaiting NVD enrichment/);
   });
 
-  it('executive summary is counts and labelled headlines, and separates verified from attributed', () => {
+  it('executive summary is counts and labelled headlines', () => {
     const out = buildDigest(base({ stories: [story({ title: 'Headline one lorem', state: 'VERIFIED' }), story({ title: 'Another distinct matter entirely here' })] }));
     const text = out.executiveSummary.lines.join('\n');
-    expect(text).toMatch(/2 stories in 2 topic groups \(1 verified by an analyst; the rest are attributed reporting, not independently confirmed\)/);
+    expect(text).toMatch(/2 stories in 2 topic groups\./);
     expect(text).toMatch(/No confirmed zero-day exploitation alerts/);
     expect(text).toMatch(/Top story: “Headline one lorem”/);
   });
@@ -218,7 +216,7 @@ describe('DigestService', () => {
     expect(f.issues[0].content.news.map((g: any) => g.headline)).toEqual(['Undated but fresh lorem item']);
   });
 
-  it('defaults to shadow mode: stored for reviewers, nobody is notified', async () => {
+  it('a build triggered by an administrator is stored for reviewers, nobody is notified', async () => {
     await withEnv({ CYBERDIGEST_DIGEST_MODE: undefined }, async () => {
       const f = fakes();
       f.stories.push(f.row());
@@ -366,13 +364,13 @@ describe('DigestService', () => {
 
   it('a shadow digest can be regenerated, a published one cannot', async () => {
     const f = fakes();
-    await f.svc.generate({ now: NOW });
+    await f.svc.generate({ now: NOW, actor: A });
     f.stories.push(f.row({ title: 'Added after the first run lorem' }));
-    await f.svc.generate({ now: NOW });
+    await f.svc.generate({ now: NOW, actor: A });
     expect(f.issues).toHaveLength(1);
     expect(f.issues[0].content.news).toHaveLength(1);
     await f.svc.publish('2026-11-04', A);
-    await expect(f.svc.generate({ now: NOW })).rejects.toBeInstanceOf(ConflictException);
+    await expect(f.svc.generate({ now: NOW, actor: A })).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('a digest published while it is being regenerated is never overwritten (check and write are one conditional statement)', async () => {
@@ -389,7 +387,7 @@ describe('DigestService', () => {
 
   it('two people publishing at once notify everyone exactly once; two withdrawals record one', async () => {
     const f = fakes();
-    await f.svc.generate({ now: NOW });
+    await f.svc.generate({ now: NOW, actor: A });
     const results = await Promise.allSettled([f.svc.publish('2026-11-04', A), f.svc.publish('2026-11-04', { ...A, id: 'u2' })]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     expect(f.notified).toHaveLength(2); // two active users, once
@@ -400,7 +398,7 @@ describe('DigestService', () => {
 
   it('publish: shadow -> published with notification, audited, and not repeatable', async () => {
     const f = fakes();
-    await f.svc.generate({ now: NOW });
+    await f.svc.generate({ now: NOW, actor: A });
     expect(f.notified).toHaveLength(0);
     await f.svc.publish('2026-11-04', A);
     expect(f.issues[0]).toMatchObject({ status: 'PUBLISHED', publishedById: 'u1' });
@@ -413,7 +411,7 @@ describe('DigestService', () => {
 
   it('withdraw needs a reason; everyone else then sees only the fact of the withdrawal', async () => {
     const f = fakes();
-    await f.svc.generate({ now: NOW });
+    await f.svc.generate({ now: NOW, actor: A });
     await f.svc.publish('2026-11-04', A);
     await expect(f.svc.withdraw('2026-11-04', 'no', A)).rejects.toBeInstanceOf(BadRequestException);
     await f.svc.withdraw('2026-11-04', 'a headline turned out to be wrong', A);
@@ -427,7 +425,7 @@ describe('DigestService', () => {
 
   it('shadow digests are invisible to non-reviewers', async () => {
     const f = fakes();
-    await f.svc.generate({ now: NOW });
+    await f.svc.generate({ now: NOW, actor: A });
     expect(await f.svc.list(false)).toEqual([]);
     expect(await f.svc.list(true)).toHaveLength(1);
     await expect(f.svc.get('2026-11-04', false)).rejects.toBeInstanceOf(NotFoundException);
@@ -438,7 +436,7 @@ describe('DigestService', () => {
     const f = fakes();
     const s = f.row();
     f.stories.push(s);
-    await f.svc.generate({ now: NOW });
+    await f.svc.generate({ now: NOW, actor: A });
     await f.svc.publish('2026-11-04', A);
     const before = JSON.stringify(f.issues[0].content);
     s.verificationState = 'REJECTED';
@@ -464,14 +462,14 @@ describe('DigestService', () => {
 
   it('window: 24h for the first digest, then from the previous digest, capped at 72h after an outage', async () => {
     const f = fakes();
-    await f.svc.generate({ now: NOW });
+    await f.svc.generate({ now: NOW, actor: A });
     expect(new Date(f.issues[0].windowStart).getTime()).toBe(NOW.getTime() - 24 * 3600_000);
     await f.svc.publish('2026-11-04', A);
     const next = new Date(NOW.getTime() + 24 * 3600_000);
-    await f.svc.generate({ now: next });
+    await f.svc.generate({ now: next, actor: A });
     expect(new Date(f.issues[1].windowStart).getTime()).toBe(NOW.getTime());
     const later = new Date(NOW.getTime() + 10 * 24 * 3600_000);
-    await f.svc.generate({ now: later });
+    await f.svc.generate({ now: later, actor: A });
     expect(new Date(f.issues[2].windowStart).getTime()).toBe(later.getTime() - 72 * 3600_000);
   });
 
@@ -513,59 +511,5 @@ describe('DigestService', () => {
     const orig = f.prisma.digestIssue.create;
     f.prisma.digestIssue.create = async (a: any) => { f.issues.push({ id: 'other', digestDate: a.data.digestDate, status: 'SHADOW' }); return orig(a); };
     await expect(f.svc.generate({ now: NOW })).rejects.toBeInstanceOf(ConflictException);
-  });
-});
-
-// ------------------------------------------------------------------------------------------------ source alerts
-
-describe('HealthWatchService', () => {
-  function setup() {
-    const events: any[] = [];
-    const notified: any[] = [];
-    const sources: any[] = [{ id: 'sid', slug: 'bleepingcomputer', name: 'BleepingComputer', enabled: true, type: 'NEWS_RSS', pollIntervalMinutes: 20, lastSuccessAt: null, consecutiveFailures: 0, lastError: null }];
-    const prisma: any = {
-      digestSource: { findMany: async () => sources },
-      digestEvent: {
-        findFirst: async () => [...events].reverse()[0] ?? null,
-        create: async ({ data }: any) => { events.push({ ...data, createdAt: clock }); },
-      },
-      user: { findMany: async ({ where }: any) => [{ id: 'admin', role: 'ADMIN', isActive: true }, { id: 'tester', role: 'TESTER', isActive: true }].filter((u) => !where?.role || u.role === where.role) },
-    };
-    let clock = T('2026-11-04T00:00:00Z');
-    const svc = new HealthWatchService(prisma, { create: async (d: any) => { notified.push(d); } } as any);
-    return { svc, sources, notified, events, at: (d: Date) => { clock = d; return d; } };
-  }
-
-  it('alerts once when a source starts failing, only to people who can manage sources', async () => {
-    const h = setup();
-    expect(await h.svc.check(h.at(T('2026-11-04T00:00:00Z')))).toEqual([]);
-    h.sources[0].consecutiveFailures = 2;
-    expect(await h.svc.check(h.at(T('2026-11-04T00:10:00Z')))).toEqual([]); // two failures is a blip
-    h.sources[0].consecutiveFailures = 3;
-    h.sources[0].lastError = 'http: HTTP 503';
-    expect(await h.svc.check(h.at(T('2026-11-04T00:20:00Z')))).toEqual(['bleepingcomputer:FAILING']);
-    expect(h.notified.map((n) => n.userId)).toEqual(['admin']);
-    expect(h.notified[0]).toMatchObject({ type: 'CYBERDIGEST_SOURCE_DOWN', title: 'BleepingComputer is failing' });
-    expect(h.notified[0].message).toMatch(/http: HTTP 503/);
-    expect(await h.svc.check(h.at(T('2026-11-04T00:30:00Z')))).toEqual([]); // no repeat the same day
-    expect(await h.svc.check(h.at(T('2026-11-05T00:30:00Z')))).toEqual(['bleepingcomputer:FAILING']); // reminder after 24h
-  });
-
-  it('sends one note on recovery, and flags a source that has gone stale', async () => {
-    const h = setup();
-    h.sources[0].lastSuccessAt = T('2026-11-03T00:00:00Z'); // a day ago, interval 20 min -> stale
-    expect(await h.svc.check(h.at(T('2026-11-04T00:00:00Z')))).toEqual(['bleepingcomputer:STALE']);
-    h.sources[0].lastSuccessAt = T('2026-11-04T00:05:00Z');
-    expect(await h.svc.check(h.at(T('2026-11-04T00:10:00Z')))).toEqual(['bleepingcomputer:RECOVERED']);
-    expect(h.notified.at(-1)).toMatchObject({ title: 'BleepingComputer has recovered' });
-    expect(await h.svc.check(h.at(T('2026-11-04T00:15:00Z')))).toEqual([]);
-  });
-
-  it('disabled sources are never alerted on', async () => {
-    const h = setup();
-    h.sources[0].enabled = false;
-    h.sources[0].consecutiveFailures = 9;
-    h.sources.splice(0, 1, ...h.sources.filter((s) => s.enabled)); // the real query filters enabled: true
-    expect(await h.svc.check()).toEqual([]);
   });
 });

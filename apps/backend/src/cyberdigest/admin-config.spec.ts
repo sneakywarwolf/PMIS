@@ -29,7 +29,7 @@ function cfgFakes() {
 
 describe('config validation (server side, whatever the screen allowed)', () => {
   it('accepts valid values', () => {
-    expect(validateConfigPatch({ publishTime: '07:45', timezone: 'Asia/Kolkata', publishMode: 'HOLD', minDiscoveryCoveragePct: 0, retentionDays: 30, jobRetryBackoffMinutes: 120, moduleEnabledForNonAdmins: false, pipelineEnabled: true })).toBeNull();
+    expect(validateConfigPatch({ publishTime: '07:45', timezone: 'Asia/Kolkata', minDiscoveryCoveragePct: 0, retentionDays: 30, jobRetryBackoffMinutes: 120, moduleEnabledForNonAdmins: false, pipelineEnabled: true })).toBeNull();
   });
   it.each([
     [{ publishTime: '8:00' }], [{ publishTime: '24:00' }], [{ publishTime: 'noon' }], [{ publishTime: 800 }], [{ timezone: 'Mars/Olympus' }], [{ timezone: '' }], [{ timezone: 'x'.repeat(100) }], [{ publishMode: 'NOW' }],

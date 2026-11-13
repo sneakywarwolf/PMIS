@@ -17,7 +17,7 @@ export interface DigestConfigValues {
   linkHosts: string[];
 }
 
-export const EDITABLE_FIELDS = ['moduleEnabledForNonAdmins', 'pipelineEnabled', 'publishTime', 'timezone', 'publishMode', 'minDiscoveryCoveragePct', 'retentionDays', 'jobRetryBackoffMinutes'] as const;
+export const EDITABLE_FIELDS = ['moduleEnabledForNonAdmins', 'pipelineEnabled', 'publishTime', 'timezone', 'minDiscoveryCoveragePct', 'retentionDays', 'jobRetryBackoffMinutes'] as const;
 
 export function isValidTimezone(tz: unknown): tz is string {
   if (typeof tz !== 'string' || !tz || tz.length > 64) return false;
@@ -37,7 +37,6 @@ export function validateConfigPatch(patch: Record<string, unknown>): string | nu
     if ((k === 'moduleEnabledForNonAdmins' || k === 'pipelineEnabled') && typeof v !== 'boolean') return `${k} must be true or false`;
     if (k === 'publishTime' && !(typeof v === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(v))) return 'publishTime must be HH:MM (24-hour)';
     if (k === 'timezone' && !isValidTimezone(v)) return 'timezone must be a valid IANA time zone such as Asia/Kolkata';
-    if (k === 'publishMode' && v !== 'AUTO' && v !== 'HOLD') return 'publishMode must be AUTO or HOLD';
     if (k === 'minDiscoveryCoveragePct' && !(Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 100)) return 'minDiscoveryCoveragePct must be a whole number from 0 to 100';
     if (k === 'retentionDays' && !(Number.isInteger(v) && (v as number) >= 30 && (v as number) <= 3650)) return 'retentionDays must be a whole number from 30 to 3650';
     if (k === 'jobRetryBackoffMinutes' && !(Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 120)) return 'jobRetryBackoffMinutes must be a whole number from 1 to 120';

@@ -12,13 +12,12 @@ import { CveVerificationService } from './cve-verification.service';
 import { ZeroDayService } from './zero-day.service';
 import { StoryReviewService } from './story-review.service';
 import { DigestService } from './digest.service';
-import { HealthWatchService } from './health-watch.service';
 
 @Module({
   imports: [PrismaModule, AuditModule, NotificationsModule],
   controllers: [CyberdigestController],
   providers: [
-    CyberdigestAccessGuard, DigestConfigService, JobRunner, IngestionService, KevService, CveVerificationService, ZeroDayService, StoryReviewService, DigestService, HealthWatchService,
+    CyberdigestAccessGuard, DigestConfigService, JobRunner, IngestionService, KevService, CveVerificationService, ZeroDayService, StoryReviewService, DigestService,
   ],
   exports: [DigestService, DigestConfigService],
 })

@@ -6,7 +6,7 @@ import { publicError } from './errors';
 
 export type JobOutcome = 'ran' | 'failed' | 'skipped';
 
-export const JOBS = ['ingestion', 'cve-verification', 'zero-day', 'story-review', 'digest', 'health-watch', 'retention'] as const;
+export const JOBS = ['ingestion', 'cve-verification', 'zero-day', 'story-review', 'digest', 'retention'] as const;
 
 const MAX_BACKOFF_MIN = 60;
 
