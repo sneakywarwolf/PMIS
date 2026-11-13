@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Loader2, Download, Info } from 'lucide-react';
 import { UploadStatus, useUploadStatus } from '@/components/upload-status';
@@ -21,10 +21,17 @@ interface Row {
   cvssScore: number | null;
   status: RowStatus;
   errors?: string[];
+  affectedInstances: string[];
+  poc: string;
+  merged: boolean;
+  sourceRowCount: number;
+  sources?: { row: number; severity: string; cvssScore: number | null; affectedInstances: string[]; poc: string }[];
 }
 
 interface Preview {
   total: number;
+  sourceRowCount: number;
+  mergedCount: number;
   newCount: number;
   duplicateCount: number;
   invalidCount: number;
@@ -52,7 +59,7 @@ function errorText(e: any, fallback: string): string {
 }
 
 /** The header row the file must start with, exactly and in this order (same as the sample template). */
-export const IMPORT_HEADERS = ['S.No', 'Name', 'Severity', 'Affected Instances', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
+export const IMPORT_HEADERS = ['S.No', 'Name', 'Severity', 'Affected Instances', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID', 'POC/Results'];
 
 /**
  * The "i" beside Import Project Findings: which files are accepted, the header row they need, and what each column
@@ -103,8 +110,8 @@ export function ImportFormatInfo() {
           <p className="mt-1 break-words rounded bg-gray-900 p-2 font-mono text-[11px] text-emerald-300">{IMPORT_HEADERS.join(', ')}</p>
           <ul className="mt-2 list-disc space-y-0.5 pl-4">
             <li><b className="text-white">Required:</b> Name, Severity ({severities.join(', ')}), Description, Impact, Remediation, Reference.</li>
-            <li><b className="text-white">Optional:</b> Affected Instances (hosts / URLs, one per line inside the cell; an older file without this column is still accepted), CVSS (0.0 to 10.0), CVSS-VEC (e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N), CVE ID (CVE-2024-12345), CWE ID (CWE-79). S.No is ignored.</li>
-            <li>One row per finding; a name must be unique in the file and in the project.</li>
+            <li><b className="text-white">Optional:</b> Affected Instances (hosts / URLs, one per line inside the cell; an older file without this column is still accepted), CVSS (0.0 to 10.0), CVSS-VEC (e.g. CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N), CVE ID (CVE-2024-12345), CWE ID (CWE-79), POC/Results (last column; free text, kept as written). S.No is ignored.</li>
+            <li>Rows with the same Name are merged into one finding: their Affected Instances are combined and every POC/Results is kept. If their other values differ, the preview flags it and nothing is imported until the file is fixed. A name must not already exist in the project.</li>
             <li>If any row is invalid nothing is imported. Findings are added to this project only.</li>
           </ul>
           <p className="mt-2 text-gray-400">The sample template at the bottom of the import window has these headers.</p>
@@ -133,13 +140,20 @@ export function ProjectFindingsImportDialog({
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState('');
   const [importing, setImporting] = useState(false);
-  const [done, setDone] = useState<{ created: number; skipped: { row: number; name: string }[] } | null>(null);
+  const [excluded, setExcluded] = useState<Set<number>>(new Set());
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const [done, setDone] = useState<{ created: number; sourceRows?: number; skipped: { row: number; name: string }[] } | null>(null);
   const upload = useUploadStatus();
 
   const body = () => {
     const form = new FormData();
     form.append('projectId', projectId);
     form.append('file', file);
+    return form;
+  };
+  const importBody = () => {
+    const form = body();
+    if (excluded.size > 0) form.append('exclude', JSON.stringify([...excluded]));
     return form;
   };
 
@@ -164,12 +178,14 @@ export function ProjectFindingsImportDialog({
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  const selectedCount = preview ? preview.rows.filter((r) => r.status === 'new' && !excluded.has(r.row)).length : 0;
+
   const runImport = async () => {
     setImporting(true);
     setError('');
     upload.begin(file.size);
     try {
-      const res = await api.post('/findings/import', body(), { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress });
+      const res = await api.post('/findings/import', importBody(), { headers: { 'Content-Type': 'multipart/form-data' }, onUploadProgress: upload.onProgress });
       setDone(res.data);
     } catch (e: any) {
       setError(e.response?.data?.message ? errorText(e, 'Import failed. Nothing was imported.') : describeUploadError(e, { fileSize: file.size, uploaded: upload.latest().loaded, elapsed: upload.latest().elapsed }, 'Import failed. Nothing was imported.'));
@@ -209,7 +225,7 @@ export function ProjectFindingsImportDialog({
 
           {done && (
             <div role="status" className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm text-emerald-300">
-              Imported {done.created} finding{done.created === 1 ? '' : 's'} into this project.
+              Imported {done.created} finding{done.created === 1 ? '' : 's'}{done.sourceRows && done.sourceRows !== done.created ? ` (from ${done.sourceRows} rows)` : ''} into this project.
               {done.skipped.length > 0 && ` ${done.skipped.length} already in the project ${done.skipped.length === 1 ? 'was' : 'were'} skipped.`}
               {' '}Add Steps and PoC to each before generating a report.
             </div>
@@ -218,8 +234,8 @@ export function ProjectFindingsImportDialog({
           {preview && !done && (
             <>
               <div className="flex flex-wrap gap-4 text-sm">
-                <span className="text-gray-300">{preview.total} row{preview.total === 1 ? '' : 's'}</span>
-                <span className="text-emerald-400">{preview.newCount} new</span>
+                <span className="text-gray-300">{preview.sourceRowCount} row{preview.sourceRowCount === 1 ? '' : 's'} in file → {preview.total} finding{preview.total === 1 ? '' : 's'}{preview.mergedCount > 0 && ` (${preview.mergedCount} merged)`}</span>
+                <span className="text-emerald-400">{selectedCount} selected of {preview.newCount} new</span>
                 <span className="text-gray-500">{preview.duplicateCount} already in project</span>
                 <span className={preview.invalidCount > 0 ? 'text-red-400' : 'text-gray-500'}>{preview.invalidCount} invalid</span>
               </div>
@@ -230,25 +246,75 @@ export function ProjectFindingsImportDialog({
                 <table className="w-full text-sm text-left">
                   <thead className="bg-gray-800/50 text-xs text-gray-400">
                     <tr>
+                      <th className="p-3 w-8"><span className="sr-only">Import</span></th>
                       <th className="p-3">Row</th>
                       <th className="p-3">Vulnerability</th>
                       <th className="p-3">Severity</th>
                       <th className="p-3">CVSS</th>
+                      <th className="p-3">Affected Instances</th>
+                      <th className="p-3">POC/Results</th>
+                      <th className="p-3">Group</th>
                       <th className="p-3">Result</th>
                     </tr>
                   </thead>
                   <tbody>
                     {preview.rows.map((r) => (
-                      <tr key={r.row} className={`border-b border-gray-800 ${r.status === 'duplicate' ? 'opacity-60' : ''}`}>
-                        <td className="p-3 text-gray-500 tabular-nums">{r.row}</td>
-                        <td className="p-3 text-white break-words">{r.name || '—'}</td>
-                        <td className="p-3 text-gray-300">{r.severity || '—'}</td>
-                        <td className="p-3 font-mono tabular-nums text-gray-300">{r.cvssScore ?? '—'}</td>
-                        <td className={`p-3 ${STATUS[r.status].cls}`}>
-                          {STATUS[r.status].label}
-                          {r.errors?.map((m, i) => <p key={i} className="text-xs text-red-300 mt-1">{m}</p>)}
-                        </td>
-                      </tr>
+                      <Fragment key={r.row}>
+                        <tr className={`border-b border-gray-800 ${r.status === 'duplicate' ? 'opacity-60' : ''}`}>
+                          <td className="p-3">
+                            {r.status === 'new' && (
+                              <input
+                                type="checkbox"
+                                aria-label={`Import ${r.name}${r.merged ? ` (all ${r.sourceRowCount} rows)` : ''}`}
+                                checked={!excluded.has(r.row)}
+                                onChange={() => setExcluded((p) => { const n = new Set(p); n.has(r.row) ? n.delete(r.row) : n.add(r.row); return n; })}
+                              />
+                            )}
+                          </td>
+                          <td className="p-3 text-gray-500 tabular-nums">{r.row}</td>
+                          <td className="p-3 text-white break-words">{r.name || '—'}</td>
+                          <td className="p-3 text-gray-300">{r.severity || '—'}</td>
+                          <td className="p-3 font-mono tabular-nums text-gray-300">{r.cvssScore ?? '—'}</td>
+                          <td className="p-3 text-gray-300 break-words max-w-[14rem]">{r.affectedInstances.length > 0 ? r.affectedInstances.join(', ') : '—'}</td>
+                          <td className="p-3 text-gray-300 break-words max-w-[14rem]"><span className="line-clamp-3 whitespace-pre-line">{r.poc ? (r.merged ? 'All associated results' : r.poc) : '—'}</span></td>
+                          <td className="p-3 whitespace-nowrap">
+                            {r.merged ? (
+                              <button
+                                type="button"
+                                aria-expanded={open.has(r.row)}
+                                onClick={() => setOpen((p) => { const n = new Set(p); n.has(r.row) ? n.delete(r.row) : n.add(r.row); return n; })}
+                                className="rounded bg-violet-500/15 px-2 py-0.5 text-xs text-violet-300 hover:bg-violet-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60"
+                              >
+                                Merged — {r.sourceRowCount} rows {open.has(r.row) ? '▲' : '▼'}
+                              </button>
+                            ) : <span className="text-xs text-gray-500">Single</span>}
+                          </td>
+                          <td className={`p-3 ${STATUS[r.status].cls}`}>
+                            {STATUS[r.status].label}
+                            {r.errors?.map((m, i) => <p key={i} className="text-xs text-red-300 mt-1">{m}</p>)}
+                          </td>
+                        </tr>
+                        {r.merged && open.has(r.row) && (
+                          <tr className="border-b border-gray-800 bg-gray-950/50">
+                            <td />
+                            <td colSpan={8} className="p-3">
+                              <p className="mb-1 text-xs text-gray-400">Original rows combined into this finding:</p>
+                              <table className="w-full text-xs">
+                                <tbody>
+                                  {r.sources!.map((x) => (
+                                    <tr key={x.row} className="align-top">
+                                      <td className="pr-3 text-gray-500 tabular-nums">Row {x.row}</td>
+                                      <td className="pr-3 text-gray-300">{x.severity || '—'}{x.cvssScore != null && ` · ${x.cvssScore}`}</td>
+                                      <td className="pr-3 text-gray-300 break-words">{x.affectedInstances.join(', ') || '—'}</td>
+                                      <td className="text-gray-300 break-words whitespace-pre-line">{x.poc || '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -269,11 +335,11 @@ export function ProjectFindingsImportDialog({
             {!done && (
               <button
                 onClick={runImport}
-                disabled={!preview?.canImport || importing}
+                disabled={!preview?.canImport || importing || selectedCount === 0}
                 className="px-6 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm disabled:opacity-50 flex items-center gap-2"
               >
                 {importing && <Loader2 className="w-4 h-4 animate-spin" />}
-                {importing ? 'Importing…' : preview?.canImport ? `Import ${preview.newCount} finding${preview.newCount === 1 ? '' : 's'}` : 'Import'}
+                {importing ? 'Importing…' : preview?.canImport ? `Import ${selectedCount} finding${selectedCount === 1 ? '' : 's'}` : 'Import'}
               </button>
             )}
           </div>

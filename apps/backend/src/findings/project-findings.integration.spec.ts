@@ -266,7 +266,7 @@ d('project-only findings (real database)', () => {
     });
 
     it('rejects duplicate rows inside the file, wrong or missing headers, empty and extra-column files', async () => {
-      const dup = csvFile([csvRow(1, n('d1')), csvRow(2, n('D1'))]);
+      const dup = csvFile([csvRow(1, n('d1')), csvRow(2, n('D1'), { 2: 'Low' })]); // same name, conflicting severity: refused, not merged
       await expect(svc.importFindings(projA.id, dup, tester, 'ip', 'ua')).rejects.toBeInstanceOf(BadRequestException);
       await expect(svc.previewImport(projA.id, csvFile([csvRow(1, n('h'))], HEAD.replace('Impact', 'Effect')), tester)).rejects.toThrow(/Invalid CSV format/);
       await expect(svc.previewImport(projA.id, csvFile([csvRow(1, n('h'))], HEAD.replace(',CWE ID', '')), tester)).rejects.toThrow(/missing header/);
@@ -325,6 +325,44 @@ d('project-only findings (real database)', () => {
       expect(by[n('ai-1')].affectedInstances).toEqual(['10.0.0.1', 'https://a.test/x', '10.0.0.2']);
       expect(by[n('ai-1')].projectVulnerability!.cvssScore).toBe(7.5);
       expect(by[n('ai-2')].affectedInstances).toEqual([]);
+    });
+
+    it('merges rows with the same name into one finding with all instances and POC/Results, in one transaction', async () => {
+      const head = PROJECT_IMPORT_HEADERS.join(',');
+      const r = (name: string, inst: string, poc: string) => `1,${name},High,${inst},7.5,,d,i,r,ref,,,"${poc}"`;
+      const file = csvFile([r(n('g-sql'), '10.0.0.1', 'proof 1'), r(n('g-sql').toUpperCase(), '10.0.0.2', 'proof 2'), r(n('g-xss'), 'app.test', 'xss proof')], head);
+      const pv = await svc.previewImport(projA.id, file, tester);
+      expect(pv).toMatchObject({ total: 2, sourceRowCount: 3, mergedCount: 1, newCount: 2, canImport: true });
+      const g = pv.rows.find((x) => x.merged)!;
+      expect(g).toMatchObject({ sourceRowCount: 2, affectedInstances: ['10.0.0.1', '10.0.0.2'] });
+      expect(g.sources).toHaveLength(2);
+      const before = await findingCount(projA.id);
+      const out = await svc.importFindings(projA.id, file, tester, 'ip', 'ua');
+      expect(out).toMatchObject({ created: 2, sourceRows: 3 });
+      expect(await findingCount(projA.id)).toBe(before + 2);
+      const f = await prisma.finding.findFirstOrThrow({ where: { projectId: projA.id, projectVulnerability: { name: n('g-sql') } } });
+      expect(f.affectedInstances).toEqual(['10.0.0.1', '10.0.0.2']);
+      expect(f.proofOfConcept).toContain('proof 1');
+      expect(f.proofOfConcept).toContain('proof 2');
+      expect(f.proofOfConcept).toContain('10.0.0.2');
+      const again = await svc.previewImport(projA.id, file, tester);
+      expect(again).toMatchObject({ newCount: 0, duplicateCount: 2 });
+    });
+
+    it('an unticked group is left out whole; a conflicting group blocks the import', async () => {
+      const head = PROJECT_IMPORT_HEADERS.join(',');
+      const r = (name: string, inst: string, sev = 'High') => `1,${name},${sev},${inst},7.5,,d,i,r,ref,,,`;
+      const file = csvFile([r(n('s-a'), 'h1'), r(n('s-a'), 'h2'), r(n('s-b'), 'h3')], head);
+      const pv = await svc.previewImport(projA.id, file, tester);
+      const a = pv.rows.find((x) => x.merged)!;
+      const out = await svc.importFindings(projA.id, file, tester, 'ip', 'ua', [a.row]);
+      expect(out).toMatchObject({ created: 1, sourceRows: 1 });
+      expect(await prisma.finding.count({ where: { projectId: projA.id, projectVulnerability: { name: n('s-a') } } })).toBe(0);
+      const bad = csvFile([r(n('c-a'), 'h1', 'High'), r(n('c-a'), 'h2', 'Low')], head);
+      const cp = await svc.previewImport(projA.id, bad, tester);
+      expect(cp.invalidCount).toBe(1);
+      expect(cp.rows[0].errors!.join()).toMatch(/Conflicting Severity/);
+      await expect(svc.importFindings(projA.id, bad, tester, 'ip', 'ua')).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('imported findings are PT findings and show up only in this project', async () => {

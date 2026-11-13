@@ -173,13 +173,21 @@ export class FindingsController {
   async importFindings(
     @UploadedFile() file: Express.Multer.File,
     @Body('projectId') projectId: string,
+    @Body('exclude') excludeRaw: string,
     @CurrentUser() user: User,
     @Req() request: any,
   ) {
     assertAttachmentSize('findingsImport', file);
+    let exclude: unknown = [];
+    try {
+      if (excludeRaw) exclude = JSON.parse(excludeRaw);
+    } catch {
+      throw new BadRequestException('exclude must be a JSON list of row numbers');
+    }
+    if (!Array.isArray(exclude) || exclude.length > 5000 || exclude.some((n) => !Number.isInteger(n))) throw new BadRequestException('exclude must be a JSON list of row numbers');
     const ipAddress = request.ip || 'unknown';
     const userAgent = request.headers['user-agent'] || 'unknown';
-    return this.projectFindings.importFindings(projectId, file, user, ipAddress, userAgent);
+    return this.projectFindings.importFindings(projectId, file, user, ipAddress, userAgent, exclude as number[]);
   }
 
   @Get('project/:projectId')

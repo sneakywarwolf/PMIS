@@ -1038,7 +1038,8 @@ export class ReportsService {
       reportStatus: f.reportStatus,
       classification: f.classification,
       // Scan-imported (VA) findings only: PT findings never get scan output printed.
-      pocText: f.classification ? nessusTextForReport(f.proofOfConcept) || null : null,
+      // Project-only findings (Import Project Findings' POC/Results) print their text as-is; it only fills a step's snapshot cell that has no screenshot.
+      pocText: f.classification ? nessusTextForReport(f.proofOfConcept) || null : f.projectScoped ? String(f.proofOfConcept ?? '').trim().replace(/\r?\n/g, LINE_SEP) || null : null,
       findingType: f.findingType,
       pocSteps,
       // Fortify findings only (classification 'SCR Finding'), from the severity printed for this finding.

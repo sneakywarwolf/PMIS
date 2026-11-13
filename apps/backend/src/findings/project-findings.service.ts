@@ -33,19 +33,42 @@ export interface ImportRowReport {
   cvssScore: number | null;
   status: 'new' | 'duplicate' | 'invalid';
   errors?: string[];
+  /** Combined over every source row of the entry. */
+  affectedInstances: string[];
+  poc: string;
+  /** True when several rows of the file share this name and were combined into this one entry. */
+  merged: boolean;
+  sourceRowCount: number;
+  /** The original rows of a merged entry, for the preview's "inspect" view. */
+  sources?: { row: number; severity: string; cvssScore: number | null; affectedInstances: string[]; poc: string }[];
 }
 
 /** Import header row: "Affected Instances" is the 4th column. Files in the earlier layout (no such column) are still accepted. */
-export const PROJECT_IMPORT_HEADERS = ['S.No', 'Name', 'Severity', 'Affected Instances', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID'];
-const LEGACY_IMPORT_HEADERS = PROJECT_IMPORT_HEADERS.filter((h) => h !== 'Affected Instances');
+export const PROJECT_IMPORT_HEADERS = ['S.No', 'Name', 'Severity', 'Affected Instances', 'CVSS', 'CVSS-VEC', 'Description', 'Impact', 'Remediation', 'Reference', 'CVE ID', 'CWE ID', 'POC/Results'];
+/** Columns a file may leave out (older layouts); every other header is required, exactly and in order. */
+const OPTIONAL_IMPORT_HEADERS = ['Affected Instances', 'POC/Results'];
+/** Longest POC/Results text per source row and per merged finding. Over it the row is refused, never cut. */
+const POC_MAX = 200_000;
 
 interface ParsedRow {
   row: number;
   fields?: ProjectFindingFields;
-  affectedInstances?: string[];
+  affectedInstances: string[];
+  poc: string;
   errors: string[];
   rawName: string;
 }
+
+/** One finding to create: all the file rows that share a (normalised) name. */
+interface ImportGroup extends ParsedRow {
+  sourceRows: ParsedRow[];
+}
+
+const CONFLICT_FIELDS: [keyof ProjectFindingFields, string][] = [
+  ['severity', 'Severity'], ['cvssScore', 'CVSS'], ['cvssVector', 'CVSS-VEC'], ['description', 'Description'], ['impact', 'Impact'],
+  ['remediation', 'Remediation'], ['references', 'Reference'], ['cveId', 'CVE ID'], ['cweId', 'CWE ID'],
+];
+const squash = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
 
 /** Roles that may also ask for a vulnerability to be added to the global DB (same as POST /vulnerabilities/request). */
 
@@ -274,7 +297,7 @@ export class ProjectFindingsService {
       'SQL injection allows an attacker to interfere with the queries that an application makes to its database.',
       'An attacker can view, modify, or delete data in the database.',
       'Use parameterized queries (prepared statements). Validate and sanitize all user inputs.',
-      'https://owasp.org/www-community/attacks/SQL_Injection', 'CVE-2023-12345', 'CWE-89'];
+      'https://owasp.org/www-community/attacks/SQL_Injection', 'CVE-2023-12345', 'CWE-89', "Payload ' OR 1=1-- returned all user records."];
     return `${PROJECT_IMPORT_HEADERS.join(',')}\n${row.map((v) => `"${v.replace(/"/g, '""')}"`).join(',')}\n`;
   }
 
@@ -285,7 +308,7 @@ export class ProjectFindingsService {
     if (all.length < 2) throw new BadRequestException('The file has no data rows. Use the sample template: it has a header row followed by one row per finding.');
     const headers = all[0].map((h) => h.replace(/^﻿/, '').trim());
     const normalized = this.vulnerabilities.normalizeImportHeaders(headers);
-    const expected = normalized.includes('Affected Instances') ? PROJECT_IMPORT_HEADERS : LEGACY_IMPORT_HEADERS;
+    const expected = PROJECT_IMPORT_HEADERS.filter((h) => !OPTIONAL_IMPORT_HEADERS.includes(h) || normalized.includes(h));
     validateExactCsvHeaders(normalized, expected);
     const at = (h: string) => expected.indexOf(h);
 
@@ -298,7 +321,7 @@ export class ProjectFindingsService {
         throw new BadRequestException(`The file has more than ${IMPORT_MAX_ROWS} rows. Split it into smaller files.`);
       }
       if (cols.length > headers.length) {
-        rows.push({ row: i + 1, errors: [`Row has ${cols.length} columns but the header has ${headers.length}. Check for an unescaped comma or quote.`], rawName: (cols[1] ?? '').trim() });
+        rows.push({ row: i + 1, affectedInstances: [], poc: '', errors: [`Row has ${cols.length} columns but the header has ${headers.length}. Check for an unescaped comma or quote.`], rawName: (cols[1] ?? '').trim() });
         continue;
       }
       while (cols.length < headers.length) cols.push('');
@@ -311,33 +334,70 @@ export class ProjectFindingsService {
       // One instance per line inside the cell; same limits as the manual form.
       const affectedInstances = c('Affected Instances').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
       if (affectedInstances.length > 1000 || affectedInstances.some((x) => x.length > 2000)) errors.push('Affected Instances: at most 1000 lines of 2000 characters each.');
-      rows.push({ row: i + 1, fields: value, affectedInstances, errors, rawName: name.trim() });
+      const poc = c('POC/Results').trim();
+      if (poc.length > POC_MAX) errors.push(`POC/Results: at most ${POC_MAX} characters.`);
+      rows.push({ row: i + 1, fields: value, affectedInstances, poc, errors, rawName: name.trim() });
     }
     if (rows.length === 0) throw new BadRequestException('The file has no data rows.');
 
-    // Duplicate rows inside the file are errors, not silently merged.
-    const firstSeen = new Map<string, number>();
-    for (const r of rows) {
-      if (!r.fields) continue;
-      const key = normalizeVulnName(r.fields.name);
-      const first = firstSeen.get(key);
-      if (first !== undefined) r.errors.push(`Duplicates row ${first} ("${r.fields.name}").`);
-      else firstSeen.set(key, r.row);
-    }
-    return rows;
+    return this.groupRows(rows);
   }
 
-  private async classify(projectId: string, rows: ParsedRow[]): Promise<ImportRowReport[]> {
+  /**
+   * Rows of the file with the same name (trimmed, spaces collapsed, case-insensitive: the rule that already decides
+   * whether a project "has" a finding) become ONE finding. Distinct Affected Instances are combined; every POC/Results
+   * is kept. A value that differs between the rows is a conflict, reported on the entry; nothing is picked for the user.
+   * Only this file's rows are grouped; existing findings are never touched.
+   */
+  private groupRows(rows: ParsedRow[]): ImportGroup[] {
+    const byKey = new Map<string, ParsedRow[]>();
+    for (const r of rows) {
+      const key = normalizeVulnName(r.rawName) || `#${r.row}`;
+      byKey.set(key, [...(byKey.get(key) ?? []), r]);
+    }
+    return [...byKey.values()].map((src): ImportGroup => {
+      if (src.length === 1) return { ...src[0], sourceRows: src };
+      const errors = src.flatMap((r) => r.errors.map((m) => `Row ${r.row}: ${m}`));
+      let fields: ProjectFindingFields | undefined = src.every((r) => r.fields) ? { ...src[0].fields! } : undefined;
+      if (fields) {
+        for (const [key, label] of CONFLICT_FIELDS) {
+          const seen = new Map<string, number>(); // value -> first row holding it
+          for (const r of src) {
+            const v = r.fields![key];
+            if (v !== null && v !== '' && !seen.has(squash(v))) seen.set(squash(v), r.row);
+          }
+          if (seen.size > 1) errors.push(`Conflicting ${label} across rows with the same name: ${[...seen].map(([v, row]) => `row ${row} has "${v.length > 60 ? v.slice(0, 60) + '…' : v}"`).join(', ')}. Make them the same in the file.`);
+          // An empty cell next to a filled one is not a conflict: the filled value is used.
+          (fields as any)[key] = src.map((r) => r.fields![key]).find((v) => v !== null && v !== '') ?? src[0].fields![key];
+        }
+      }
+      const affectedInstances = [...new Set(src.flatMap((r) => r.affectedInstances))];
+      // POC/Results: identical text once; different texts each kept, headed by the instances of the rows that carry it.
+      const pocs = new Map<string, string[]>();
+      for (const r of src) if (r.poc) pocs.set(r.poc, [...(pocs.get(r.poc) ?? []), ...(r.affectedInstances.length ? r.affectedInstances : [`Row ${r.row}`])]);
+      const poc = pocs.size <= 1 ? [...pocs.keys()][0] ?? '' : [...pocs].map(([text, who]) => `${[...new Set(who)].join(', ')}\n${text}`).join('\n\n');
+      if (poc.length > POC_MAX) errors.push(`The combined POC/Results is longer than ${POC_MAX} characters.`);
+      return { row: src[0].row, fields, affectedInstances, poc, errors, rawName: src[0].rawName, sourceRows: src };
+    });
+  }
+
+  private async classify(projectId: string, groups: ImportGroup[]): Promise<ImportRowReport[]> {
     const existing = await this.existingNames(projectId);
-    return rows.map((r) => {
-      const invalid = r.errors.length > 0 || !r.fields;
+    return groups.map((g) => {
+      const invalid = g.errors.length > 0 || !g.fields;
+      const merged = g.sourceRows.length > 1;
       return {
-        row: r.row,
-        name: r.fields?.name ?? r.rawName,
-        severity: r.fields?.severity ?? '',
-        cvssScore: r.fields?.cvssScore ?? null,
-        status: invalid ? 'invalid' : existing.has(normalizeVulnName(r.fields!.name)) ? 'duplicate' : 'new',
-        ...(invalid && { errors: r.errors }),
+        row: g.row,
+        name: g.fields?.name ?? g.rawName,
+        severity: g.fields?.severity ?? '',
+        cvssScore: g.fields?.cvssScore ?? null,
+        status: invalid ? 'invalid' : existing.has(normalizeVulnName(g.fields!.name)) ? 'duplicate' : 'new',
+        ...(invalid && { errors: g.errors }),
+        affectedInstances: g.affectedInstances,
+        poc: g.poc,
+        merged,
+        sourceRowCount: g.sourceRows.length,
+        ...(merged && { sources: g.sourceRows.map((r) => ({ row: r.row, severity: r.fields?.severity ?? '', cvssScore: r.fields?.cvssScore ?? null, affectedInstances: r.affectedInstances, poc: r.poc })) }),
       };
     });
   }
@@ -348,6 +408,8 @@ export class ProjectFindingsService {
     const invalid = report.filter((r) => r.status === 'invalid');
     return {
       total: report.length,
+      sourceRowCount: report.reduce((n, r) => n + r.sourceRowCount, 0),
+      mergedCount: report.filter((r) => r.merged).length,
       newCount: report.filter((r) => r.status === 'new').length,
       duplicateCount: report.filter((r) => r.status === 'duplicate').length,
       invalidCount: invalid.length,
@@ -357,7 +419,8 @@ export class ProjectFindingsService {
     };
   }
 
-  async importFindings(projectId: string, file: Express.Multer.File | undefined, user: User, ipAddress: string, userAgent: string) {
+  /** `exclude`: first row numbers of the preview entries the user unticked. An entry is imported whole or not at all. */
+  async importFindings(projectId: string, file: Express.Multer.File | undefined, user: User, ipAddress: string, userAgent: string, exclude: number[] = []) {
     const project = await this.projectFor(projectId, user);
     // The file is read and checked again here: the preview is a convenience, never trusted.
     const parsed = await this.parseImport(file);
@@ -370,12 +433,17 @@ export class ProjectFindingsService {
         statusCode: 400,
       });
     }
-    const fresh = parsed.filter((r) => report.find((x) => x.row === r.row)!.status === 'new');
+    const skip = new Set(exclude);
+    const fresh = parsed.filter((r) => report.find((x) => x.row === r.row)!.status === 'new' && !skip.has(r.row));
     if (fresh.length === 0) {
-      throw new BadRequestException(`Nothing to import: all ${report.length} row(s) already exist in this project.`);
+      const waiting = report.filter((r) => r.status === 'new').length;
+      throw new BadRequestException(waiting > 0 ? 'Nothing selected to import.' : `Nothing to import: all ${report.length} row(s) already exist in this project.`);
     }
 
-    const { created } = await this.insertAll(project.id, fresh.map((r) => ({ fields: r.fields!, extra: r.affectedInstances?.length ? { affectedInstances: r.affectedInstances } : undefined })), 'import', user);
+    const { created } = await this.insertAll(project.id, fresh.map((r) => ({
+      fields: r.fields!,
+      extra: { ...(r.affectedInstances.length && { affectedInstances: r.affectedInstances }), ...(r.poc && { proofOfConcept: r.poc }) },
+    })), 'import', user);
     const skipped = report.filter((r) => r.status === 'duplicate').map((r) => ({ row: r.row, name: r.name, reason: 'Already in this project' }));
 
     await this.audit.log({
@@ -385,8 +453,8 @@ export class ProjectFindingsService {
       targetId: project.id,
       ipAddress,
       userAgent,
-      details: { findingsImport: { source: 'import', fileName: file?.originalname?.slice(0, 200), created: created.length, skipped: skipped.length } },
+      details: { findingsImport: { source: 'import', fileName: file?.originalname?.slice(0, 200), created: created.length, sourceRows: fresh.reduce((n, g) => n + g.sourceRows.length, 0), skipped: skipped.length } },
     });
-    return { created: created.length, skipped };
+    return { created: created.length, sourceRows: fresh.reduce((n, g) => n + g.sourceRows.length, 0), skipped };
   }
 }
